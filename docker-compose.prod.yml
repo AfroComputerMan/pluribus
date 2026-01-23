@@ -60,7 +60,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: pluribus-redis
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     healthcheck:
