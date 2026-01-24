@@ -1,7 +1,13 @@
 import { logger } from '@/observability/logger';
 import { WorkflowProcessor, getWorkflowProcessor } from './workflow.processor';
 import { NodeProcessor, getNodeProcessor } from './node.processor';
-import { agentExecutor, conditionExecutor } from './executors';
+import {
+  agentExecutor,
+  conditionExecutor,
+  parallelExecutor,
+  loopExecutor,
+  humanReviewExecutor,
+} from './executors';
 import type { WorkerConfig } from './types';
 
 const log = logger.child('queue:workers');
@@ -29,9 +35,12 @@ export class WorkerManager {
     this.workflowProcessor = new WorkflowProcessor(config.workflow);
     this.nodeProcessor = new NodeProcessor(config.node);
 
-    // Register default executors
+    // Register all node executors
     this.nodeProcessor.registerExecutor(agentExecutor);
     this.nodeProcessor.registerExecutor(conditionExecutor);
+    this.nodeProcessor.registerExecutor(parallelExecutor);
+    this.nodeProcessor.registerExecutor(loopExecutor);
+    this.nodeProcessor.registerExecutor(humanReviewExecutor);
   }
 
   /**
