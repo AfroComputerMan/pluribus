@@ -164,17 +164,18 @@ describe('Migration Idempotency', () => {
     const client1 = postgres(TEST_DATABASE_URL, { max: 5 });
     const db1 = drizzle(client1, { schema });
 
-    // Run migrations (already ran in beforeAll above)
-    await expect(migrate(db1, { migrationsFolder: './drizzle/migrations' })).resolves.not.toThrow();
-
+    // Run migrations (already ran in beforeAll above) - should not throw
+    await migrate(db1, { migrationsFolder: './drizzle/migrations' });
     await client1.end();
 
-    // Run again with fresh connection
+    // Run again with fresh connection - should also not throw
     const client2 = postgres(TEST_DATABASE_URL, { max: 5 });
     const db2 = drizzle(client2, { schema });
 
-    await expect(migrate(db2, { migrationsFolder: './drizzle/migrations' })).resolves.not.toThrow();
-
+    await migrate(db2, { migrationsFolder: './drizzle/migrations' });
     await client2.end();
+
+    // If we get here without throwing, the test passes
+    expect(true).toBe(true);
   });
 });
