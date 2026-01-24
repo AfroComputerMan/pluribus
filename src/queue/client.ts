@@ -1,10 +1,13 @@
-import { Queue, Worker, type Job, type ConnectionOptions } from 'bullmq';
+import { type ConnectionOptions, type Job, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 
 // Redis connection
 const connection: ConnectionOptions = {
   host: new URL(process.env.REDIS_URL || 'redis://localhost:6379').hostname,
-  port: parseInt(new URL(process.env.REDIS_URL || 'redis://localhost:6379').port || '6379', 10),
+  port: Number.parseInt(
+    new URL(process.env.REDIS_URL || 'redis://localhost:6379').port || '6379',
+    10
+  ),
 };
 
 // Create IORedis instance for pub/sub

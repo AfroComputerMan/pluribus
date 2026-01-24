@@ -1,22 +1,17 @@
+import { and, desc, eq, ilike, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { z } from 'zod';
-import { and, eq, desc, ilike, sql } from 'drizzle-orm';
+import type { z } from 'zod';
 
 import { db } from '@/db';
 import { skills } from '@/db/schema';
 import { NotFoundError } from '@/lib/errors';
 import {
   createSkillSchema,
-  updateSkillSchema,
   skillFilterSchema,
   skillImportSchema,
+  updateSkillSchema,
 } from '@/skills';
-import {
-  validateBody,
-  validateQuery,
-  getValidatedBody,
-  getValidatedQuery,
-} from '../middleware';
+import { getValidatedBody, getValidatedQuery, validateBody, validateQuery } from '../middleware';
 
 const skillRoutes = new Hono();
 

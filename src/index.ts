@@ -1,9 +1,9 @@
 import { app } from './api';
 import { closeDatabase } from './db';
-import { closeQueues } from './queue';
 import { logger } from './observability';
+import { closeQueues } from './queue';
 
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 
 // Start server
 logger.info(`Starting Pluribus server on port ${PORT}`, {

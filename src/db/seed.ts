@@ -1,4 +1,4 @@
-import { db, closeDatabase } from './client';
+import { closeDatabase, db } from './client';
 import { agents, skills, workflows } from './schema';
 
 async function seed(): Promise<void> {
@@ -76,19 +76,17 @@ Provide specific line references and remediation steps.`,
         {
           id: 'review',
           type: 'agent',
-          agentId: codeReviewer!.id,
+          agentId: codeReviewer?.id,
           input: { code: '{{input.code}}' },
         },
         {
           id: 'docs',
           type: 'agent',
-          agentId: docWriter!.id,
+          agentId: docWriter?.id,
           input: { code: '{{input.code}}', review: '{{review.output}}' },
         },
       ],
-      edges: [
-        { id: 'e1', from: 'review', to: 'docs' },
-      ],
+      edges: [{ id: 'e1', from: 'review', to: 'docs' }],
       triggers: [{ type: 'manual' }, { type: 'api' }],
       errorStrategy: {
         retries: 2,

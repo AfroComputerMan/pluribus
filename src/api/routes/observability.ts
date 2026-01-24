@@ -1,10 +1,10 @@
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { and, eq, desc, gte, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { logs, usageRecords, agents, workflowRuns } from '@/db/schema';
-import { validateQuery, getValidatedQuery } from '../middleware';
+import { agents, logs, usageRecords, workflowRuns } from '@/db/schema';
+import { getValidatedQuery, validateQuery } from '../middleware';
 
 const observability = new Hono();
 
@@ -93,7 +93,7 @@ observability.get('/costs', validateQuery(costFilterSchema), async (c) => {
     .from(usageRecords)
     .where(conditions.length > 0 ? and(...conditions) : undefined);
 
-  const totalCostUsd = parseFloat(totalResult[0]?.total || '0');
+  const totalCostUsd = Number.parseFloat(totalResult[0]?.total || '0');
 
   // Cost by agent
   const byAgentResult = await db
@@ -108,7 +108,7 @@ observability.get('/costs', validateQuery(costFilterSchema), async (c) => {
   const byAgent: Record<string, number> = {};
   for (const row of byAgentResult) {
     if (row.agentId) {
-      byAgent[row.agentId] = parseFloat(row.cost);
+      byAgent[row.agentId] = Number.parseFloat(row.cost);
     }
   }
 
@@ -124,7 +124,7 @@ observability.get('/costs', validateQuery(costFilterSchema), async (c) => {
 
   const byModel: Record<string, number> = {};
   for (const row of byModelResult) {
-    byModel[row.model] = parseFloat(row.cost);
+    byModel[row.model] = Number.parseFloat(row.cost);
   }
 
   // Cost by day
@@ -140,7 +140,7 @@ observability.get('/costs', validateQuery(costFilterSchema), async (c) => {
 
   const byDay: Record<string, number> = {};
   for (const row of byDayResult) {
-    byDay[row.day] = parseFloat(row.cost);
+    byDay[row.day] = Number.parseFloat(row.cost);
   }
 
   return c.json({
@@ -207,19 +207,13 @@ observability.get('/metrics', async (c) => {
   const [completedCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(workflowRuns)
-    .where(and(
-      eq(workflowRuns.status, 'completed'),
-      gte(workflowRuns.completedAt, yesterday)
-    ));
+    .where(and(eq(workflowRuns.status, 'completed'), gte(workflowRuns.completedAt, yesterday)));
 
   // Failed runs 24h
   const [failedCount] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(workflowRuns)
-    .where(and(
-      eq(workflowRuns.status, 'failed'),
-      gte(workflowRuns.completedAt, yesterday)
-    ));
+    .where(and(eq(workflowRuns.status, 'failed'), gte(workflowRuns.completedAt, yesterday)));
 
   // Cost 24h
   const [cost24h] = await db
@@ -236,7 +230,7 @@ observability.get('/metrics', async (c) => {
       activeRuns: Number(activeCount?.count || 0),
       completedRuns24h: Number(completedCount?.count || 0),
       failedRuns24h: Number(failedCount?.count || 0),
-      totalCost24h: parseFloat(cost24h?.total || '0'),
+      totalCost24h: Number.parseFloat(cost24h?.total || '0'),
     },
   });
 });

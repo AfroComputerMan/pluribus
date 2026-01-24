@@ -1,4 +1,4 @@
-import type { AgentAdapter, AdapterConnection, AgentTask, ExecutionEvent } from '@/integrations';
+import type { AdapterConnection, AgentAdapter, AgentTask, ExecutionEvent } from '@/integrations';
 
 // Isolation levels
 export type IsolationLevel = 'shared' | 'process' | 'container';
@@ -39,10 +39,7 @@ export interface ResourceUsage {
 
 // Execution runtime interface
 export interface ExecutionRuntime {
-  execute(
-    task: RuntimeTask,
-    isolation: IsolationLevel
-  ): Promise<RuntimeResult>;
+  execute(task: RuntimeTask, isolation: IsolationLevel): Promise<RuntimeResult>;
 
   cleanup(executionId: string): Promise<void>;
 }

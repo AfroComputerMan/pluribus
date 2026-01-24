@@ -9,8 +9,8 @@ dist/
 .env.local
 .env.*.local
 
-# Drizzle
-drizzle/migrations/meta/
+# Drizzle (keep _journal.json, ignore large snapshot files)
+drizzle/migrations/meta/*_snapshot.json
 
 # IDE
 .vscode/

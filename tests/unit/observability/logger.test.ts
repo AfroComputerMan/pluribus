@@ -1,5 +1,5 @@
-import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test';
-import { logger, createLogger } from '@/observability/logger';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { createLogger, logger } from '@/observability/logger';
 
 describe('Logger', () => {
   let consoleLogSpy: ReturnType<typeof mock>;

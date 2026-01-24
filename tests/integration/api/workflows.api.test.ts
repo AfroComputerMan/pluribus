@@ -1,10 +1,10 @@
-import { describe, expect, test, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { Hono } from 'hono';
-import { eq, desc } from 'drizzle-orm';
-import { startTestContainers, type TestContainers } from '../../setup/testcontainers';
-import { createTestWorkflowInput, createTestAgentInput } from '../../setup/fixtures';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import * as schema from '@/db/schema';
+import { desc, eq } from 'drizzle-orm';
+import type { drizzle } from 'drizzle-orm/postgres-js';
+import { Hono } from 'hono';
+import { createTestWorkflowInput } from '../../setup/fixtures';
+import { type TestContainers, startTestContainers } from '../../setup/testcontainers';
 
 /**
  * API integration tests for /api/workflows endpoints
@@ -41,7 +41,8 @@ describe('Workflows API Integration', () => {
 
       async createWorkflow(input: typeof schema.workflows.$inferInsert) {
         const [result] = await db.insert(schema.workflows).values(input).returning();
-        return result!;
+        if (!result) throw new Error('Insert failed');
+        return result;
       },
 
       async updateWorkflow(id: string, input: Partial<typeof schema.workflows.$inferInsert>) {
@@ -85,7 +86,8 @@ describe('Workflows API Integration', () => {
             input: input || {},
           })
           .returning();
-        return run!;
+        if (!run) throw new Error('Insert failed');
+        return run;
       },
 
       async listRuns(workflowId: string, filter?: { limit?: number; offset?: number }) {
@@ -101,8 +103,8 @@ describe('Workflows API Integration', () => {
 
     // GET /api/workflows
     app.get('/api/workflows', async (c) => {
-      const limit = parseInt(c.req.query('limit') ?? '50');
-      const offset = parseInt(c.req.query('offset') ?? '0');
+      const limit = Number.parseInt(c.req.query('limit') ?? '50');
+      const offset = Number.parseInt(c.req.query('offset') ?? '0');
       const items = await workflowService.listWorkflows({ limit, offset });
       return c.json({ data: items, meta: { limit, offset } });
     });
@@ -158,8 +160,8 @@ describe('Workflows API Integration', () => {
 
     // GET /api/workflows/:id/runs
     app.get('/api/workflows/:id/runs', async (c) => {
-      const limit = parseInt(c.req.query('limit') ?? '50');
-      const offset = parseInt(c.req.query('offset') ?? '0');
+      const limit = Number.parseInt(c.req.query('limit') ?? '50');
+      const offset = Number.parseInt(c.req.query('offset') ?? '0');
       const runs = await workflowService.listRuns(c.req.param('id'), { limit, offset });
       return c.json({ data: runs, meta: { limit, offset } });
     });
@@ -194,10 +196,12 @@ describe('Workflows API Integration', () => {
     });
 
     test('returns all workflows', async () => {
-      await containers.db.insert(schema.workflows).values([
-        createTestWorkflowInput({ name: 'Workflow 1' }),
-        createTestWorkflowInput({ name: 'Workflow 2' }),
-      ]);
+      await containers.db
+        .insert(schema.workflows)
+        .values([
+          createTestWorkflowInput({ name: 'Workflow 1' }),
+          createTestWorkflowInput({ name: 'Workflow 2' }),
+        ]);
 
       const res = await app.request('/api/workflows');
       const json = await res.json();
@@ -208,9 +212,9 @@ describe('Workflows API Integration', () => {
 
     test('respects limit parameter', async () => {
       for (let i = 0; i < 5; i++) {
-        await containers.db.insert(schema.workflows).values(
-          createTestWorkflowInput({ name: `Workflow ${i}` })
-        );
+        await containers.db
+          .insert(schema.workflows)
+          .values(createTestWorkflowInput({ name: `Workflow ${i}` }));
       }
 
       const res = await app.request('/api/workflows?limit=2');
@@ -223,9 +227,9 @@ describe('Workflows API Integration', () => {
 
     test('respects offset parameter', async () => {
       for (let i = 0; i < 5; i++) {
-        await containers.db.insert(schema.workflows).values(
-          createTestWorkflowInput({ name: `Workflow ${i}` })
-        );
+        await containers.db
+          .insert(schema.workflows)
+          .values(createTestWorkflowInput({ name: `Workflow ${i}` }));
       }
 
       const res = await app.request('/api/workflows?limit=2&offset=3');
@@ -244,11 +248,11 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput({ name: 'Test Workflow' }))
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`);
+      const res = await app.request(`/api/workflows/${created?.id}`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created!.id);
+      expect(json.data.id).toBe(created?.id);
       expect(json.data.name).toBe('Test Workflow');
     });
 
@@ -279,17 +283,12 @@ describe('Workflows API Integration', () => {
             input: { data: { fromNode: 'node-1', path: 'output' } },
           },
         ],
-        edges: [
-          { id: 'e1', from: 'node-1', to: 'node-2' },
-        ],
+        edges: [{ id: 'e1', from: 'node-1', to: 'node-2' }],
       });
 
-      const [created] = await containers.db
-        .insert(schema.workflows)
-        .values(workflow)
-        .returning();
+      const [created] = await containers.db.insert(schema.workflows).values(workflow).returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`);
+      const res = await app.request(`/api/workflows/${created?.id}`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -330,7 +329,7 @@ describe('Workflows API Integration', () => {
       });
 
       expect(dbWorkflow).toBeDefined();
-      expect(dbWorkflow!.name).toBe('Persisted Workflow');
+      expect(dbWorkflow?.name).toBe('Persisted Workflow');
     });
 
     test('creates workflow with complex nodes', async () => {
@@ -361,11 +360,7 @@ describe('Workflows API Integration', () => {
     test('creates workflow with multiple triggers', async () => {
       const input = createTestWorkflowInput({
         name: 'Multi-trigger Workflow',
-        triggers: [
-          { type: 'manual' },
-          { type: 'schedule', cron: '0 0 * * *' },
-          { type: 'api' },
-        ],
+        triggers: [{ type: 'manual' }, { type: 'schedule', cron: '0 0 * * *' }, { type: 'api' }],
       });
 
       const res = await app.request('/api/workflows', {
@@ -387,7 +382,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
@@ -413,7 +408,7 @@ describe('Workflows API Integration', () => {
         },
       ];
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodes: newNodes }),
@@ -430,7 +425,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -468,7 +463,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'DELETE',
       });
       const json = await res.json();
@@ -478,7 +473,7 @@ describe('Workflows API Integration', () => {
 
       // Verify deleted from database
       const dbWorkflow = await containers.db.query.workflows.findFirst({
-        where: eq(schema.workflows.id, created!.id),
+        where: eq(schema.workflows.id, created?.id),
       });
       expect(dbWorkflow).toBeUndefined();
     });
@@ -501,7 +496,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${workflow!.id}/run`, {
+      const res = await app.request(`/api/workflows/${workflow?.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: { key: 'value' } }),
@@ -510,7 +505,7 @@ describe('Workflows API Integration', () => {
 
       expect(res.status).toBe(202);
       expect(json.data.id).toBeDefined();
-      expect(json.data.workflowId).toBe(workflow!.id);
+      expect(json.data.workflowId).toBe(workflow?.id);
       expect(json.data.status).toBe('pending');
       expect(json.data.triggerType).toBe('api');
     });
@@ -521,7 +516,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${workflow!.id}/run`, {
+      const res = await app.request(`/api/workflows/${workflow?.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: { task: 'test' } }),
@@ -534,7 +529,7 @@ describe('Workflows API Integration', () => {
       });
 
       expect(dbRun).toBeDefined();
-      expect(dbRun!.input).toEqual({ task: 'test' });
+      expect(dbRun?.input).toEqual({ task: 'test' });
     });
 
     test('accepts empty input', async () => {
@@ -543,7 +538,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${workflow!.id}/run`, {
+      const res = await app.request(`/api/workflows/${workflow?.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -574,7 +569,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${workflow!.id}/runs`);
+      const res = await app.request(`/api/workflows/${workflow?.id}/runs`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -589,12 +584,12 @@ describe('Workflows API Integration', () => {
 
       // Create some runs
       await containers.db.insert(schema.workflowRuns).values([
-        { workflowId: workflow!.id, status: 'completed', triggerType: 'api' },
-        { workflowId: workflow!.id, status: 'running', triggerType: 'manual' },
-        { workflowId: workflow!.id, status: 'pending', triggerType: 'schedule' },
+        { workflowId: workflow?.id, status: 'completed', triggerType: 'api' },
+        { workflowId: workflow?.id, status: 'running', triggerType: 'manual' },
+        { workflowId: workflow?.id, status: 'pending', triggerType: 'schedule' },
       ]);
 
-      const res = await app.request(`/api/workflows/${workflow!.id}/runs`);
+      const res = await app.request(`/api/workflows/${workflow?.id}/runs`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -610,13 +605,13 @@ describe('Workflows API Integration', () => {
       // Create 5 runs
       for (let i = 0; i < 5; i++) {
         await containers.db.insert(schema.workflowRuns).values({
-          workflowId: workflow!.id,
+          workflowId: workflow?.id,
           status: 'completed',
           triggerType: 'api',
         });
       }
 
-      const res = await app.request(`/api/workflows/${workflow!.id}/runs?limit=2&offset=2`);
+      const res = await app.request(`/api/workflows/${workflow?.id}/runs?limit=2&offset=2`);
       const json = await res.json();
 
       expect(res.status).toBe(200);

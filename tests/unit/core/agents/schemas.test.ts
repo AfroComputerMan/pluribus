@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  modelConfigSchema,
-  integrationSchema,
-  agentSchema,
-  createAgentSchema,
-  updateAgentSchema,
   agentFilterSchema,
+  createAgentSchema,
+  integrationSchema,
+  modelConfigSchema,
+  updateAgentSchema,
 } from '@/core/agents/schemas';
 
 describe('modelConfigSchema', () => {

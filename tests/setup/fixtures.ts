@@ -73,7 +73,12 @@ export interface TestWorkflowInput {
     [key: string]: unknown;
   }>;
   edges: Array<{ id: string; from: string; to: string; label?: string }>;
-  triggers: Array<{ type: 'manual' } | { type: 'schedule'; cron: string } | { type: 'webhook'; secret: string } | { type: 'api' }>;
+  triggers: Array<
+    | { type: 'manual' }
+    | { type: 'schedule'; cron: string }
+    | { type: 'webhook'; secret: string }
+    | { type: 'api' }
+  >;
   errorStrategy: {
     retries: number;
     retryDelay: number;
@@ -151,7 +156,9 @@ export const testWorkflowWithSchedule: TestWorkflowInput = {
   triggers: [{ type: 'schedule', cron: '0 0 * * *' }],
 };
 
-export function createTestWorkflowInput(overrides: Partial<TestWorkflowInput> = {}): TestWorkflowInput {
+export function createTestWorkflowInput(
+  overrides: Partial<TestWorkflowInput> = {}
+): TestWorkflowInput {
   return {
     ...testWorkflow,
     name: `Test Workflow ${Date.now()}`,
@@ -209,7 +216,9 @@ export const testMcpServerWebsocket: TestMcpServerInput = {
   enabled: false,
 };
 
-export function createTestMcpServerInput(overrides: Partial<TestMcpServerInput> = {}): TestMcpServerInput {
+export function createTestMcpServerInput(
+  overrides: Partial<TestMcpServerInput> = {}
+): TestMcpServerInput {
   return {
     ...testMcpServer,
     name: `Test MCP Server ${Date.now()}`,
@@ -247,7 +256,10 @@ export const testMcpTool: TestMcpToolInput = {
   enabled: true,
 };
 
-export function createTestMcpToolInput(serverId: string, overrides: Partial<Omit<TestMcpToolInput, 'serverId'>> = {}): TestMcpToolInput {
+export function createTestMcpToolInput(
+  serverId: string,
+  overrides: Partial<Omit<TestMcpToolInput, 'serverId'>> = {}
+): TestMcpToolInput {
   return {
     ...testMcpTool,
     serverId,

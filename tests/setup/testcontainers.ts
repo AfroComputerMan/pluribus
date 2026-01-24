@@ -1,9 +1,9 @@
+import * as schema from '@/db/schema';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
-import * as schema from '@/db/schema';
 
 export interface TestContainers {
   postgres: StartedPostgreSqlContainer;
@@ -46,10 +46,7 @@ export async function startTestContainers(): Promise<TestContainers> {
     pgClient,
     cleanup: async () => {
       await pgClient.end();
-      await Promise.all([
-        postgresContainer.stop(),
-        redisContainer.stop(),
-      ]);
+      await Promise.all([postgresContainer.stop(), redisContainer.stop()]);
     },
   };
 }

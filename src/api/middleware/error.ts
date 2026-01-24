@@ -17,7 +17,10 @@ export async function errorHandler(c: Context, next: Next) {
         details: err.details,
       });
 
-      return c.json(err.toJSON(), err.statusCode as 400 | 401 | 403 | 404 | 409 | 429 | 500 | 502 | 503);
+      return c.json(
+        err.toJSON(),
+        err.statusCode as 400 | 401 | 403 | 404 | 409 | 429 | 500 | 502 | 503
+      );
     }
 
     // Handle Hono HTTPException
@@ -48,9 +51,7 @@ export async function errorHandler(c: Context, next: Next) {
       {
         error: {
           code: 'INTERNAL_ERROR',
-          message: process.env.NODE_ENV === 'production'
-            ? 'Internal server error'
-            : error.message,
+          message: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message,
         },
       },
       500

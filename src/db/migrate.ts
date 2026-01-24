@@ -1,6 +1,6 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 
-import { db, closeDatabase } from './client';
+import { closeDatabase, db } from './client';
 
 async function runMigrations(): Promise<void> {
   console.log('Running migrations...');

@@ -63,7 +63,10 @@ export class AgentRepository {
 
   async create(input: CreateAgentInput) {
     const [result] = await db.insert(agents).values(input).returning();
-    return result!;
+    if (!result) {
+      throw new Error('Insert failed to return created agent');
+    }
+    return result;
   }
 
   async update(id: string, input: UpdateAgentInput) {
@@ -101,9 +104,7 @@ export class AgentRepository {
       ORDER BY count DESC
     `);
 
-    return Object.fromEntries(
-      result.rows.map((row) => [row.tag, parseInt(row.count, 10)])
-    );
+    return Object.fromEntries(result.rows.map((row) => [row.tag, Number.parseInt(row.count, 10)]));
   }
 
   async getAllTags(): Promise<string[]> {

@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { adapterRegistry, getAdapter } from '@/integrations/registry';
 import type { AgentAdapter, IntegrationType } from '@/integrations/types';
 
@@ -202,8 +202,6 @@ describe('getAdapter helper', () => {
   });
 
   test('throws when adapter not found', () => {
-    expect(() => getAdapter('non-existent')).toThrow(
-      "Adapter 'non-existent' not found"
-    );
+    expect(() => getAdapter('non-existent')).toThrow("Adapter 'non-existent' not found");
   });
 });

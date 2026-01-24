@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  mcpServerSchema,
   createMCPServerSchema,
-  updateMCPServerSchema,
-  mcpToolSchema,
   executeToolSchema,
   mcpServerFilterSchema,
+  mcpServerSchema,
   mcpToolFilterSchema,
+  mcpToolSchema,
+  updateMCPServerSchema,
 } from '@/mcp/schemas';
 
 describe('mcpServerSchema', () => {

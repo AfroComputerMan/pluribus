@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono';
-import { type ZodSchema, ZodError } from 'zod';
+import { ZodError, type ZodSchema } from 'zod';
 
 import { ValidationError } from '@/lib/errors';
 

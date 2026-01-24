@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  workflowSchema,
   createWorkflowSchema,
-  updateWorkflowSchema,
-  workflowRunSchema,
   triggerRunSchema,
+  updateWorkflowSchema,
   workflowFilterSchema,
   workflowRunFilterSchema,
+  workflowRunSchema,
+  workflowSchema,
 } from '@/core/workflows/schemas';
 
 describe('workflowSchema', () => {
@@ -254,11 +254,7 @@ describe('workflow trigger schemas', () => {
   test('accepts multiple triggers', () => {
     const result = workflowSchema.safeParse({
       ...baseInput,
-      triggers: [
-        { type: 'manual' },
-        { type: 'schedule', cron: '0 0 * * *' },
-        { type: 'api' },
-      ],
+      triggers: [{ type: 'manual' }, { type: 'schedule', cron: '0 0 * * *' }, { type: 'api' }],
     });
     expect(result.success).toBe(true);
   });

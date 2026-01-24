@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import {
   AppError,
-  ValidationError,
   AuthenticationError,
   AuthorizationError,
-  NotFoundError,
   ConflictError,
-  RateLimitError,
-  InternalError,
-  ServiceUnavailableError,
-  IntegrationError,
   CredentialError,
+  IntegrationError,
+  InternalError,
+  NotFoundError,
+  RateLimitError,
+  ServiceUnavailableError,
+  ValidationError,
   WorkflowExecutionError,
 } from '@/lib/errors';
 

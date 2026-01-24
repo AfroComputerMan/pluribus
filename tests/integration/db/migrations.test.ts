@@ -1,9 +1,9 @@
-import { describe, expect, test, beforeAll, afterAll } from 'bun:test';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import * as schema from '@/db/schema';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
-import * as schema from '@/db/schema';
 
 /**
  * Migration tests using docker-compose test database
@@ -12,8 +12,8 @@ import * as schema from '@/db/schema';
  * Or uses GitHub Actions services in CI
  */
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ||
-  'postgres://test:test@localhost:5433/pluribus_test';
+const TEST_DATABASE_URL =
+  process.env.TEST_DATABASE_URL || 'postgres://test:test@localhost:5433/pluribus_test';
 
 describe('Database Migrations', () => {
   let client: ReturnType<typeof postgres>;
@@ -64,24 +64,22 @@ describe('Database Migrations', () => {
       ORDER BY ordinal_position
     `);
 
-    const columnMap = Object.fromEntries(
-      columns.rows.map((c) => [c.column_name, c.data_type])
-    );
+    const columnMap = Object.fromEntries(columns.rows.map((c) => [c.column_name, c.data_type]));
 
-    expect(columnMap['id']).toBe('uuid');
-    expect(columnMap['name']).toBe('character varying');
-    expect(columnMap['description']).toBe('text');
-    expect(columnMap['tags']).toBe('ARRAY');
-    expect(columnMap['model_config']).toBe('jsonb');
-    expect(columnMap['memory_mode']).toBe('character varying');
-    expect(columnMap['isolation_level']).toBe('character varying');
-    expect(columnMap['can_spawn_sub_agents']).toBe('boolean');
-    expect(columnMap['max_sub_agents']).toBe('integer');
-    expect(columnMap['skills']).toBe('ARRAY');
-    expect(columnMap['allowed_mcp_tools']).toBe('ARRAY');
-    expect(columnMap['integration']).toBe('jsonb');
-    expect(columnMap['created_at']).toBe('timestamp with time zone');
-    expect(columnMap['updated_at']).toBe('timestamp with time zone');
+    expect(columnMap.id).toBe('uuid');
+    expect(columnMap.name).toBe('character varying');
+    expect(columnMap.description).toBe('text');
+    expect(columnMap.tags).toBe('ARRAY');
+    expect(columnMap.model_config).toBe('jsonb');
+    expect(columnMap.memory_mode).toBe('character varying');
+    expect(columnMap.isolation_level).toBe('character varying');
+    expect(columnMap.can_spawn_sub_agents).toBe('boolean');
+    expect(columnMap.max_sub_agents).toBe('integer');
+    expect(columnMap.skills).toBe('ARRAY');
+    expect(columnMap.allowed_mcp_tools).toBe('ARRAY');
+    expect(columnMap.integration).toBe('jsonb');
+    expect(columnMap.created_at).toBe('timestamp with time zone');
+    expect(columnMap.updated_at).toBe('timestamp with time zone');
   });
 
   test('workflows table has correct columns', async () => {
@@ -92,16 +90,14 @@ describe('Database Migrations', () => {
       ORDER BY ordinal_position
     `);
 
-    const columnMap = Object.fromEntries(
-      columns.rows.map((c) => [c.column_name, c.data_type])
-    );
+    const columnMap = Object.fromEntries(columns.rows.map((c) => [c.column_name, c.data_type]));
 
-    expect(columnMap['id']).toBe('uuid');
-    expect(columnMap['name']).toBe('character varying');
-    expect(columnMap['nodes']).toBe('jsonb');
-    expect(columnMap['edges']).toBe('jsonb');
-    expect(columnMap['triggers']).toBe('jsonb');
-    expect(columnMap['error_strategy']).toBe('jsonb');
+    expect(columnMap.id).toBe('uuid');
+    expect(columnMap.name).toBe('character varying');
+    expect(columnMap.nodes).toBe('jsonb');
+    expect(columnMap.edges).toBe('jsonb');
+    expect(columnMap.triggers).toBe('jsonb');
+    expect(columnMap.error_strategy).toBe('jsonb');
   });
 
   test('indexes are created correctly', async () => {
@@ -169,9 +165,7 @@ describe('Migration Idempotency', () => {
     const db1 = drizzle(client1, { schema });
 
     // Run migrations (already ran in beforeAll above)
-    await expect(
-      migrate(db1, { migrationsFolder: './drizzle/migrations' })
-    ).resolves.not.toThrow();
+    await expect(migrate(db1, { migrationsFolder: './drizzle/migrations' })).resolves.not.toThrow();
 
     await client1.end();
 
@@ -179,9 +173,7 @@ describe('Migration Idempotency', () => {
     const client2 = postgres(TEST_DATABASE_URL, { max: 5 });
     const db2 = drizzle(client2, { schema });
 
-    await expect(
-      migrate(db2, { migrationsFolder: './drizzle/migrations' })
-    ).resolves.not.toThrow();
+    await expect(migrate(db2, { migrationsFolder: './drizzle/migrations' })).resolves.not.toThrow();
 
     await client2.end();
   });

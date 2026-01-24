@@ -1,12 +1,12 @@
+import { and, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { and, eq, desc } from 'drizzle-orm';
 
-import { db } from '@/db';
-import { workflowRuns, nodeExecutions } from '@/db/schema';
-import { NotFoundError, ValidationError } from '@/lib/errors';
 import { workflowRunFilterSchema } from '@/core/workflows';
-import { validateQuery, getValidatedQuery } from '../middleware';
+import { db } from '@/db';
+import { nodeExecutions, workflowRuns } from '@/db/schema';
+import { NotFoundError, ValidationError } from '@/lib/errors';
+import { getValidatedQuery, validateQuery } from '../middleware';
 
 const runs = new Hono();
 
@@ -79,10 +79,7 @@ runs.post('/:id/cancel', async (c) => {
       status: 'cancelled',
       completedAt: new Date(),
     })
-    .where(and(
-      eq(workflowRuns.id, id),
-      eq(workflowRuns.status, 'running')
-    ))
+    .where(and(eq(workflowRuns.id, id), eq(workflowRuns.status, 'running')))
     .returning();
 
   if (!run) {
@@ -157,10 +154,7 @@ runs.post('/:id/review', async (c) => {
       output: { decision, comment },
       completedAt: new Date(),
     })
-    .where(and(
-      eq(nodeExecutions.workflowRunId, id),
-      eq(nodeExecutions.status, 'running')
-    ))
+    .where(and(eq(nodeExecutions.workflowRunId, id), eq(nodeExecutions.status, 'running')))
     .returning();
 
   if (!node) {

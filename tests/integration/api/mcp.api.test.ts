@@ -1,16 +1,15 @@
-import { describe, expect, test, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { drizzle } from 'drizzle-orm/postgres-js';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import * as schema from '@/db/schema';
+import { and, desc, eq, ilike } from 'drizzle-orm';
+import type { drizzle } from 'drizzle-orm/postgres-js';
 import { Hono } from 'hono';
-import { eq, desc, and, ilike } from 'drizzle-orm';
-import { startTestContainers, type TestContainers } from '../../setup/testcontainers';
 import {
   createTestMcpServerInput,
   createTestMcpToolInput,
-  testMcpServer,
   testMcpServerHttp,
   testMcpServerWebsocket,
 } from '../../setup/fixtures';
-import * as schema from '@/db/schema';
+import { type TestContainers, startTestContainers } from '../../setup/testcontainers';
 
 /**
  * API integration tests for /api/mcp endpoints
@@ -65,7 +64,8 @@ describe('MCP API Integration', () => {
 
       async createServer(input: typeof schema.mcpServers.$inferInsert) {
         const [result] = await db.insert(schema.mcpServers).values(input).returning();
-        return result!;
+        if (!result) throw new Error('Insert failed');
+        return result;
       },
 
       async updateServer(id: string, input: Partial<typeof schema.mcpServers.$inferInsert>) {
@@ -136,8 +136,8 @@ describe('MCP API Integration', () => {
 
     // MCP Server routes
     app.get('/api/mcp/servers', async (c) => {
-      const limit = parseInt(c.req.query('limit') ?? '50');
-      const offset = parseInt(c.req.query('offset') ?? '0');
+      const limit = Number.parseInt(c.req.query('limit') ?? '50');
+      const offset = Number.parseInt(c.req.query('offset') ?? '0');
       const enabled = c.req.query('enabled');
       const transport = c.req.query('transport');
       const search = c.req.query('search');
@@ -189,13 +189,16 @@ describe('MCP API Integration', () => {
     app.post('/api/mcp/servers/:id/discover', async (c) => {
       try {
         const server = await mcpServerService.getServer(c.req.param('id'));
-        return c.json({
-          data: {
-            serverId: server.id,
-            status: 'discovery_started',
-            message: 'Tool discovery has been initiated',
+        return c.json(
+          {
+            data: {
+              serverId: server.id,
+              status: 'discovery_started',
+              message: 'Tool discovery has been initiated',
+            },
           },
-        }, 202);
+          202
+        );
       } catch {
         return c.json({ error: { code: 'NOT_FOUND', message: 'MCP Server not found' } }, 404);
       }
@@ -203,8 +206,8 @@ describe('MCP API Integration', () => {
 
     // MCP Tool routes
     app.get('/api/mcp/tools', async (c) => {
-      const limit = parseInt(c.req.query('limit') ?? '50');
-      const offset = parseInt(c.req.query('offset') ?? '0');
+      const limit = Number.parseInt(c.req.query('limit') ?? '50');
+      const offset = Number.parseInt(c.req.query('offset') ?? '0');
       const serverId = c.req.query('serverId');
       const enabled = c.req.query('enabled');
       const search = c.req.query('search');
@@ -230,12 +233,15 @@ describe('MCP API Integration', () => {
     });
 
     app.post('/api/mcp/scan', async (_c) => {
-      return _c.json({
-        data: {
-          status: 'scan_started',
-          message: 'MCP server discovery scan has been initiated',
+      return _c.json(
+        {
+          data: {
+            status: 'scan_started',
+            message: 'MCP server discovery scan has been initiated',
+          },
         },
-      }, 202);
+        202
+      );
     });
 
     return app;
@@ -268,10 +274,12 @@ describe('MCP API Integration', () => {
       });
 
       test('returns all servers', async () => {
-        await containers.db.insert(schema.mcpServers).values([
-          createTestMcpServerInput({ name: 'Server 1' }),
-          createTestMcpServerInput({ name: 'Server 2' }),
-        ]);
+        await containers.db
+          .insert(schema.mcpServers)
+          .values([
+            createTestMcpServerInput({ name: 'Server 1' }),
+            createTestMcpServerInput({ name: 'Server 2' }),
+          ]);
 
         const res = await app.request('/api/mcp/servers');
         const json = await res.json();
@@ -281,10 +289,12 @@ describe('MCP API Integration', () => {
       });
 
       test('filters by enabled status', async () => {
-        await containers.db.insert(schema.mcpServers).values([
-          createTestMcpServerInput({ name: 'Enabled Server', enabled: true }),
-          createTestMcpServerInput({ name: 'Disabled Server', enabled: false }),
-        ]);
+        await containers.db
+          .insert(schema.mcpServers)
+          .values([
+            createTestMcpServerInput({ name: 'Enabled Server', enabled: true }),
+            createTestMcpServerInput({ name: 'Disabled Server', enabled: false }),
+          ]);
 
         const res = await app.request('/api/mcp/servers?enabled=true');
         const json = await res.json();
@@ -295,10 +305,12 @@ describe('MCP API Integration', () => {
       });
 
       test('filters by transport', async () => {
-        await containers.db.insert(schema.mcpServers).values([
-          createTestMcpServerInput({ name: 'Stdio Server', transport: 'stdio' }),
-          { ...testMcpServerHttp, name: `HTTP Server ${Date.now()}` },
-        ]);
+        await containers.db
+          .insert(schema.mcpServers)
+          .values([
+            createTestMcpServerInput({ name: 'Stdio Server', transport: 'stdio' }),
+            { ...testMcpServerHttp, name: `HTTP Server ${Date.now()}` },
+          ]);
 
         const res = await app.request('/api/mcp/servers?transport=http');
         const json = await res.json();
@@ -309,11 +321,13 @@ describe('MCP API Integration', () => {
       });
 
       test('filters by search term', async () => {
-        await containers.db.insert(schema.mcpServers).values([
-          createTestMcpServerInput({ name: 'Filesystem Server' }),
-          createTestMcpServerInput({ name: 'Database Server' }),
-          createTestMcpServerInput({ name: 'Git Server' }),
-        ]);
+        await containers.db
+          .insert(schema.mcpServers)
+          .values([
+            createTestMcpServerInput({ name: 'Filesystem Server' }),
+            createTestMcpServerInput({ name: 'Database Server' }),
+            createTestMcpServerInput({ name: 'Git Server' }),
+          ]);
 
         const res = await app.request('/api/mcp/servers?search=file');
         const json = await res.json();
@@ -325,9 +339,9 @@ describe('MCP API Integration', () => {
 
       test('respects pagination', async () => {
         for (let i = 0; i < 5; i++) {
-          await containers.db.insert(schema.mcpServers).values(
-            createTestMcpServerInput({ name: `Server ${i}` })
-          );
+          await containers.db
+            .insert(schema.mcpServers)
+            .values(createTestMcpServerInput({ name: `Server ${i}` }));
         }
 
         const res = await app.request('/api/mcp/servers?limit=2&offset=2');
@@ -347,11 +361,11 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput({ name: 'Test Server' }))
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created!.id}`);
+        const res = await app.request(`/api/mcp/servers/${created?.id}`);
         const json = await res.json();
 
         expect(res.status).toBe(200);
-        expect(json.data.id).toBe(created!.id);
+        expect(json.data.id).toBe(created?.id);
         expect(json.data.name).toBe('Test Server');
       });
 
@@ -368,18 +382,20 @@ describe('MCP API Integration', () => {
       test('returns server with config', async () => {
         const [created] = await containers.db
           .insert(schema.mcpServers)
-          .values(createTestMcpServerInput({
-            name: 'Configured Server',
-            config: {
-              stdio: {
-                command: 'npx',
-                args: ['-y', '@modelcontextprotocol/server-fs'],
+          .values(
+            createTestMcpServerInput({
+              name: 'Configured Server',
+              config: {
+                stdio: {
+                  command: 'npx',
+                  args: ['-y', '@modelcontextprotocol/server-fs'],
+                },
               },
-            },
-          }))
+            })
+          )
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created!.id}`);
+        const res = await app.request(`/api/mcp/servers/${created?.id}`);
         const json = await res.json();
 
         expect(res.status).toBe(200);
@@ -420,7 +436,7 @@ describe('MCP API Integration', () => {
 
         expect(res.status).toBe(201);
         expect(json.data.transport).toBe('http');
-        expect(json.data.config.http.url).toBe(testMcpServerHttp.config.http!.url);
+        expect(json.data.config.http.url).toBe(testMcpServerHttp.config.http?.url);
       });
 
       test('creates websocket server', async () => {
@@ -456,7 +472,7 @@ describe('MCP API Integration', () => {
         });
 
         expect(dbServer).toBeDefined();
-        expect(dbServer!.name).toBe('Persisted Server');
+        expect(dbServer?.name).toBe('Persisted Server');
       });
     });
 
@@ -467,7 +483,7 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput({ name: 'Original Name' }))
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Updated Name' }),
@@ -484,7 +500,7 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput({ enabled: true }))
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: false }),
@@ -501,7 +517,7 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput())
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -539,7 +555,7 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput())
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
           method: 'DELETE',
         });
         const json = await res.json();
@@ -549,7 +565,7 @@ describe('MCP API Integration', () => {
 
         // Verify deleted from database
         const dbServer = await containers.db.query.mcpServers.findFirst({
-          where: eq(schema.mcpServers.id, created!.id),
+          where: eq(schema.mcpServers.id, created?.id),
         });
         expect(dbServer).toBeUndefined();
       });
@@ -561,12 +577,14 @@ describe('MCP API Integration', () => {
           .returning();
 
         // Add tools to the server
-        await containers.db.insert(schema.mcpTools).values([
-          createTestMcpToolInput(server!.id, { name: 'tool_1' }),
-          createTestMcpToolInput(server!.id, { name: 'tool_2' }),
-        ]);
+        await containers.db
+          .insert(schema.mcpTools)
+          .values([
+            createTestMcpToolInput(server?.id, { name: 'tool_1' }),
+            createTestMcpToolInput(server?.id, { name: 'tool_2' }),
+          ]);
 
-        const res = await app.request(`/api/mcp/servers/${server!.id}`, {
+        const res = await app.request(`/api/mcp/servers/${server?.id}`, {
           method: 'DELETE',
         });
 
@@ -576,7 +594,7 @@ describe('MCP API Integration', () => {
         const tools = await containers.db
           .select()
           .from(schema.mcpTools)
-          .where(eq(schema.mcpTools.serverId, server!.id));
+          .where(eq(schema.mcpTools.serverId, server?.id));
         expect(tools.length).toBe(0);
       });
 
@@ -598,13 +616,13 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput())
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${server!.id}/discover`, {
+        const res = await app.request(`/api/mcp/servers/${server?.id}/discover`, {
           method: 'POST',
         });
         const json = await res.json();
 
         expect(res.status).toBe(202);
-        expect(json.data.serverId).toBe(server!.id);
+        expect(json.data.serverId).toBe(server?.id);
         expect(json.data.status).toBe('discovery_started');
       });
 
@@ -629,7 +647,8 @@ describe('MCP API Integration', () => {
         .insert(schema.mcpServers)
         .values(createTestMcpServerInput({ name: 'Tool Test Server' }))
         .returning();
-      testServer = server!;
+      if (!server) throw new Error('Insert failed');
+      testServer = server;
     });
 
     describe('GET /api/mcp/tools', () => {
@@ -642,10 +661,12 @@ describe('MCP API Integration', () => {
       });
 
       test('returns all tools', async () => {
-        await containers.db.insert(schema.mcpTools).values([
-          createTestMcpToolInput(testServer.id, { name: 'read_file' }),
-          createTestMcpToolInput(testServer.id, { name: 'write_file' }),
-        ]);
+        await containers.db
+          .insert(schema.mcpTools)
+          .values([
+            createTestMcpToolInput(testServer.id, { name: 'read_file' }),
+            createTestMcpToolInput(testServer.id, { name: 'write_file' }),
+          ]);
 
         const res = await app.request('/api/mcp/tools');
         const json = await res.json();
@@ -661,10 +682,12 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput({ name: 'Other Server' }))
           .returning();
 
-        await containers.db.insert(schema.mcpTools).values([
-          createTestMcpToolInput(testServer.id, { name: 'tool_server_1' }),
-          createTestMcpToolInput(otherServer!.id, { name: 'tool_server_2' }),
-        ]);
+        await containers.db
+          .insert(schema.mcpTools)
+          .values([
+            createTestMcpToolInput(testServer.id, { name: 'tool_server_1' }),
+            createTestMcpToolInput(otherServer?.id, { name: 'tool_server_2' }),
+          ]);
 
         const res = await app.request(`/api/mcp/tools?serverId=${testServer.id}`);
         const json = await res.json();
@@ -675,10 +698,12 @@ describe('MCP API Integration', () => {
       });
 
       test('filters by enabled status', async () => {
-        await containers.db.insert(schema.mcpTools).values([
-          createTestMcpToolInput(testServer.id, { name: 'enabled_tool', enabled: true }),
-          createTestMcpToolInput(testServer.id, { name: 'disabled_tool', enabled: false }),
-        ]);
+        await containers.db
+          .insert(schema.mcpTools)
+          .values([
+            createTestMcpToolInput(testServer.id, { name: 'enabled_tool', enabled: true }),
+            createTestMcpToolInput(testServer.id, { name: 'disabled_tool', enabled: false }),
+          ]);
 
         const res = await app.request('/api/mcp/tools?enabled=true');
         const json = await res.json();
@@ -689,11 +714,13 @@ describe('MCP API Integration', () => {
       });
 
       test('filters by search term', async () => {
-        await containers.db.insert(schema.mcpTools).values([
-          createTestMcpToolInput(testServer.id, { name: 'read_file' }),
-          createTestMcpToolInput(testServer.id, { name: 'write_file' }),
-          createTestMcpToolInput(testServer.id, { name: 'list_directory' }),
-        ]);
+        await containers.db
+          .insert(schema.mcpTools)
+          .values([
+            createTestMcpToolInput(testServer.id, { name: 'read_file' }),
+            createTestMcpToolInput(testServer.id, { name: 'write_file' }),
+            createTestMcpToolInput(testServer.id, { name: 'list_directory' }),
+          ]);
 
         const res = await app.request('/api/mcp/tools?search=file');
         const json = await res.json();
@@ -704,9 +731,9 @@ describe('MCP API Integration', () => {
 
       test('respects pagination', async () => {
         for (let i = 0; i < 5; i++) {
-          await containers.db.insert(schema.mcpTools).values(
-            createTestMcpToolInput(testServer.id, { name: `tool_${i}` })
-          );
+          await containers.db
+            .insert(schema.mcpTools)
+            .values(createTestMcpToolInput(testServer.id, { name: `tool_${i}` }));
         }
 
         const res = await app.request('/api/mcp/tools?limit=2&offset=2');
@@ -726,7 +753,7 @@ describe('MCP API Integration', () => {
           .values(createTestMcpToolInput(testServer.id, { enabled: false }))
           .returning();
 
-        const res = await app.request(`/api/mcp/tools/${tool!.id}`, {
+        const res = await app.request(`/api/mcp/tools/${tool?.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true }),
@@ -743,7 +770,7 @@ describe('MCP API Integration', () => {
           .values(createTestMcpToolInput(testServer.id, { enabled: true }))
           .returning();
 
-        const res = await app.request(`/api/mcp/tools/${tool!.id}`, {
+        const res = await app.request(`/api/mcp/tools/${tool?.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: false }),

@@ -4,10 +4,10 @@ import { logger as honoLogger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { timing } from 'hono/timing';
 
-import { errorHandler } from './middleware';
-import { agents, workflowRoutes, runs, mcp, skillRoutes, observability } from './routes';
 import { checkDatabaseHealth } from '@/db';
 import { checkQueueHealth } from '@/queue';
+import { errorHandler } from './middleware';
+import { agents, mcp, observability, runs, skillRoutes, workflowRoutes } from './routes';
 
 // Create Hono app
 export const app = new Hono();
@@ -21,10 +21,7 @@ app.use('*', errorHandler);
 
 // Health check endpoint
 app.get('/health', async (c) => {
-  const [dbHealth, queueHealth] = await Promise.all([
-    checkDatabaseHealth(),
-    checkQueueHealth(),
-  ]);
+  const [dbHealth, queueHealth] = await Promise.all([checkDatabaseHealth(), checkQueueHealth()]);
 
   const status = dbHealth && queueHealth ? 'healthy' : 'unhealthy';
   const statusCode = status === 'healthy' ? 200 : 503;

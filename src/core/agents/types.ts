@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { agentSchema } from './schemas';
+import type { agentSchema } from './schemas';
 
 // Infer types from Zod schemas
 export type Agent = z.infer<typeof agentSchema>;

@@ -1,10 +1,10 @@
-import { describe, expect, test, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { Hono } from 'hono';
-import { eq, desc, and, ilike, sql } from 'drizzle-orm';
-import { startTestContainers, type TestContainers } from '../../setup/testcontainers';
-import { createTestSkillInput, testSkill, testSkillBehavior } from '../../setup/fixtures';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import * as schema from '@/db/schema';
+import { and, desc, eq, ilike, sql } from 'drizzle-orm';
+import type { drizzle } from 'drizzle-orm/postgres-js';
+import { Hono } from 'hono';
+import { createTestSkillInput, testSkillBehavior } from '../../setup/fixtures';
+import { type TestContainers, startTestContainers } from '../../setup/testcontainers';
 
 /**
  * API integration tests for /api/skills endpoints
@@ -65,7 +65,8 @@ describe('Skills API Integration', () => {
 
       async createSkill(input: typeof schema.skills.$inferInsert) {
         const [result] = await db.insert(schema.skills).values(input).returning();
-        return result!;
+        if (!result) throw new Error('Insert failed');
+        return result;
       },
 
       async updateSkill(id: string, input: Partial<typeof schema.skills.$inferInsert>) {
@@ -81,10 +82,7 @@ describe('Skills API Integration', () => {
       },
 
       async deleteSkill(id: string) {
-        const result = await db
-          .delete(schema.skills)
-          .where(eq(schema.skills.id, id))
-          .returning();
+        const result = await db.delete(schema.skills).where(eq(schema.skills.id, id)).returning();
         if (result.length === 0) {
           throw new Error(`Skill not found: ${id}`);
         }
@@ -94,8 +92,8 @@ describe('Skills API Integration', () => {
 
     // GET /api/skills
     app.get('/api/skills', async (c) => {
-      const limit = parseInt(c.req.query('limit') ?? '50');
-      const offset = parseInt(c.req.query('offset') ?? '0');
+      const limit = Number.parseInt(c.req.query('limit') ?? '50');
+      const offset = Number.parseInt(c.req.query('offset') ?? '0');
       const type = c.req.query('type');
       const source = c.req.query('source');
       const search = c.req.query('search');
@@ -210,10 +208,12 @@ describe('Skills API Integration', () => {
     });
 
     test('returns all skills', async () => {
-      await containers.db.insert(schema.skills).values([
-        createTestSkillInput({ name: 'Skill 1' }),
-        createTestSkillInput({ name: 'Skill 2' }),
-      ]);
+      await containers.db
+        .insert(schema.skills)
+        .values([
+          createTestSkillInput({ name: 'Skill 1' }),
+          createTestSkillInput({ name: 'Skill 2' }),
+        ]);
 
       const res = await app.request('/api/skills');
       const json = await res.json();
@@ -224,9 +224,9 @@ describe('Skills API Integration', () => {
 
     test('respects limit parameter', async () => {
       for (let i = 0; i < 5; i++) {
-        await containers.db.insert(schema.skills).values(
-          createTestSkillInput({ name: `Skill ${i}` })
-        );
+        await containers.db
+          .insert(schema.skills)
+          .values(createTestSkillInput({ name: `Skill ${i}` }));
       }
 
       const res = await app.request('/api/skills?limit=2');
@@ -238,11 +238,13 @@ describe('Skills API Integration', () => {
     });
 
     test('filters by type', async () => {
-      await containers.db.insert(schema.skills).values([
-        createTestSkillInput({ name: 'Prompt Skill', type: 'prompt' }),
-        createTestSkillInput({ name: 'Behavior Skill', type: 'behavior' }),
-        createTestSkillInput({ name: 'Template Skill', type: 'workflow-template' }),
-      ]);
+      await containers.db
+        .insert(schema.skills)
+        .values([
+          createTestSkillInput({ name: 'Prompt Skill', type: 'prompt' }),
+          createTestSkillInput({ name: 'Behavior Skill', type: 'behavior' }),
+          createTestSkillInput({ name: 'Template Skill', type: 'workflow-template' }),
+        ]);
 
       const res = await app.request('/api/skills?type=prompt');
       const json = await res.json();
@@ -253,11 +255,13 @@ describe('Skills API Integration', () => {
     });
 
     test('filters by source', async () => {
-      await containers.db.insert(schema.skills).values([
-        createTestSkillInput({ name: 'User Skill', source: 'user' }),
-        createTestSkillInput({ name: 'Builtin Skill', source: 'builtin' }),
-        createTestSkillInput({ name: 'Imported Skill', source: 'imported' }),
-      ]);
+      await containers.db
+        .insert(schema.skills)
+        .values([
+          createTestSkillInput({ name: 'User Skill', source: 'user' }),
+          createTestSkillInput({ name: 'Builtin Skill', source: 'builtin' }),
+          createTestSkillInput({ name: 'Imported Skill', source: 'imported' }),
+        ]);
 
       const res = await app.request('/api/skills?source=builtin');
       const json = await res.json();
@@ -268,11 +272,13 @@ describe('Skills API Integration', () => {
     });
 
     test('filters by search term', async () => {
-      await containers.db.insert(schema.skills).values([
-        createTestSkillInput({ name: 'Code Review Helper', description: 'Reviews code' }),
-        createTestSkillInput({ name: 'Writing Assistant', description: 'Helps with writing' }),
-        createTestSkillInput({ name: 'Test Skill', description: 'Code analysis tool' }),
-      ]);
+      await containers.db
+        .insert(schema.skills)
+        .values([
+          createTestSkillInput({ name: 'Code Review Helper', description: 'Reviews code' }),
+          createTestSkillInput({ name: 'Writing Assistant', description: 'Helps with writing' }),
+          createTestSkillInput({ name: 'Test Skill', description: 'Code analysis tool' }),
+        ]);
 
       const res = await app.request('/api/skills?search=code');
       const json = await res.json();
@@ -289,11 +295,11 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ name: 'Test Skill' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}`);
+      const res = await app.request(`/api/skills/${created?.id}`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created!.id);
+      expect(json.data.id).toBe(created?.id);
       expect(json.data.name).toBe('Test Skill');
     });
 
@@ -310,16 +316,24 @@ describe('Skills API Integration', () => {
     test('returns skill with parameters', async () => {
       const [created] = await containers.db
         .insert(schema.skills)
-        .values(createTestSkillInput({
-          name: 'Parameterized Skill',
-          parameters: [
-            { name: 'input', type: 'string', description: 'Input text', required: true },
-            { name: 'verbose', type: 'boolean', description: 'Verbose output', required: false, default: false },
-          ],
-        }))
+        .values(
+          createTestSkillInput({
+            name: 'Parameterized Skill',
+            parameters: [
+              { name: 'input', type: 'string', description: 'Input text', required: true },
+              {
+                name: 'verbose',
+                type: 'boolean',
+                description: 'Verbose output',
+                required: false,
+                default: false,
+              },
+            ],
+          })
+        )
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}`);
+      const res = await app.request(`/api/skills/${created?.id}`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -360,7 +374,7 @@ describe('Skills API Integration', () => {
       });
 
       expect(dbSkill).toBeDefined();
-      expect(dbSkill!.name).toBe('Persisted Skill');
+      expect(dbSkill?.name).toBe('Persisted Skill');
     });
 
     test('creates skill with all fields', async () => {
@@ -411,7 +425,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}`, {
+      const res = await app.request(`/api/skills/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
@@ -428,7 +442,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ content: 'Original content' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}`, {
+      const res = await app.request(`/api/skills/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: 'Updated content with {{variable}}' }),
@@ -445,7 +459,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ tags: ['old-tag'] }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}`, {
+      const res = await app.request(`/api/skills/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: ['new-tag-1', 'new-tag-2'] }),
@@ -477,7 +491,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput())
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}`, {
+      const res = await app.request(`/api/skills/${created?.id}`, {
         method: 'DELETE',
       });
       const json = await res.json();
@@ -487,7 +501,7 @@ describe('Skills API Integration', () => {
 
       // Verify deleted from database
       const dbSkill = await containers.db.query.skills.findFirst({
-        where: eq(schema.skills.id, created!.id),
+        where: eq(schema.skills.id, created?.id),
       });
       expect(dbSkill).toBeUndefined();
     });
@@ -538,9 +552,7 @@ describe('Skills API Integration', () => {
           type: 'prompt',
           content: 'You are a {{role}}',
           tags: [],
-          parameters: [
-            { name: 'role', type: 'string', description: 'Role', required: true },
-          ],
+          parameters: [{ name: 'role', type: 'string', description: 'Role', required: true }],
         },
       };
 
@@ -560,13 +572,15 @@ describe('Skills API Integration', () => {
     test('exports skill', async () => {
       const [created] = await containers.db
         .insert(schema.skills)
-        .values(createTestSkillInput({
-          name: 'Export Test Skill',
-          description: 'A skill to export',
-        }))
+        .values(
+          createTestSkillInput({
+            name: 'Export Test Skill',
+            description: 'A skill to export',
+          })
+        )
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}/export`);
+      const res = await app.request(`/api/skills/${created?.id}/export`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -581,7 +595,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput())
         .returning();
 
-      const res = await app.request(`/api/skills/${created!.id}/export`);
+      const res = await app.request(`/api/skills/${created?.id}/export`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -604,15 +618,17 @@ describe('Skills API Integration', () => {
       // Create original skill
       const [original] = await containers.db
         .insert(schema.skills)
-        .values(createTestSkillInput({
-          name: 'Roundtrip Skill',
-          content: 'Test content {{param}}',
-          parameters: [{ name: 'param', type: 'string', description: 'A param', required: true }],
-        }))
+        .values(
+          createTestSkillInput({
+            name: 'Roundtrip Skill',
+            content: 'Test content {{param}}',
+            parameters: [{ name: 'param', type: 'string', description: 'A param', required: true }],
+          })
+        )
         .returning();
 
       // Export
-      const exportRes = await app.request(`/api/skills/${original!.id}/export`);
+      const exportRes = await app.request(`/api/skills/${original?.id}/export`);
       const exportData = await exportRes.json();
 
       // Import
@@ -624,8 +640,8 @@ describe('Skills API Integration', () => {
       const importedJson = await importRes.json();
 
       expect(importRes.status).toBe(201);
-      expect(importedJson.data.name).toBe(original!.name);
-      expect(importedJson.data.content).toBe(original!.content);
+      expect(importedJson.data.name).toBe(original?.name);
+      expect(importedJson.data.content).toBe(original?.content);
       expect(importedJson.data.source).toBe('imported'); // Source changed
     });
   });

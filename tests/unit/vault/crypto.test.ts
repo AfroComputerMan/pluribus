@@ -1,5 +1,5 @@
-import { describe, expect, test, beforeAll, afterAll } from 'bun:test';
-import { encrypt, decrypt, generateMasterKey } from '@/vault/crypto';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { decrypt, encrypt, generateMasterKey } from '@/vault/crypto';
 
 describe('vault/crypto', () => {
   const originalEnv = process.env.VAULT_MASTER_KEY;
@@ -14,7 +14,7 @@ describe('vault/crypto', () => {
     if (originalEnv) {
       process.env.VAULT_MASTER_KEY = originalEnv;
     } else {
-      delete process.env.VAULT_MASTER_KEY;
+      process.env.VAULT_MASTER_KEY = undefined;
     }
   });
 
@@ -148,7 +148,7 @@ describe('vault/crypto', () => {
 describe('vault/crypto without VAULT_MASTER_KEY', () => {
   test('throws when VAULT_MASTER_KEY is not set', () => {
     const originalKey = process.env.VAULT_MASTER_KEY;
-    delete process.env.VAULT_MASTER_KEY;
+    process.env.VAULT_MASTER_KEY = undefined;
 
     try {
       expect(() => encrypt('test', 'cred-123')).toThrow('VAULT_MASTER_KEY is not set');

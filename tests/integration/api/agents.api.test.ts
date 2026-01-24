@@ -1,10 +1,10 @@
-import { describe, expect, test, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { Hono } from 'hono';
-import { startTestContainers, type TestContainers } from '../../setup/testcontainers';
-import { createTestAgentInput, testAgent } from '../../setup/fixtures';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import * as schema from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import type { drizzle } from 'drizzle-orm/postgres-js';
+import { Hono } from 'hono';
+import { createTestAgentInput } from '../../setup/fixtures';
+import { type TestContainers, startTestContainers } from '../../setup/testcontainers';
 
 /**
  * API integration tests for /api/agents endpoints
@@ -40,7 +40,8 @@ describe('Agents API Integration', () => {
 
       async createAgent(input: typeof schema.agents.$inferInsert) {
         const [result] = await db.insert(schema.agents).values(input).returning();
-        return result!;
+        if (!result) throw new Error('Insert failed');
+        return result;
       },
 
       async updateAgent(id: string, input: Partial<typeof schema.agents.$inferInsert>) {
@@ -56,10 +57,7 @@ describe('Agents API Integration', () => {
       },
 
       async deleteAgent(id: string) {
-        const result = await db
-          .delete(schema.agents)
-          .where(eq(schema.agents.id, id))
-          .returning();
+        const result = await db.delete(schema.agents).where(eq(schema.agents.id, id)).returning();
         if (result.length === 0) {
           throw new Error(`Agent not found: ${id}`);
         }
@@ -69,8 +67,8 @@ describe('Agents API Integration', () => {
 
     // GET /api/agents
     app.get('/api/agents', async (c) => {
-      const limit = parseInt(c.req.query('limit') ?? '50');
-      const offset = parseInt(c.req.query('offset') ?? '0');
+      const limit = Number.parseInt(c.req.query('limit') ?? '50');
+      const offset = Number.parseInt(c.req.query('offset') ?? '0');
       const items = await agentService.listAgents({ limit, offset });
       return c.json({ data: items, meta: { limit, offset } });
     });
@@ -142,10 +140,12 @@ describe('Agents API Integration', () => {
 
     test('returns all agents', async () => {
       // Create test agents directly in DB
-      await containers.db.insert(schema.agents).values([
-        createTestAgentInput({ name: 'Agent 1' }),
-        createTestAgentInput({ name: 'Agent 2' }),
-      ]);
+      await containers.db
+        .insert(schema.agents)
+        .values([
+          createTestAgentInput({ name: 'Agent 1' }),
+          createTestAgentInput({ name: 'Agent 2' }),
+        ]);
 
       const res = await app.request('/api/agents');
       const json = await res.json();
@@ -156,9 +156,9 @@ describe('Agents API Integration', () => {
 
     test('respects limit parameter', async () => {
       for (let i = 0; i < 5; i++) {
-        await containers.db.insert(schema.agents).values(
-          createTestAgentInput({ name: `Agent ${i}` })
-        );
+        await containers.db
+          .insert(schema.agents)
+          .values(createTestAgentInput({ name: `Agent ${i}` }));
       }
 
       const res = await app.request('/api/agents?limit=2');
@@ -171,9 +171,9 @@ describe('Agents API Integration', () => {
 
     test('respects offset parameter', async () => {
       for (let i = 0; i < 5; i++) {
-        await containers.db.insert(schema.agents).values(
-          createTestAgentInput({ name: `Agent ${i}` })
-        );
+        await containers.db
+          .insert(schema.agents)
+          .values(createTestAgentInput({ name: `Agent ${i}` }));
       }
 
       const res = await app.request('/api/agents?limit=2&offset=3');
@@ -192,11 +192,11 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput({ name: 'Test Agent' }))
         .returning();
 
-      const res = await app.request(`/api/agents/${created!.id}`);
+      const res = await app.request(`/api/agents/${created?.id}`);
       const json = await res.json();
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created!.id);
+      expect(json.data.id).toBe(created?.id);
       expect(json.data.name).toBe('Test Agent');
     });
 
@@ -243,7 +243,7 @@ describe('Agents API Integration', () => {
       });
 
       expect(dbAgent).toBeDefined();
-      expect(dbAgent!.name).toBe('Persisted Agent');
+      expect(dbAgent?.name).toBe('Persisted Agent');
     });
   });
 
@@ -254,7 +254,7 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/agents/${created!.id}`, {
+      const res = await app.request(`/api/agents/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
@@ -285,7 +285,7 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput())
         .returning();
 
-      const res = await app.request(`/api/agents/${created!.id}`, {
+      const res = await app.request(`/api/agents/${created?.id}`, {
         method: 'DELETE',
       });
       const json = await res.json();
@@ -295,7 +295,7 @@ describe('Agents API Integration', () => {
 
       // Verify deleted from database
       const dbAgent = await containers.db.query.agents.findFirst({
-        where: eq(schema.agents.id, created!.id),
+        where: eq(schema.agents.id, created?.id),
       });
       expect(dbAgent).toBeUndefined();
     });

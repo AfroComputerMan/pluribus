@@ -4,7 +4,10 @@ import type { mcpServerSchema, mcpToolSchema } from './schemas';
 export type MCPServer = z.infer<typeof mcpServerSchema>;
 export type MCPTool = z.infer<typeof mcpToolSchema>;
 
-export type CreateMCPServerInput = Omit<MCPServer, 'id' | 'lastConnectedAt' | 'createdAt' | 'updatedAt'>;
+export type CreateMCPServerInput = Omit<
+  MCPServer,
+  'id' | 'lastConnectedAt' | 'createdAt' | 'updatedAt'
+>;
 export type UpdateMCPServerInput = Partial<CreateMCPServerInput>;
 
 // Transport types

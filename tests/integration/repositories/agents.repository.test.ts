@@ -1,12 +1,12 @@
-import { describe, expect, test, beforeAll, afterAll, beforeEach } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import * as schema from '@/db/schema';
+import { NotFoundError } from '@/lib/errors';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
-import { startPostgresContainer } from '../../setup/testcontainers';
 import { createTestAgentInput } from '../../setup/fixtures';
-import * as schema from '@/db/schema';
-import { NotFoundError } from '@/lib/errors';
+import { startPostgresContainer } from '../../setup/testcontainers';
 
 /**
  * Integration tests for AgentRepository using testcontainers
@@ -39,14 +39,11 @@ describe('AgentRepository Integration', () => {
 
       if (filter?.search) {
         conditions.push(
-          sql`(${schema.agents.name} ILIKE ${'%' + filter.search + '%'} OR ${schema.agents.description} ILIKE ${'%' + filter.search + '%'})`
+          sql`(${schema.agents.name} ILIKE ${`%${filter.search}%`} OR ${schema.agents.description} ILIKE ${`%${filter.search}%`})`
         );
       }
 
-      let query = db
-        .select()
-        .from(schema.agents)
-        .orderBy(sql`${schema.agents.updatedAt} DESC`);
+      let query = db.select().from(schema.agents).orderBy(sql`${schema.agents.updatedAt} DESC`);
 
       if (conditions.length > 0) {
         query = query.where(sql`${conditions.join(' AND ')}`);
@@ -63,9 +60,12 @@ describe('AgentRepository Integration', () => {
       return query;
     }
 
-    async create(input: Parameters<typeof db.insert>[0] extends { values: (infer V)[] } ? V : never) {
+    async create(
+      input: Parameters<typeof db.insert>[0] extends { values: (infer V)[] } ? V : never
+    ) {
       const [result] = await db.insert(schema.agents).values(input).returning();
-      return result!;
+      if (!result) throw new Error('Insert failed');
+      return result;
     }
 
     async update(id: string, input: Partial<typeof schema.agents.$inferInsert>) {
@@ -83,10 +83,7 @@ describe('AgentRepository Integration', () => {
     }
 
     async delete(id: string) {
-      const result = await db
-        .delete(schema.agents)
-        .where(eq(schema.agents.id, id))
-        .returning();
+      const result = await db.delete(schema.agents).where(eq(schema.agents.id, id)).returning();
 
       if (result.length === 0) {
         throw new NotFoundError('Agent', id);
@@ -104,7 +101,7 @@ describe('AgentRepository Integration', () => {
       `);
 
       return Object.fromEntries(
-        result.rows.map((row) => [row.tag, parseInt(row.count, 10)])
+        result.rows.map((row) => [row.tag, Number.parseInt(row.count, 10)])
       );
     }
 
@@ -159,9 +156,7 @@ describe('AgentRepository Integration', () => {
     test('generates UUID for id', async () => {
       const agent = await repository.create(createTestAgentInput());
 
-      expect(agent.id).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-      );
+      expect(agent.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     test('creates agent with minimal fields', async () => {
@@ -253,16 +248,16 @@ describe('AgentRepository Integration', () => {
     test('throws NotFoundError for non-existent id', async () => {
       const fakeId = '00000000-0000-0000-0000-000000000000';
 
-      await expect(
-        repository.update(fakeId, { name: 'Test' })
-      ).rejects.toThrow(NotFoundError);
+      await expect(repository.update(fakeId, { name: 'Test' })).rejects.toThrow(NotFoundError);
     });
 
     test('preserves unchanged fields', async () => {
-      const created = await repository.create(createTestAgentInput({
-        name: 'Original Name',
-        description: 'Original description',
-      }));
+      const created = await repository.create(
+        createTestAgentInput({
+          name: 'Original Name',
+          description: 'Original description',
+        })
+      );
 
       const updated = await repository.update(created.id, {
         name: 'Updated Name',
@@ -296,9 +291,9 @@ describe('AgentRepository Integration', () => {
 
       const counts = await repository.countByTags();
 
-      expect(counts['coding']).toBe(2);
-      expect(counts['analysis']).toBe(2);
-      expect(counts['research']).toBe(1);
+      expect(counts.coding).toBe(2);
+      expect(counts.analysis).toBe(2);
+      expect(counts.research).toBe(1);
     });
 
     test('returns empty object when no agents', async () => {
