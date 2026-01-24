@@ -37,31 +37,7 @@ export const testAgent: CreateAgentInput = {
   integration: null,
 };
 
-export const testAgentWithIntegration: CreateAgentInput = {
-  ...testAgent,
-  name: 'Integrated Agent',
-  integration: {
-    type: 'claude-code',
-    connectionId: '550e8400-e29b-41d4-a716-446655440000',
-  },
-};
-
-export const testAgentMinimal: CreateAgentInput = {
-  name: 'Minimal Agent',
-  description: null,
-  tags: [],
-  modelConfig: {
-    provider: 'openai',
-    model: 'gpt-4',
-  },
-  memoryMode: 'stateless',
-  isolationLevel: 'shared',
-  canSpawnSubAgents: false,
-  maxSubAgents: null,
-  skills: [],
-  allowedMcpTools: [],
-  integration: null,
-};
+// Use createTestAgentInput() with overrides for integration/minimal variants
 
 export function createTestAgentInput(overrides: Partial<CreateAgentInput> = {}): CreateAgentInput {
   return {
@@ -104,54 +80,7 @@ export const testWorkflow: TestWorkflowInput = {
   },
 };
 
-export const testWorkflowWithMultipleNodes: TestWorkflowInput = {
-  name: 'Multi-Node Workflow',
-  description: 'A workflow with multiple nodes and edges',
-  nodes: [
-    {
-      id: 'analyze',
-      type: 'agent' as const,
-      agentId: '550e8400-e29b-41d4-a716-446655440001',
-      input: { task: 'analyze input' },
-    },
-    {
-      id: 'check-result',
-      type: 'condition' as const,
-      expression: 'output.success === true',
-      trueBranch: 'success-handler',
-      falseBranch: 'error-handler',
-    },
-    {
-      id: 'success-handler',
-      type: 'agent' as const,
-      agentId: '550e8400-e29b-41d4-a716-446655440002',
-      input: { data: { fromNode: 'analyze', path: 'output.result' } },
-    },
-    {
-      id: 'error-handler',
-      type: 'human-review' as const,
-      prompt: 'Analysis failed. Please review.',
-      options: ['retry', 'skip', 'abort'],
-    },
-  ],
-  edges: [
-    { id: 'e1', from: 'analyze', to: 'check-result' },
-    { id: 'e2', from: 'check-result', to: 'success-handler', label: 'success' },
-    { id: 'e3', from: 'check-result', to: 'error-handler', label: 'failure' },
-  ],
-  triggers: [{ type: 'manual' }],
-  errorStrategy: {
-    retries: 2,
-    retryDelay: 5000,
-    onFailure: 'human-review',
-  },
-};
-
-export const testWorkflowWithSchedule: TestWorkflowInput = {
-  ...testWorkflow,
-  name: 'Scheduled Workflow',
-  triggers: [{ type: 'schedule', cron: '0 0 * * *' }],
-};
+// Use createTestWorkflowInput() with overrides instead of predefined variants
 
 export function createTestWorkflowInput(
   overrides: Partial<TestWorkflowInput> = {}
@@ -195,16 +124,7 @@ export const testMcpServerHttp: TestMcpServerInput = {
   enabled: true,
 };
 
-export const testMcpServerWebsocket: TestMcpServerInput = {
-  name: 'WebSocket MCP Server',
-  transport: 'websocket',
-  config: {
-    websocket: {
-      url: 'wss://ws.example.com/mcp',
-    },
-  },
-  enabled: false,
-};
+// Use createTestMcpServerInput() with transport/config overrides for websocket
 
 export function createTestMcpServerInput(
   overrides: Partial<TestMcpServerInput> = {}
@@ -222,8 +142,7 @@ export function createTestMcpServerInput(
 
 export type TestMcpToolInput = Omit<McpToolInsert, 'id' | 'discoveredAt'>;
 
-export const testMcpTool: Omit<TestMcpToolInput, 'serverId'> & { serverId: string } = {
-  serverId: '550e8400-e29b-41d4-a716-446655440000',
+const baseMcpTool = {
   name: 'read_file',
   description: 'Read contents of a file',
   inputSchema: {
@@ -241,7 +160,7 @@ export function createTestMcpToolInput(
   overrides: Partial<Omit<TestMcpToolInput, 'serverId'>> = {}
 ): TestMcpToolInput {
   return {
-    ...testMcpTool,
+    ...baseMcpTool,
     serverId,
     name: `test_tool_${Date.now()}`,
     ...overrides,
@@ -296,36 +215,7 @@ export const testSkillBehavior: TestSkillInput = {
   parameters: null,
 };
 
-export const testSkillWorkflowTemplate: TestSkillInput = {
-  name: 'Code Review Template',
-  description: 'A workflow template for code review',
-  type: 'workflow-template',
-  content: JSON.stringify({
-    nodes: [
-      { id: 'analyze', type: 'agent', input: { code: '{{code}}' } },
-      { id: 'review', type: 'human-review', prompt: 'Review analysis' },
-    ],
-    edges: [{ from: 'analyze', to: 'review' }],
-  }),
-  tags: ['code', 'review', 'template'],
-  source: 'imported',
-  parameters: [
-    {
-      name: 'code',
-      type: 'string',
-      description: 'The code to review',
-      required: true,
-    },
-    {
-      name: 'language',
-      type: 'select',
-      description: 'Programming language',
-      required: false,
-      options: ['typescript', 'javascript', 'python', 'go'],
-      default: 'typescript',
-    },
-  ],
-};
+// Use createTestSkillInput() with type override for workflow-template skills
 
 export function createTestSkillInput(overrides: Partial<TestSkillInput> = {}): TestSkillInput {
   return {

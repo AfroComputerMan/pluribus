@@ -7,7 +7,6 @@ import {
   createTestMcpServerInput,
   createTestMcpToolInput,
   testMcpServerHttp,
-  testMcpServerWebsocket,
 } from '../../setup/fixtures';
 import { type TestContainers, startTestContainers } from '../../setup/testcontainers';
 
@@ -440,10 +439,12 @@ describe('MCP API Integration', () => {
       });
 
       test('creates websocket server', async () => {
-        const input = {
-          ...testMcpServerWebsocket,
+        const input = createTestMcpServerInput({
           name: 'New WS Server',
-        };
+          transport: 'websocket',
+          config: { websocket: { url: 'wss://ws.example.com/mcp' } },
+          enabled: false,
+        });
 
         const res = await app.request('/api/mcp/servers', {
           method: 'POST',
