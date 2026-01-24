@@ -6,19 +6,64 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 
 export interface TestContainers {
-  postgres: StartedPostgreSqlContainer;
-  redis: StartedRedisContainer;
+  postgres: StartedPostgreSqlContainer | null;
+  redis: StartedRedisContainer | null;
   db: ReturnType<typeof drizzle<typeof schema>>;
   pgClient: ReturnType<typeof postgres>;
   cleanup: () => Promise<void>;
 }
 
+// Cache for shared containers (used when running multiple test files)
+let sharedContainers: TestContainers | null = null;
+
+/**
+ * Check if CI services are available via environment variables
+ */
+function getCIServiceUrls(): { databaseUrl: string; redisUrl: string } | null {
+  const databaseUrl = process.env.TEST_DATABASE_URL;
+  const redisUrl = process.env.TEST_REDIS_URL;
+
+  if (databaseUrl && redisUrl) {
+    return { databaseUrl, redisUrl };
+  }
+  return null;
+}
+
 /**
  * Start PostgreSQL and Redis test containers
- * Used for integration tests that need real database/cache
+ * Uses CI services if TEST_DATABASE_URL and TEST_REDIS_URL are set,
+ * otherwise falls back to testcontainers for local development.
  */
 export async function startTestContainers(): Promise<TestContainers> {
-  // Start containers in parallel
+  // Check if we should use CI services
+  const ciServices = getCIServiceUrls();
+
+  if (ciServices) {
+    // Use CI-provided services (much faster)
+    const pgClient = postgres(ciServices.databaseUrl, { max: 5 });
+    const db = drizzle(pgClient, { schema });
+
+    // Migrations should already be run by CI, but ensure they're applied
+    await migrate(db, { migrationsFolder: './drizzle/migrations' });
+
+    return {
+      postgres: null,
+      redis: null,
+      db,
+      pgClient,
+      cleanup: async () => {
+        await pgClient.end();
+        // Don't stop CI services
+      },
+    };
+  }
+
+  // Return cached containers if available (for running multiple test files locally)
+  if (sharedContainers) {
+    return sharedContainers;
+  }
+
+  // Start containers in parallel (local development)
   const [postgresContainer, redisContainer] = await Promise.all([
     new PostgreSqlContainer('postgres:16-alpine')
       .withDatabase('pluribus_test')
@@ -39,7 +84,7 @@ export async function startTestContainers(): Promise<TestContainers> {
   // Run migrations
   await migrate(db, { migrationsFolder: './drizzle/migrations' });
 
-  return {
+  sharedContainers = {
     postgres: postgresContainer,
     redis: redisContainer,
     db,
@@ -47,18 +92,35 @@ export async function startTestContainers(): Promise<TestContainers> {
     cleanup: async () => {
       await pgClient.end();
       await Promise.all([postgresContainer.stop(), redisContainer.stop()]);
+      sharedContainers = null;
     },
   };
+
+  return sharedContainers;
 }
 
 /**
  * Start only PostgreSQL container (for migration tests)
+ * Uses CI services if TEST_DATABASE_URL is set.
  */
 export async function startPostgresContainer(): Promise<{
-  container: StartedPostgreSqlContainer;
+  container: StartedPostgreSqlContainer | null;
   connectionString: string;
   cleanup: () => Promise<void>;
 }> {
+  // Check for CI service
+  const databaseUrl = process.env.TEST_DATABASE_URL;
+  if (databaseUrl) {
+    return {
+      container: null,
+      connectionString: databaseUrl,
+      cleanup: async () => {
+        // Don't stop CI services
+      },
+    };
+  }
+
+  // Local development: start testcontainer
   const container = await new PostgreSqlContainer('postgres:16-alpine')
     .withDatabase('pluribus_test')
     .withUsername('test')
