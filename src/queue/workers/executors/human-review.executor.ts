@@ -37,7 +37,7 @@ export class HumanReviewExecutor implements NodeExecutor<HumanReviewNode> {
 
     return {
       nodeId: node.id,
-      status: 'completed', // Marked as completed but workflow will wait
+      status: 'pending',
       output: {
         waitingForReview: true,
         prompt: node.prompt,

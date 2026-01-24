@@ -191,7 +191,19 @@ export class NodeProcessor {
         output: result.output,
       });
 
-      // 6. Check for and enqueue next nodes
+      // 6. Handle pending status (human review)
+      if (result.status === 'pending') {
+        // Update workflow run status to pending
+        await db
+          .update(workflowRuns)
+          .set({ status: 'pending' })
+          .where(eq(workflowRuns.id, runId));
+
+        log.info({ runId, nodeId }, 'Workflow paused for human review');
+        return result;
+      }
+
+      // 7. Check for and enqueue next nodes
       await this.enqueueNextNodes(runId, workflowId, nodeId, result, context);
 
       return result;
