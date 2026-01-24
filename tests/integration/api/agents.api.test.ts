@@ -1,7 +1,5 @@
 import { describe, expect, test, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import postgres from 'postgres';
 import { Hono } from 'hono';
 import { startTestContainers, type TestContainers } from '../../setup/testcontainers';
 import { createTestAgentInput, testAgent } from '../../setup/fixtures';

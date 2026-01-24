@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { QUEUE_NAMES } from '@/queue/client';
 
 describe('Queue Constants', () => {
