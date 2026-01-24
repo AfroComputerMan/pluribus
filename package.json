@@ -9,7 +9,11 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun run dist/index.js",
     "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration --timeout 120000",
+    "test:migrations": "bun test tests/integration/db/migrations.test.ts --timeout 120000",
     "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
     "lint": "biome check .",
     "lint:fix": "biome check --apply .",
     "format": "biome format --write .",
@@ -36,10 +40,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
+    "@testcontainers/postgresql": "^10.13.0",
+    "@testcontainers/redis": "^10.13.0",
     "@types/bun": "^1.1.0",
     "@types/pg": "^8.11.0",
     "@types/uuid": "^10.0.0",
     "drizzle-kit": "^0.30.0",
+    "testcontainers": "^10.13.0",
     "typescript": "^5.6.0"
   },
   "trustedDependencies": [

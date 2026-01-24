@@ -1,0 +1,18 @@
+[install]
+# Frozen lockfile for CI
+# frozen = true
+
+[test]
+# Test configuration
+coverage = true
+coverageDir = "./coverage"
+coverageReporter = ["lcov", "text"]
+timeout = 30000
+
+# Preload test setup
+preload = ["./tests/setup/index.ts"]
+
+# Environment variables for tests
+[test.env]
+NODE_ENV = "test"
+LOG_LEVEL = "error"
