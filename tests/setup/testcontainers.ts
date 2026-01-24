@@ -8,7 +8,7 @@ import postgres from 'postgres';
 export interface TestContainers {
   postgres: StartedPostgreSqlContainer;
   redis: StartedRedisContainer;
-  db: ReturnType<typeof drizzle>;
+  db: ReturnType<typeof drizzle<typeof schema>>;
   pgClient: ReturnType<typeof postgres>;
   cleanup: () => Promise<void>;
 }

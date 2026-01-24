@@ -15,7 +15,7 @@ describe('Agents API Integration', () => {
   let app: Hono;
 
   // Create a minimal test app that mirrors the real routes
-  function createTestApp(db: ReturnType<typeof drizzle>) {
+  function createTestApp(db: ReturnType<typeof drizzle<typeof schema>>) {
     const app = new Hono();
 
     // Simple agent service for testing
@@ -131,7 +131,7 @@ describe('Agents API Integration', () => {
   describe('GET /api/agents', () => {
     test('returns empty array when no agents', async () => {
       const res = await app.request('/api/agents');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual([]);
@@ -148,7 +148,7 @@ describe('Agents API Integration', () => {
         ]);
 
       const res = await app.request('/api/agents');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -162,7 +162,7 @@ describe('Agents API Integration', () => {
       }
 
       const res = await app.request('/api/agents?limit=2');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -177,7 +177,7 @@ describe('Agents API Integration', () => {
       }
 
       const res = await app.request('/api/agents?limit=2&offset=3');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -192,11 +192,11 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput({ name: 'Test Agent' }))
         .returning();
 
-      const res = await app.request(`/api/agents/${created?.id}`);
-      const json = await res.json();
+      const res = await app.request(`/api/agents/${created!.id}`);
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created?.id);
+      expect(json.data.id).toBe(created!.id);
       expect(json.data.name).toBe('Test Agent');
     });
 
@@ -204,7 +204,7 @@ describe('Agents API Integration', () => {
       const fakeId = '00000000-0000-0000-0000-000000000000';
 
       const res = await app.request(`/api/agents/${fakeId}`);
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(404);
       expect(json.error.code).toBe('NOT_FOUND');
@@ -220,7 +220,7 @@ describe('Agents API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(201);
       expect(json.data.id).toBeDefined();
@@ -235,7 +235,7 @@ describe('Agents API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       // Verify in database
       const dbAgent = await containers.db.query.agents.findFirst({
@@ -254,12 +254,12 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/agents/${created?.id}`, {
+      const res = await app.request(`/api/agents/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.name).toBe('Updated Name');
@@ -285,17 +285,17 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput())
         .returning();
 
-      const res = await app.request(`/api/agents/${created?.id}`, {
+      const res = await app.request(`/api/agents/${created!.id}`, {
         method: 'DELETE',
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
 
       // Verify deleted from database
       const dbAgent = await containers.db.query.agents.findFirst({
-        where: eq(schema.agents.id, created?.id),
+        where: eq(schema.agents.id, created!.id),
       });
       expect(dbAgent).toBeUndefined();
     });

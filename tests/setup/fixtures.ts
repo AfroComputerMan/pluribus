@@ -1,8 +1,19 @@
 import type { CreateAgentInput } from '@/core/agents/types';
+import type {
+  ErrorStrategy,
+  WorkflowEdge,
+  WorkflowNode,
+  WorkflowTrigger,
+} from '@/core/workflows/types';
+import type * as schema from '@/db/schema';
 
 /**
  * Test fixtures for consistent test data
  */
+
+// Type aliases for schema insert types
+type McpServerInsert = typeof schema.mcpServers.$inferInsert;
+type McpToolInsert = typeof schema.mcpTools.$inferInsert;
 
 // ===================
 // Agent Fixtures
@@ -67,24 +78,10 @@ export function createTestAgentInput(overrides: Partial<CreateAgentInput> = {}):
 export interface TestWorkflowInput {
   name: string;
   description: string | null;
-  nodes: Array<{
-    id: string;
-    type: 'agent' | 'condition' | 'parallel' | 'loop' | 'human-review';
-    [key: string]: unknown;
-  }>;
-  edges: Array<{ id: string; from: string; to: string; label?: string }>;
-  triggers: Array<
-    | { type: 'manual' }
-    | { type: 'schedule'; cron: string }
-    | { type: 'webhook'; secret: string }
-    | { type: 'api' }
-  >;
-  errorStrategy: {
-    retries: number;
-    retryDelay: number;
-    fallbackNodeId?: string;
-    onFailure: 'stop' | 'continue' | 'human-review';
-  };
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  triggers: WorkflowTrigger[];
+  errorStrategy: ErrorStrategy;
 }
 
 export const testWorkflow: TestWorkflowInput = {
@@ -170,16 +167,10 @@ export function createTestWorkflowInput(
 // MCP Server Fixtures
 // ===================
 
-export interface TestMcpServerInput {
-  name: string;
-  transport: 'stdio' | 'http' | 'websocket';
-  config: {
-    stdio?: { command: string; args?: string[]; env?: Record<string, string> };
-    http?: { url: string; headers?: Record<string, string> };
-    websocket?: { url: string };
-  };
-  enabled: boolean;
-}
+export type TestMcpServerInput = Omit<
+  McpServerInsert,
+  'id' | 'createdAt' | 'updatedAt' | 'lastConnectedAt'
+>;
 
 export const testMcpServer: TestMcpServerInput = {
   name: 'Test MCP Server',
@@ -199,7 +190,6 @@ export const testMcpServerHttp: TestMcpServerInput = {
   config: {
     http: {
       url: 'https://api.example.com/mcp',
-      headers: { Authorization: 'Bearer test-token' },
     },
   },
   enabled: true,
@@ -230,19 +220,9 @@ export function createTestMcpServerInput(
 // MCP Tool Fixtures
 // ===================
 
-export interface TestMcpToolInput {
-  serverId: string;
-  name: string;
-  description: string | null;
-  inputSchema: {
-    type: 'object';
-    properties?: Record<string, unknown>;
-    required?: string[];
-  } | null;
-  enabled: boolean;
-}
+export type TestMcpToolInput = Omit<McpToolInsert, 'id' | 'discoveredAt'>;
 
-export const testMcpTool: TestMcpToolInput = {
+export const testMcpTool: Omit<TestMcpToolInput, 'serverId'> & { serverId: string } = {
   serverId: '550e8400-e29b-41d4-a716-446655440000',
   name: 'read_file',
   description: 'Read contents of a file',

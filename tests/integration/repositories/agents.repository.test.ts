@@ -14,7 +14,7 @@ import { startPostgresContainer } from '../../setup/testcontainers';
 describe('AgentRepository Integration', () => {
   let container: Awaited<ReturnType<typeof startPostgresContainer>>;
   let client: ReturnType<typeof postgres>;
-  let db: ReturnType<typeof drizzle>;
+  let db: ReturnType<typeof drizzle<typeof schema>>;
 
   // Create repository instance with test db
   class TestAgentRepository {
@@ -43,7 +43,11 @@ describe('AgentRepository Integration', () => {
         );
       }
 
-      let query = db.select().from(schema.agents).orderBy(sql`${schema.agents.updatedAt} DESC`);
+      let query = db
+        .select()
+        .from(schema.agents)
+        .orderBy(sql`${schema.agents.updatedAt} DESC`)
+        .$dynamic();
 
       if (conditions.length > 0) {
         query = query.where(sql`${conditions.join(' AND ')}`);
@@ -60,9 +64,7 @@ describe('AgentRepository Integration', () => {
       return query;
     }
 
-    async create(
-      input: Parameters<typeof db.insert>[0] extends { values: (infer V)[] } ? V : never
-    ) {
+    async create(input: typeof schema.agents.$inferInsert) {
       const [result] = await db.insert(schema.agents).values(input).returning();
       if (!result) throw new Error('Insert failed');
       return result;

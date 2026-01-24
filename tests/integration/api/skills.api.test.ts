@@ -15,7 +15,7 @@ describe('Skills API Integration', () => {
   let app: Hono;
 
   // Create a test app that mirrors the real routes
-  function createTestApp(db: ReturnType<typeof drizzle>) {
+  function createTestApp(db: ReturnType<typeof drizzle<typeof schema>>) {
     const app = new Hono();
 
     // Skill service
@@ -200,7 +200,7 @@ describe('Skills API Integration', () => {
   describe('GET /api/skills', () => {
     test('returns empty array when no skills', async () => {
       const res = await app.request('/api/skills');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual([]);
@@ -216,7 +216,7 @@ describe('Skills API Integration', () => {
         ]);
 
       const res = await app.request('/api/skills');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -230,7 +230,7 @@ describe('Skills API Integration', () => {
       }
 
       const res = await app.request('/api/skills?limit=2');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -247,7 +247,7 @@ describe('Skills API Integration', () => {
         ]);
 
       const res = await app.request('/api/skills?type=prompt');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(1);
@@ -264,7 +264,7 @@ describe('Skills API Integration', () => {
         ]);
 
       const res = await app.request('/api/skills?source=builtin');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(1);
@@ -281,7 +281,7 @@ describe('Skills API Integration', () => {
         ]);
 
       const res = await app.request('/api/skills?search=code');
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2); // Matches name or description containing 'code'
@@ -295,11 +295,11 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ name: 'Test Skill' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`);
-      const json = await res.json();
+      const res = await app.request(`/api/skills/${created!.id}`);
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created?.id);
+      expect(json.data.id).toBe(created!.id);
       expect(json.data.name).toBe('Test Skill');
     });
 
@@ -307,7 +307,7 @@ describe('Skills API Integration', () => {
       const fakeId = '00000000-0000-0000-0000-000000000000';
 
       const res = await app.request(`/api/skills/${fakeId}`);
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(404);
       expect(json.error.code).toBe('NOT_FOUND');
@@ -333,8 +333,8 @@ describe('Skills API Integration', () => {
         )
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`);
-      const json = await res.json();
+      const res = await app.request(`/api/skills/${created!.id}`);
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.parameters.length).toBe(2);
@@ -351,7 +351,7 @@ describe('Skills API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(201);
       expect(json.data.id).toBeDefined();
@@ -366,7 +366,7 @@ describe('Skills API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       // Verify in database
       const dbSkill = await containers.db.query.skills.findFirst({
@@ -396,7 +396,7 @@ describe('Skills API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(201);
       expect(json.data.tags).toContain('ai');
@@ -411,7 +411,7 @@ describe('Skills API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(201);
       expect(json.data.type).toBe('behavior');
@@ -425,12 +425,12 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.name).toBe('Updated Name');
@@ -442,12 +442,12 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ content: 'Original content' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: 'Updated content with {{variable}}' }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.content).toBe('Updated content with {{variable}}');
@@ -459,12 +459,12 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ tags: ['old-tag'] }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: ['new-tag-1', 'new-tag-2'] }),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.data.tags).toContain('new-tag-1');
@@ -491,17 +491,17 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput())
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'DELETE',
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
 
       // Verify deleted from database
       const dbSkill = await containers.db.query.skills.findFirst({
-        where: eq(schema.skills.id, created?.id),
+        where: eq(schema.skills.id, created!.id),
       });
       expect(dbSkill).toBeUndefined();
     });
@@ -536,7 +536,7 @@ describe('Skills API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(importData),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(201);
       expect(json.data.name).toBe('Imported Skill');
@@ -561,7 +561,7 @@ describe('Skills API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(importData),
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(201);
       expect(json.data.parameters.length).toBe(1);
@@ -580,8 +580,8 @@ describe('Skills API Integration', () => {
         )
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}/export`);
-      const json = await res.json();
+      const res = await app.request(`/api/skills/${created!.id}/export`);
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.version).toBe('1.0');
@@ -595,8 +595,8 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput())
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}/export`);
-      const json = await res.json();
+      const res = await app.request(`/api/skills/${created!.id}/export`);
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
       expect(json.skill.id).toBeUndefined();
@@ -637,7 +637,7 @@ describe('Skills API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(exportData),
       });
-      const importedJson = await importRes.json();
+      const importedJson = (await importRes.json()) as any;
 
       expect(importRes.status).toBe(201);
       expect(importedJson.data.name).toBe(original?.name);

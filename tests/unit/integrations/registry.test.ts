@@ -97,7 +97,7 @@ describe('AdapterRegistry', () => {
     test('returns adapters of specified type', () => {
       adapterRegistry.register(createMockAdapter('claude-1', 'claude-code'));
       adapterRegistry.register(createMockAdapter('claude-2', 'claude-code'));
-      adapterRegistry.register(createMockAdapter('openai-1', 'openai'));
+      adapterRegistry.register(createMockAdapter('codex-1', 'codex'));
 
       const claudeAdapters = adapterRegistry.getByType('claude-code');
 
@@ -117,7 +117,7 @@ describe('AdapterRegistry', () => {
   describe('getAll', () => {
     test('returns all registered adapters', () => {
       adapterRegistry.register(createMockAdapter('adapter-1', 'claude-code'));
-      adapterRegistry.register(createMockAdapter('adapter-2', 'openai'));
+      adapterRegistry.register(createMockAdapter('adapter-2', 'codex'));
 
       const all = adapterRegistry.getAll();
 
@@ -146,7 +146,7 @@ describe('AdapterRegistry', () => {
   describe('clear', () => {
     test('removes all adapters', () => {
       adapterRegistry.register(createMockAdapter('adapter-1', 'claude-code'));
-      adapterRegistry.register(createMockAdapter('adapter-2', 'openai'));
+      adapterRegistry.register(createMockAdapter('adapter-2', 'codex'));
 
       adapterRegistry.clear();
 

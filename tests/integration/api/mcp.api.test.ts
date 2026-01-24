@@ -20,7 +20,7 @@ describe('MCP API Integration', () => {
   let app: Hono;
 
   // Create a test app that mirrors the real routes
-  function createTestApp(db: ReturnType<typeof drizzle>) {
+  function createTestApp(db: ReturnType<typeof drizzle<typeof schema>>) {
     const app = new Hono();
 
     // MCP Server service
@@ -266,7 +266,7 @@ describe('MCP API Integration', () => {
     describe('GET /api/mcp/servers', () => {
       test('returns empty array when no servers', async () => {
         const res = await app.request('/api/mcp/servers');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data).toEqual([]);
@@ -282,7 +282,7 @@ describe('MCP API Integration', () => {
           ]);
 
         const res = await app.request('/api/mcp/servers');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(2);
@@ -297,7 +297,7 @@ describe('MCP API Integration', () => {
           ]);
 
         const res = await app.request('/api/mcp/servers?enabled=true');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(1);
@@ -313,7 +313,7 @@ describe('MCP API Integration', () => {
           ]);
 
         const res = await app.request('/api/mcp/servers?transport=http');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(1);
@@ -330,7 +330,7 @@ describe('MCP API Integration', () => {
           ]);
 
         const res = await app.request('/api/mcp/servers?search=file');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(1);
@@ -345,7 +345,7 @@ describe('MCP API Integration', () => {
         }
 
         const res = await app.request('/api/mcp/servers?limit=2&offset=2');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(2);
@@ -361,11 +361,11 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput({ name: 'Test Server' }))
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created?.id}`);
-        const json = await res.json();
+        const res = await app.request(`/api/mcp/servers/${created!.id}`);
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
-        expect(json.data.id).toBe(created?.id);
+        expect(json.data.id).toBe(created!.id);
         expect(json.data.name).toBe('Test Server');
       });
 
@@ -373,7 +373,7 @@ describe('MCP API Integration', () => {
         const fakeId = '00000000-0000-0000-0000-000000000000';
 
         const res = await app.request(`/api/mcp/servers/${fakeId}`);
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(404);
         expect(json.error.code).toBe('NOT_FOUND');
@@ -395,8 +395,8 @@ describe('MCP API Integration', () => {
           )
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created?.id}`);
-        const json = await res.json();
+        const res = await app.request(`/api/mcp/servers/${created!.id}`);
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.config.stdio.command).toBe('npx');
@@ -413,7 +413,7 @@ describe('MCP API Integration', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(201);
         expect(json.data.id).toBeDefined();
@@ -432,7 +432,7 @@ describe('MCP API Integration', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(201);
         expect(json.data.transport).toBe('http');
@@ -450,7 +450,7 @@ describe('MCP API Integration', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(201);
         expect(json.data.transport).toBe('websocket');
@@ -464,7 +464,7 @@ describe('MCP API Integration', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         // Verify in database
         const dbServer = await containers.db.query.mcpServers.findFirst({
@@ -483,12 +483,12 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput({ name: 'Original Name' }))
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: 'Updated Name' }),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.name).toBe('Updated Name');
@@ -500,12 +500,12 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput({ enabled: true }))
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: false }),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.enabled).toBe(false);
@@ -517,7 +517,7 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput())
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -529,7 +529,7 @@ describe('MCP API Integration', () => {
             },
           }),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.config.stdio.command).toBe('updated-command');
@@ -555,17 +555,17 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput())
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${created?.id}`, {
+        const res = await app.request(`/api/mcp/servers/${created!.id}`, {
           method: 'DELETE',
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.success).toBe(true);
 
         // Verify deleted from database
         const dbServer = await containers.db.query.mcpServers.findFirst({
-          where: eq(schema.mcpServers.id, created?.id),
+          where: eq(schema.mcpServers.id, created!.id),
         });
         expect(dbServer).toBeUndefined();
       });
@@ -580,11 +580,11 @@ describe('MCP API Integration', () => {
         await containers.db
           .insert(schema.mcpTools)
           .values([
-            createTestMcpToolInput(server?.id, { name: 'tool_1' }),
-            createTestMcpToolInput(server?.id, { name: 'tool_2' }),
+            createTestMcpToolInput(server!.id, { name: 'tool_1' }),
+            createTestMcpToolInput(server!.id, { name: 'tool_2' }),
           ]);
 
-        const res = await app.request(`/api/mcp/servers/${server?.id}`, {
+        const res = await app.request(`/api/mcp/servers/${server!.id}`, {
           method: 'DELETE',
         });
 
@@ -594,7 +594,7 @@ describe('MCP API Integration', () => {
         const tools = await containers.db
           .select()
           .from(schema.mcpTools)
-          .where(eq(schema.mcpTools.serverId, server?.id));
+          .where(eq(schema.mcpTools.serverId, server!.id));
         expect(tools.length).toBe(0);
       });
 
@@ -616,13 +616,13 @@ describe('MCP API Integration', () => {
           .values(createTestMcpServerInput())
           .returning();
 
-        const res = await app.request(`/api/mcp/servers/${server?.id}/discover`, {
+        const res = await app.request(`/api/mcp/servers/${server!.id}/discover`, {
           method: 'POST',
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(202);
-        expect(json.data.serverId).toBe(server?.id);
+        expect(json.data.serverId).toBe(server!.id);
         expect(json.data.status).toBe('discovery_started');
       });
 
@@ -654,7 +654,7 @@ describe('MCP API Integration', () => {
     describe('GET /api/mcp/tools', () => {
       test('returns empty array when no tools', async () => {
         const res = await app.request('/api/mcp/tools');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data).toEqual([]);
@@ -669,7 +669,7 @@ describe('MCP API Integration', () => {
           ]);
 
         const res = await app.request('/api/mcp/tools');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(2);
@@ -686,11 +686,11 @@ describe('MCP API Integration', () => {
           .insert(schema.mcpTools)
           .values([
             createTestMcpToolInput(testServer.id, { name: 'tool_server_1' }),
-            createTestMcpToolInput(otherServer?.id, { name: 'tool_server_2' }),
+            createTestMcpToolInput(otherServer!.id, { name: 'tool_server_2' }),
           ]);
 
         const res = await app.request(`/api/mcp/tools?serverId=${testServer.id}`);
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(1);
@@ -706,7 +706,7 @@ describe('MCP API Integration', () => {
           ]);
 
         const res = await app.request('/api/mcp/tools?enabled=true');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(1);
@@ -723,7 +723,7 @@ describe('MCP API Integration', () => {
           ]);
 
         const res = await app.request('/api/mcp/tools?search=file');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(2);
@@ -737,7 +737,7 @@ describe('MCP API Integration', () => {
         }
 
         const res = await app.request('/api/mcp/tools?limit=2&offset=2');
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.length).toBe(2);
@@ -758,7 +758,7 @@ describe('MCP API Integration', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: true }),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.enabled).toBe(true);
@@ -775,7 +775,7 @@ describe('MCP API Integration', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: false }),
         });
-        const json = await res.json();
+        const json = (await res.json()) as any;
 
         expect(res.status).toBe(200);
         expect(json.data.enabled).toBe(false);
@@ -800,7 +800,7 @@ describe('MCP API Integration', () => {
       const res = await app.request('/api/mcp/scan', {
         method: 'POST',
       });
-      const json = await res.json();
+      const json = (await res.json()) as any;
 
       expect(res.status).toBe(202);
       expect(json.data.status).toBe('scan_started');
