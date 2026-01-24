@@ -34,11 +34,11 @@ export interface AgentWithStatus extends Agent {
 
 // Agent filter options
 export interface AgentFilter {
-  tags?: string[];
-  integration?: string;
-  memoryMode?: MemoryMode;
-  isolationLevel?: IsolationLevel;
-  search?: string;
+  tags?: string[] | undefined;
+  integration?: string | undefined;
+  memoryMode?: MemoryMode | undefined;
+  isolationLevel?: IsolationLevel | undefined;
+  search?: string | undefined;
 }
 
 // Agent execution context

@@ -100,9 +100,7 @@ describe('AgentRepository Integration', () => {
         ORDER BY count DESC
       `);
 
-      return Object.fromEntries(
-        result.rows.map((row) => [row.tag, Number.parseInt(row.count, 10)])
-      );
+      return Object.fromEntries(result.map((row) => [row.tag, Number.parseInt(row.count, 10)]));
     }
 
     async getAllTags(): Promise<string[]> {
@@ -112,7 +110,7 @@ describe('AgentRepository Integration', () => {
         ORDER BY tag
       `);
 
-      return result.rows.map((row) => row.tag);
+      return result.map((row) => row.tag);
     }
   }
 

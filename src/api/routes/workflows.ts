@@ -116,9 +116,13 @@ workflowRoutes.post('/:id/run', validateBody(triggerRunSchema), async (c) => {
     })
     .returning();
 
+  if (!run) {
+    throw new Error('Failed to create workflow run');
+  }
+
   // Enqueue for execution
   await enqueueWorkflow({
-    runId: run?.id,
+    runId: run.id,
     workflowId: id,
     triggerType: 'api',
     input: input || {},

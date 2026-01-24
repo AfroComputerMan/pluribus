@@ -15,8 +15,8 @@ export interface SkillParameter {
   type: 'string' | 'number' | 'boolean' | 'select';
   description: string;
   required: boolean;
-  default?: unknown;
-  options?: string[]; // For select type
+  default?: unknown | undefined;
+  options?: string[] | undefined; // For select type
 }
 
 // Skill with rendered content

@@ -7,7 +7,7 @@ import { logger } from '@/observability';
 // Error handler middleware
 export async function errorHandler(c: Context, next: Next) {
   try {
-    await next();
+    return await next();
   } catch (err) {
     // Handle AppError (our custom errors)
     if (err instanceof AppError) {

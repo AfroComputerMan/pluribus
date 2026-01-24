@@ -41,7 +41,7 @@ describe('Database Migrations', () => {
       ORDER BY table_name
     `);
 
-    const tableNames = tables.rows.map((r) => r.table_name);
+    const tableNames = tables.map((r) => r.table_name);
 
     // Verify all expected tables exist
     expect(tableNames).toContain('agents');
@@ -64,7 +64,7 @@ describe('Database Migrations', () => {
       ORDER BY ordinal_position
     `);
 
-    const columnMap = Object.fromEntries(columns.rows.map((c) => [c.column_name, c.data_type]));
+    const columnMap = Object.fromEntries(columns.map((c) => [c.column_name, c.data_type]));
 
     expect(columnMap.id).toBe('uuid');
     expect(columnMap.name).toBe('character varying');
@@ -90,7 +90,7 @@ describe('Database Migrations', () => {
       ORDER BY ordinal_position
     `);
 
-    const columnMap = Object.fromEntries(columns.rows.map((c) => [c.column_name, c.data_type]));
+    const columnMap = Object.fromEntries(columns.map((c) => [c.column_name, c.data_type]));
 
     expect(columnMap.id).toBe('uuid');
     expect(columnMap.name).toBe('character varying');
@@ -108,7 +108,7 @@ describe('Database Migrations', () => {
       ORDER BY tablename, indexname
     `);
 
-    const indexNames = indexes.rows.map((i) => i.indexname);
+    const indexNames = indexes.map((i) => i.indexname);
 
     // Check for expected indexes
     expect(indexNames).toContain('idx_agents_tags');
@@ -147,12 +147,12 @@ describe('Database Migrations', () => {
     `);
 
     // Find specific foreign keys
-    const nodeExecFk = fks.rows.find(
+    const nodeExecFk = fks.find(
       (fk) => fk.table_name === 'node_executions' && fk.column_name === 'workflow_run_id'
     );
     expect(nodeExecFk?.foreign_table).toBe('workflow_runs');
 
-    const mcpToolsFk = fks.rows.find(
+    const mcpToolsFk = fks.find(
       (fk) => fk.table_name === 'mcp_tools' && fk.column_name === 'server_id'
     );
     expect(mcpToolsFk?.foreign_table).toBe('mcp_servers');
