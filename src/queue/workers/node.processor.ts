@@ -161,12 +161,20 @@ export class NodeProcessor {
         throw new Error(`No executor registered for node type: ${node.type}`);
       }
 
+      // Convert nodeResults from Record to Map, preserving previous results
+      const nodeResultsMap = new Map<string, NodeProcessorResult>();
+      if (context.nodeResults && typeof context.nodeResults === 'object') {
+        for (const [nodeId, result] of Object.entries(context.nodeResults)) {
+          nodeResultsMap.set(nodeId, result as NodeProcessorResult);
+        }
+      }
+
       const executionContext: ExecutionContext = {
         runId,
         workflowId,
         triggerType: context.triggerType as 'manual' | 'schedule' | 'webhook' | 'api',
         input: context.workflowInput as Record<string, unknown>,
-        nodeResults: new Map(),
+        nodeResults: nodeResultsMap,
         startedAt: new Date(context.startedAt as string),
       };
 
