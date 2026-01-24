@@ -140,11 +140,27 @@ make typecheck        # TypeScript check
 - **Logging**: `logger.child('module:name')` with correlation IDs
 - **Style**: Single quotes, semicolons, 2-space indent
 
+## Implementation Status
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for detailed implementation status.
+
+| Module | Status |
+|--------|--------|
+| Agents | **Complete** - Full CRUD, filtering, tests |
+| Workflows | **Partial** - Types/schemas/CRUD, no execution engine |
+| Orchestrator | **Not Started** - Module doesn't exist |
+| Queue Workers | **Not Started** - Queues exist, no processors |
+| Runtime | **Stub** - Types only, no implementations |
+| Integrations | **Framework** - Registry works, no adapters |
+| MCP | **Partial** - CRUD works, no discovery/client |
+| Skills | **Partial** - CRUD works, no template rendering |
+| Observability | **Partial** - Logger works, no DB persistence |
+| Vault | **Partial** - Crypto works, no service/API |
+
 ## File Stats
 
-- Total TypeScript files: 47
-- Lines of code: ~2,050
-- Test files: 0 (tests not yet implemented)
+- Source files: ~50 TypeScript files
+- Test files: 15+ (unit + integration)
 
 ## Dependencies
 

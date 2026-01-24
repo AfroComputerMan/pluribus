@@ -1,8 +1,9 @@
 # Agent Organization System - Architecture Design
 
-**Version**: 1.0
+**Version**: 1.1
 **Created**: 2026-01-24
-**Status**: Draft
+**Updated**: 2026-01-24
+**Status**: Partially Implemented (see [ROADMAP.md](./ROADMAP.md))
 
 ---
 
@@ -1582,15 +1583,33 @@ The UI uses these color tokens that should be defined in CSS/Tailwind:
 
 ---
 
-## 11. Next Steps
+## 11. Implementation Status
 
-1. **Set up project scaffolding** - Initialize Bun project with structure
-2. **Database setup** - Create schema and migrations
-3. **Core services** - Implement agent registry and workflow engine
-4. **Integration adapters** - Start with Claude Code adapter
-5. **API layer** - Build REST endpoints
-6. **Connect to UI** - Integrate with your existing frontend
+See **[ROADMAP.md](./ROADMAP.md)** for detailed implementation tracking.
+
+### Completed
+- [x] Project scaffolding (Bun + TypeScript + Hono)
+- [x] Database schema and migrations (11 tables)
+- [x] Agent registry (full CRUD + filtering)
+- [x] Workflow CRUD (types, schemas, API)
+- [x] MCP server/tool CRUD
+- [x] Skills CRUD
+- [x] Vault encryption (AES-256-GCM)
+- [x] Logger with structured output
+- [x] BullMQ queue setup
+- [x] Integration tests
+
+### In Progress
+- [ ] Queue workers (workflow/node processors)
+- [ ] Workflow execution engine
+- [ ] Orchestrator module (scheduling, triggers)
+
+### Not Started
+- [ ] Integration adapters (Claude Code, Codex, etc.)
+- [ ] MCP client (tool discovery, execution)
+- [ ] Runtime isolation strategies
+- [ ] Frontend integration
 
 ---
 
-**Ready for implementation?** Use `/sc:implement` to generate the initial codebase.
+**Note**: The architecture design above represents the target state. See ROADMAP.md for current implementation gaps.
