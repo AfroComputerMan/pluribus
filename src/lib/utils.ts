@@ -1,4 +1,4 @@
-import { v4 as uuidv4, validate as uuidValidate } from 'uuid';
+import { validate as uuidValidate, v4 as uuidv4 } from 'uuid';
 
 // UUID utilities
 export const uuid = {
@@ -21,12 +21,7 @@ export async function retry<T>(
     shouldRetry?: (error: unknown) => boolean;
   } = {}
 ): Promise<T> {
-  const {
-    maxRetries = 3,
-    baseDelay = 1000,
-    maxDelay = 30000,
-    shouldRetry = () => true,
-  } = options;
+  const { maxRetries = 3, baseDelay = 1000, maxDelay = 30000, shouldRetry = () => true } = options;
 
   let lastError: unknown;
 
@@ -56,9 +51,7 @@ export function withTimeout<T>(
 ): Promise<T> {
   return Promise.race([
     promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(message)), ms)
-    ),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
   ]);
 }
 
@@ -72,10 +65,7 @@ export function safeJsonParse<T>(json: string, fallback: T): T {
 }
 
 // Deep merge objects
-export function deepMerge<T extends Record<string, unknown>>(
-  target: T,
-  source: Partial<T>
-): T {
+export function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial<T>): T {
   const result = { ...target };
 
   for (const key in source) {

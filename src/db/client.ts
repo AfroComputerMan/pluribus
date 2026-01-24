@@ -4,7 +4,8 @@ import postgres from 'postgres';
 import * as schema from './schema';
 
 // Database connection
-const connectionString = process.env.DATABASE_URL || 'postgres://pluribus:pluribus@localhost:5432/pluribus';
+const connectionString =
+  process.env.DATABASE_URL || 'postgres://pluribus:pluribus@localhost:5432/pluribus';
 
 // Create postgres client
 // Max connections: Use 1 for migrations, more for runtime

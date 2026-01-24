@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 // Encryption configuration
 const ALGORITHM = 'aes-256-gcm';
@@ -24,16 +24,13 @@ function getMasterKey(): Buffer {
 // Derive a unique key for each credential
 function deriveKey(credentialId: string): Buffer {
   const masterKey = getMasterKey();
-  return createHash('sha256')
-    .update(masterKey)
-    .update(credentialId)
-    .digest();
+  return createHash('sha256').update(masterKey).update(credentialId).digest();
 }
 
 export interface EncryptedData {
-  ciphertext: string;  // Base64
-  iv: string;          // Base64
-  authTag: string;     // Base64
+  ciphertext: string; // Base64
+  iv: string; // Base64
+  authTag: string; // Base64
 }
 
 // Encrypt data
@@ -56,10 +53,7 @@ export function encrypt(data: string, credentialId: string): EncryptedData {
 }
 
 // Decrypt data
-export function decrypt(
-  encryptedData: EncryptedData,
-  credentialId: string
-): string {
+export function decrypt(encryptedData: EncryptedData, credentialId: string): string {
   const key = deriveKey(credentialId);
   const iv = Buffer.from(encryptedData.iv, 'base64');
   const authTag = Buffer.from(encryptedData.authTag, 'base64');

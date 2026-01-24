@@ -4,7 +4,10 @@ import type { mcpServerSchema, mcpToolSchema } from './schemas';
 export type MCPServer = z.infer<typeof mcpServerSchema>;
 export type MCPTool = z.infer<typeof mcpToolSchema>;
 
-export type CreateMCPServerInput = Omit<MCPServer, 'id' | 'lastConnectedAt' | 'createdAt' | 'updatedAt'>;
+export type CreateMCPServerInput = Omit<
+  MCPServer,
+  'id' | 'lastConnectedAt' | 'createdAt' | 'updatedAt'
+>;
 export type UpdateMCPServerInput = Partial<CreateMCPServerInput>;
 
 // Transport types
@@ -14,12 +17,12 @@ export type MCPTransport = 'stdio' | 'http' | 'websocket';
 export interface StdioConfig {
   command: string;
   args: string[];
-  env?: Record<string, string>;
+  env?: Record<string, string> | undefined;
 }
 
 export interface HttpConfig {
   url: string;
-  headers?: Record<string, string>;
+  headers?: Record<string, string> | undefined;
 }
 
 export interface WebSocketConfig {
@@ -27,9 +30,9 @@ export interface WebSocketConfig {
 }
 
 export interface MCPServerConfig {
-  stdio?: StdioConfig;
-  http?: HttpConfig;
-  websocket?: WebSocketConfig;
+  stdio?: StdioConfig | undefined;
+  http?: HttpConfig | undefined;
+  websocket?: WebSocketConfig | undefined;
 }
 
 // Tool input schema (JSON Schema subset)

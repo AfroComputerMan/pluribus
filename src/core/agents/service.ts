@@ -1,5 +1,5 @@
-import type { AgentFilter, CreateAgentInput, UpdateAgentInput } from './types';
 import { agentRepository } from './repository';
+import type { AgentFilter, CreateAgentInput, UpdateAgentInput } from './types';
 
 export class AgentService {
   async getAgent(id: string) {

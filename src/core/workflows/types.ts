@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { workflowSchema, workflowRunSchema } from './schemas';
+import type { workflowRunSchema, workflowSchema } from './schemas';
 
 // Workflow types from schema
 export type Workflow = z.infer<typeof workflowSchema>;
@@ -60,12 +60,7 @@ export interface HumanReviewNode {
   options?: string[];
 }
 
-export type WorkflowNode =
-  | AgentNode
-  | ConditionNode
-  | ParallelNode
-  | LoopNode
-  | HumanReviewNode;
+export type WorkflowNode = AgentNode | ConditionNode | ParallelNode | LoopNode | HumanReviewNode;
 
 export interface WorkflowEdge {
   id: string;

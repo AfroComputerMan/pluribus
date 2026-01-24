@@ -24,13 +24,11 @@ export const agents = pgTable(
     tags: text('tags').array().default([]),
 
     // Model configuration
-    modelConfig: jsonb('model_config')
-      .notNull()
-      .$type<{
-        provider: 'anthropic' | 'openai' | 'custom';
-        model: string;
-        parameters?: Record<string, unknown>;
-      }>(),
+    modelConfig: jsonb('model_config').notNull().$type<{
+      provider: 'anthropic' | 'openai' | 'custom';
+      model: string;
+      parameters?: Record<string, unknown>;
+    }>(),
 
     // Behavior settings
     memoryMode: varchar('memory_mode', { length: 20 }).default('stateless').notNull(),
@@ -70,14 +68,12 @@ export const workflows = pgTable('workflows', {
   triggers: jsonb('triggers').default([]).$type<WorkflowTrigger[]>(),
 
   // Error handling
-  errorStrategy: jsonb('error_strategy')
-    .notNull()
-    .$type<{
-      retries: number;
-      retryDelay: number;
-      fallbackNodeId?: string;
-      onFailure: 'stop' | 'continue' | 'human-review';
-    }>(),
+  errorStrategy: jsonb('error_strategy').notNull().$type<{
+    retries: number;
+    retryDelay: number;
+    fallbackNodeId?: string;
+    onFailure: 'stop' | 'continue' | 'human-review';
+  }>(),
 
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -138,13 +134,11 @@ export const mcpServers = pgTable('mcp_servers', {
   transport: varchar('transport', { length: 20 }).notNull(), // stdio, http, websocket
 
   // Transport-specific config
-  config: jsonb('config')
-    .notNull()
-    .$type<{
-      stdio?: { command: string; args: string[] };
-      http?: { url: string; headers?: Record<string, string> };
-      websocket?: { url: string };
-    }>(),
+  config: jsonb('config').notNull().$type<{
+    stdio?: { command: string; args: string[] };
+    http?: { url: string; headers?: Record<string, string> };
+    websocket?: { url: string };
+  }>(),
 
   enabled: boolean('enabled').default(true).notNull(),
   lastConnectedAt: timestamp('last_connected_at', { withTimezone: true }),
@@ -266,12 +260,7 @@ export const usageRecords = pgTable(
 // ===================
 // Type definitions for JSONB columns
 // ===================
-export type WorkflowNode =
-  | AgentNode
-  | ConditionNode
-  | ParallelNode
-  | LoopNode
-  | HumanReviewNode;
+export type WorkflowNode = AgentNode | ConditionNode | ParallelNode | LoopNode | HumanReviewNode;
 
 export interface AgentNode {
   id: string;

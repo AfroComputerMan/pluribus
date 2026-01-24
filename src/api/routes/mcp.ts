@@ -1,22 +1,17 @@
+import { and, desc, eq, ilike } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { and, eq, desc, ilike } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { mcpServers, mcpTools } from '@/db/schema';
 import { NotFoundError } from '@/lib/errors';
 import {
   createMCPServerSchema,
-  updateMCPServerSchema,
   mcpServerFilterSchema,
   mcpToolFilterSchema,
+  updateMCPServerSchema,
 } from '@/mcp';
-import {
-  validateBody,
-  validateQuery,
-  getValidatedBody,
-  getValidatedQuery,
-} from '../middleware';
+import { getValidatedBody, getValidatedQuery, validateBody, validateQuery } from '../middleware';
 
 const mcp = new Hono();
 
@@ -126,13 +121,16 @@ mcp.post('/servers/:id/discover', async (c) => {
   // TODO: Implement actual MCP connection and tool discovery
   // For now, return a placeholder response
 
-  return c.json({
-    data: {
-      serverId: id,
-      status: 'discovery_started',
-      message: 'Tool discovery has been initiated',
+  return c.json(
+    {
+      data: {
+        serverId: id,
+        status: 'discovery_started',
+        message: 'Tool discovery has been initiated',
+      },
     },
-  }, 202);
+    202
+  );
 });
 
 // ====================
@@ -177,11 +175,7 @@ mcp.put('/tools/:id', async (c) => {
   const body = await c.req.json();
   const { enabled } = z.object({ enabled: z.boolean() }).parse(body);
 
-  const [tool] = await db
-    .update(mcpTools)
-    .set({ enabled })
-    .where(eq(mcpTools.id, id))
-    .returning();
+  const [tool] = await db.update(mcpTools).set({ enabled }).where(eq(mcpTools.id, id)).returning();
 
   if (!tool) {
     throw new NotFoundError('MCPTool', id);
@@ -194,12 +188,15 @@ mcp.put('/tools/:id', async (c) => {
 mcp.post('/scan', async (c) => {
   // TODO: Implement network/system scanning for MCP servers
 
-  return c.json({
-    data: {
-      status: 'scan_started',
-      message: 'MCP server discovery scan has been initiated',
+  return c.json(
+    {
+      data: {
+        status: 'scan_started',
+        message: 'MCP server discovery scan has been initiated',
+      },
     },
-  }, 202);
+    202
+  );
 });
 
 export { mcp };

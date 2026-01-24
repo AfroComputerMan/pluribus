@@ -89,11 +89,7 @@ export class ServiceUnavailableError extends AppError {
 
 // Integration-specific errors
 export class IntegrationError extends AppError {
-  constructor(
-    integration: string,
-    message: string,
-    details?: Record<string, unknown>
-  ) {
+  constructor(integration: string, message: string, details?: Record<string, unknown>) {
     super(message, 'INTEGRATION_ERROR', 502, { integration, ...details });
     this.name = 'IntegrationError';
   }
@@ -107,12 +103,7 @@ export class CredentialError extends AppError {
 }
 
 export class WorkflowExecutionError extends AppError {
-  constructor(
-    workflowId: string,
-    nodeId: string,
-    message: string,
-    cause?: Error
-  ) {
+  constructor(workflowId: string, nodeId: string, message: string, cause?: Error) {
     super(message, 'WORKFLOW_EXECUTION_ERROR', 500, {
       workflowId,
       nodeId,

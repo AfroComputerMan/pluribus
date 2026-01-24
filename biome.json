@@ -40,11 +40,6 @@
     }
   },
   "files": {
-    "ignore": [
-      "node_modules",
-      "dist",
-      ".git",
-      "*.json"
-    ]
+    "ignore": ["node_modules", "dist", ".git", "*.json"]
   }
 }

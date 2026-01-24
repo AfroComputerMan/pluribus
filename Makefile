@@ -85,8 +85,17 @@ db-reset: ## Reset database (WARNING: destroys all data)
 # ===================
 # Testing
 # ===================
-test: ## Run tests
+test: ## Run all tests
 	docker compose exec pluribus bun test
+
+test-unit: ## Run unit tests only
+	docker compose exec pluribus bun test tests/unit
+
+test-integration: ## Run integration tests (requires Docker)
+	bun test tests/integration --timeout 120000
+
+test-migrations: ## Run migration tests (uses testcontainers)
+	bun test tests/integration/db/migrations.test.ts --timeout 120000
 
 test-watch: ## Run tests in watch mode
 	docker compose exec pluribus bun test --watch

@@ -1,24 +1,19 @@
+import { desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { z } from 'zod';
-import { eq, desc } from 'drizzle-orm';
+import type { z } from 'zod';
 
-import { db } from '@/db';
-import { workflows, workflowRuns } from '@/db/schema';
-import { NotFoundError } from '@/lib/errors';
 import {
   createWorkflowSchema,
+  triggerRunSchema,
   updateWorkflowSchema,
   workflowFilterSchema,
   workflowRunFilterSchema,
-  triggerRunSchema,
 } from '@/core/workflows';
+import { db } from '@/db';
+import { workflowRuns, workflows } from '@/db/schema';
+import { NotFoundError } from '@/lib/errors';
 import { enqueueWorkflow } from '@/queue';
-import {
-  validateBody,
-  validateQuery,
-  getValidatedBody,
-  getValidatedQuery,
-} from '../middleware';
+import { getValidatedBody, getValidatedQuery, validateBody, validateQuery } from '../middleware';
 
 const workflowRoutes = new Hono();
 
@@ -121,9 +116,13 @@ workflowRoutes.post('/:id/run', validateBody(triggerRunSchema), async (c) => {
     })
     .returning();
 
+  if (!run) {
+    throw new Error('Failed to create workflow run');
+  }
+
   // Enqueue for execution
   await enqueueWorkflow({
-    runId: run!.id,
+    runId: run.id,
     workflowId: id,
     triggerType: 'api',
     input: input || {},

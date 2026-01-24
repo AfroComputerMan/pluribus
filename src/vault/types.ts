@@ -29,9 +29,9 @@ export interface EncryptedCredential {
   name: string;
   type: 'oauth' | 'api-key';
   integration: string;
-  encryptedData: string;  // Base64 encoded
-  iv: string;              // Base64 encoded
-  authTag: string;         // Base64 encoded
+  encryptedData: string; // Base64 encoded
+  iv: string; // Base64 encoded
+  authTag: string; // Base64 encoded
   expiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;

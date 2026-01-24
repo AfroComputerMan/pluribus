@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
-import { z } from 'zod';
+import type { z } from 'zod';
 
-import { agentService, createAgentSchema, updateAgentSchema, agentFilterSchema } from '@/core/agents';
 import {
-  validateBody,
-  validateQuery,
-  getValidatedBody,
-  getValidatedQuery,
-} from '../middleware';
+  agentFilterSchema,
+  agentService,
+  createAgentSchema,
+  updateAgentSchema,
+} from '@/core/agents';
+import { getValidatedBody, getValidatedQuery, validateBody, validateQuery } from '../middleware';
 
 const agents = new Hono();
 
