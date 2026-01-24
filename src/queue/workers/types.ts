@@ -16,7 +16,7 @@ export interface WorkflowProcessorResult {
 
 export interface NodeProcessorResult {
   nodeId: string;
-  status: 'completed' | 'failed' | 'skipped';
+  status: 'completed' | 'failed' | 'skipped' | 'pending';
   output?: unknown;
   error?: string;
   startedAt: Date;
