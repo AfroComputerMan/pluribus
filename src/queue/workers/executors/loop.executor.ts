@@ -21,19 +21,16 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
   async execute(
     node: LoopNode,
     context: ExecutionContext,
-    job: Job<NodeJobData>
+    _job: Job<NodeJobData>
   ): Promise<NodeProcessorResult> {
     const startedAt = new Date();
 
-    log.info(
-      {
-        nodeId: node.id,
-        maxIterations: node.maxIterations,
-        bodyNode: node.body,
-        runId: context.runId,
-      },
-      'Executing loop node'
-    );
+    log.info('Executing loop node', {
+      nodeId: node.id,
+      maxIterations: node.maxIterations,
+      bodyNode: node.body,
+      runId: context.runId,
+    });
 
     try {
       const iterations: Array<{ iteration: number; output: unknown }> = [];
@@ -51,22 +48,22 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
         });
 
         if (!shouldContinue) {
-          log.debug(
-            { nodeId: node.id, iteration: currentIteration },
-            'Loop condition evaluated to false, exiting'
-          );
+          log.debug('Loop condition evaluated to false, exiting', {
+            nodeId: node.id,
+            iteration: currentIteration,
+          });
           break;
         }
 
         currentIteration++;
 
-        log.debug(
-          { nodeId: node.id, iteration: currentIteration },
-          'Starting loop iteration'
-        );
+        log.debug('Starting loop iteration', {
+          nodeId: node.id,
+          iteration: currentIteration,
+        });
 
         // Enqueue the body node
-        const iterationNodeId = `${node.body}:iteration:${currentIteration}`;
+        // const _iterationNodeId = `${node.body}:iteration:${currentIteration}`;
 
         await enqueueNode({
           runId: context.runId,
@@ -120,14 +117,11 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
 
       const completedAt = new Date();
 
-      log.info(
-        {
-          nodeId: node.id,
-          totalIterations: currentIteration,
-          durationMs: completedAt.getTime() - startedAt.getTime(),
-        },
-        'Loop node completed'
-      );
+      log.info('Loop node completed', {
+        nodeId: node.id,
+        totalIterations: currentIteration,
+        durationMs: completedAt.getTime() - startedAt.getTime(),
+      });
 
       return {
         nodeId: node.id,
@@ -144,13 +138,10 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      log.error(
-        {
-          nodeId: node.id,
-          error: errorMessage,
-        },
-        'Loop node failed'
-      );
+      log.error('Loop node failed', {
+        nodeId: node.id,
+        error: errorMessage,
+      });
 
       return {
         nodeId: node.id,
@@ -196,7 +187,7 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
       // Simple boolean evaluation
       return this.safeEvaluate(evaluable);
     } catch (error) {
-      log.warn({ condition, error }, 'Loop condition evaluation failed, defaulting to false');
+      log.warn('Loop condition evaluation failed, defaulting to false', { condition, error });
       return false;
     }
   }
@@ -210,8 +201,10 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
       /^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/
     );
 
-    if (comparisonMatch) {
-      const [, leftStr, operator, rightStr] = comparisonMatch;
+    if (comparisonMatch && comparisonMatch[1] && comparisonMatch[2] && comparisonMatch[3]) {
+      const leftStr = comparisonMatch[1];
+      const operator = comparisonMatch[2];
+      const rightStr = comparisonMatch[3];
       const left = this.parseValue(leftStr.trim());
       const right = this.parseValue(rightStr.trim());
 

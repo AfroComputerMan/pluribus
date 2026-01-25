@@ -1,8 +1,8 @@
-import { describe, expect, it, mock, beforeEach, spyOn } from 'bun:test';
+import { describe, expect, it, mock, beforeEach } from 'bun:test';
 import { WorkflowService } from '@/core/workflows/service';
 import { WorkflowRepository } from '@/core/workflows/repository';
 import { ValidationError } from '@/lib/errors';
-import type { CreateWorkflowInput, Workflow } from '@/core/workflows/types';
+import type { CreateWorkflowInput } from '@/core/workflows/types';
 
 describe('WorkflowService', () => {
   // Create a mock repository
