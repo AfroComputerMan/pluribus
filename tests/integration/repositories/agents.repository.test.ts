@@ -235,6 +235,8 @@ describe('AgentRepository Integration', () => {
   describe('update', () => {
     test('updates agent fields', async () => {
       const created = await repository.create(createTestAgentInput());
+      // Small delay to ensure updatedAt timestamp differs
+      await new Promise((resolve) => setTimeout(resolve, 10));
       const updated = await repository.update(created.id, {
         name: 'Updated Name',
         description: 'Updated description',

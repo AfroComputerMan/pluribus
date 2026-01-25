@@ -11,6 +11,7 @@ import {
   mcpToolFilterSchema,
   updateMCPServerSchema,
 } from '@/mcp';
+import { mcpService } from '@/mcp/service';
 import { getValidatedBody, getValidatedQuery, validateBody, validateQuery } from '../middleware';
 
 const mcp = new Hono();
@@ -118,19 +119,16 @@ mcp.post('/servers/:id/discover', async (c) => {
     throw new NotFoundError('MCPServer', id);
   }
 
-  // TODO: Implement actual MCP connection and tool discovery
-  // For now, return a placeholder response
+  // Discover tools from the MCP server
+  const tools = await mcpService.discoverTools(id);
 
-  return c.json(
-    {
-      data: {
-        serverId: id,
-        status: 'discovery_started',
-        message: 'Tool discovery has been initiated',
-      },
+  return c.json({
+    data: {
+      serverId: id,
+      toolsDiscovered: tools.length,
+      tools,
     },
-    202
-  );
+  });
 });
 
 // ====================
@@ -184,19 +182,17 @@ mcp.put('/tools/:id', async (c) => {
   return c.json({ data: tool });
 });
 
-// POST /api/mcp/scan - Scan for MCP servers (auto-discovery)
+// POST /api/mcp/scan - Scan all enabled servers for tools
 mcp.post('/scan', async (c) => {
-  // TODO: Implement network/system scanning for MCP servers
+  // Scan all enabled MCP servers and discover their tools
+  await mcpService.scanServers();
 
-  return c.json(
-    {
-      data: {
-        status: 'scan_started',
-        message: 'MCP server discovery scan has been initiated',
-      },
+  return c.json({
+    data: {
+      status: 'completed',
+      message: 'All enabled servers scanned for tools',
     },
-    202
-  );
+  });
 });
 
 export { mcp };
