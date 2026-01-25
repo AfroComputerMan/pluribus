@@ -137,11 +137,9 @@ export class ConditionExecutor implements NodeExecutor<ConditionNode> {
     }
 
     // Handle comparison operators
-    const comparisonMatch = expression.match(
-      /^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/
-    );
+    const comparisonMatch = expression.match(/^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
 
-    if (comparisonMatch && comparisonMatch[1] && comparisonMatch[2] && comparisonMatch[3]) {
+    if (comparisonMatch?.[1] && comparisonMatch[2] && comparisonMatch[3]) {
       const leftStr = comparisonMatch[1];
       const operator = comparisonMatch[2];
       const rightStr = comparisonMatch[3];
