@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { type WorkflowService, getWorkflowService } from '@/core/workflows/service';
+import { WorkflowService } from '@/core/workflows/service';
 import { logger } from '@/observability/logger';
 import { type EventBus, getEventBus } from './event-bus';
 import { type OrchestratorRepository, getOrchestratorRepository } from './repository';
@@ -28,7 +28,7 @@ export class WebhookService {
     eventBus?: EventBus
   ) {
     this.repository = repository || getOrchestratorRepository();
-    this.workflowService = workflowService || getWorkflowService();
+    this.workflowService = workflowService || new WorkflowService();
     this.eventBus = eventBus || getEventBus();
   }
 
