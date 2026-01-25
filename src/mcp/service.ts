@@ -69,7 +69,11 @@ export class MCPService {
             serverId,
             name: toolDef.name,
             description: toolDef.description,
-            inputSchema: toolDef.inputSchema as { type: 'object'; properties?: Record<string, unknown>; required?: string[] },
+            inputSchema: toolDef.inputSchema as {
+              type: 'object';
+              properties?: Record<string, unknown>;
+              required?: string[];
+            },
             enabled: true,
           })
           .returning();

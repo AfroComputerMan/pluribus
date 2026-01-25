@@ -1,5 +1,5 @@
 import { createLogger } from '@/observability/logger';
-import type { JSONRPCRequest, JSONRPCResponse, IMCPTransport } from './transport';
+import type { IMCPTransport, JSONRPCRequest, JSONRPCResponse } from './transport';
 
 const logger = createLogger('mcp:client');
 
