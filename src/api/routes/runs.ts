@@ -170,6 +170,13 @@ runs.post('/:id/review', async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
   const { decision, comment } = reviewDecisionSchema.parse(body);
+  const normalizedDecision = decision.trim().toLowerCase();
+  const approved = normalizedDecision === 'approve' || normalizedDecision === 'approved';
+  const rejected = normalizedDecision === 'reject' || normalizedDecision === 'rejected';
+
+  if (!approved && !rejected) {
+    throw new ValidationError('Decision must be approve/approved or reject/rejected');
+  }
 
   // Get the workflow run to verify it exists and get workflow info
   const run = await db.query.workflowRuns.findFirst({
@@ -188,11 +195,15 @@ runs.post('/:id/review', async (c) => {
   const [node] = await db
     .update(nodeExecutions)
     .set({
-      status: 'completed',
-      output: { decision, comment, reviewedAt: new Date().toISOString() },
+      status: approved ? 'completed' : 'failed',
+      output: {
+        decision: approved ? 'approved' : 'rejected',
+        comment,
+        reviewedAt: new Date().toISOString(),
+      },
       completedAt: new Date(),
     })
-    .where(and(eq(nodeExecutions.workflowRunId, id), eq(nodeExecutions.status, 'running')))
+    .where(and(eq(nodeExecutions.workflowRunId, id), eq(nodeExecutions.status, 'pending')))
     .returning();
 
   if (!node) {
@@ -202,20 +213,31 @@ runs.post('/:id/review', async (c) => {
   log.info('Human review submitted', {
     runId: id,
     nodeId: node.nodeId,
-    decision,
+    decision: approved ? 'approved' : 'rejected',
   });
 
-  // Update run status back to running and resume workflow execution
-  await db.update(workflowRuns).set({ status: 'running' }).where(eq(workflowRuns.id, id));
+  if (approved) {
+    // Update run status back to running and resume workflow execution
+    await db.update(workflowRuns).set({ status: 'running' }).where(eq(workflowRuns.id, id));
 
-  // Re-enqueue the workflow to continue execution
-  // The workflow processor will pick up from where it left off
-  await enqueueWorkflow({
-    runId: id,
-    workflowId: run.workflowId,
-    triggerType: run.triggerType as 'manual' | 'schedule' | 'webhook' | 'api',
-    input: (run.input as Record<string, unknown>) || {},
-  });
+    // Re-enqueue the workflow to continue execution
+    // The workflow processor will pick up from where it left off
+    await enqueueWorkflow({
+      runId: id,
+      workflowId: run.workflowId,
+      triggerType: run.triggerType as 'manual' | 'schedule' | 'webhook' | 'api',
+      input: (run.input as Record<string, unknown>) || {},
+    });
+  } else {
+    await db
+      .update(workflowRuns)
+      .set({
+        status: 'failed',
+        error: `Human review rejected: ${comment ?? 'No reason provided'}`,
+        completedAt: new Date(),
+      })
+      .where(eq(workflowRuns.id, id));
+  }
 
   return c.json({ data: node });
 });

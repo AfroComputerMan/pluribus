@@ -587,7 +587,7 @@ describe('Runs API Integration', () => {
         .values({
           workflowRunId: run.id,
           nodeId: 'review-node',
-          status: 'running',
+          status: 'pending',
           input: { question: 'Approve this?' },
         })
         .returning();
@@ -611,7 +611,7 @@ describe('Runs API Integration', () => {
       expect(res.status).toBe(200);
       expect(json.data.id).toBe(node.id);
       expect(json.data.status).toBe('completed');
-      expect(json.data.output.decision).toBe('approve');
+      expect(json.data.output.decision).toBe('approved');
       expect(json.data.output.comment).toBe('Looks good');
       expect(json.data.output.reviewedAt).toBeDefined();
 
@@ -626,6 +626,68 @@ describe('Runs API Integration', () => {
       expect(enqueuedJobs[0]?.queue).toBe('workflow');
       expect(enqueuedJobs[0]?.data.runId).toBe(run.id);
       expect(enqueuedJobs[0]?.data.workflowId).toBe(workflow.id);
+    });
+
+    test('rejects human review and marks run as failed', async () => {
+      const [workflow] = await containers.db
+        .insert(schema.workflows)
+        .values(createTestWorkflowInput({ name: 'Test Workflow' }))
+        .returning();
+
+      if (!workflow) throw new Error('Failed to create workflow');
+
+      const [run] = await containers.db
+        .insert(schema.workflowRuns)
+        .values({
+          workflowId: workflow.id,
+          status: 'pending',
+          triggerType: 'manual',
+          input: { test: 'data' },
+        })
+        .returning();
+
+      if (!run) throw new Error('Failed to create run');
+
+      const [node] = await containers.db
+        .insert(schema.nodeExecutions)
+        .values({
+          workflowRunId: run.id,
+          nodeId: 'review-node',
+          status: 'pending',
+          input: { question: 'Approve this?' },
+        })
+        .returning();
+
+      if (!node) throw new Error('Failed to create node');
+
+      const res = await app.request(`/api/runs/${run.id}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: 'reject', comment: 'Needs changes' }),
+      });
+
+      const json = (await res.json()) as {
+        data: {
+          id: string;
+          status: string;
+          output: { decision: string; comment: string; reviewedAt: string };
+        };
+      };
+
+      expect(res.status).toBe(200);
+      expect(json.data.id).toBe(node.id);
+      expect(json.data.status).toBe('failed');
+      expect(json.data.output.decision).toBe('rejected');
+      expect(json.data.output.comment).toBe('Needs changes');
+      expect(json.data.output.reviewedAt).toBeDefined();
+
+      const updatedRun = await containers.db.query.workflowRuns.findFirst({
+        where: eq(schema.workflowRuns.id, run.id),
+      });
+      expect(updatedRun?.status).toBe('failed');
+      expect(updatedRun?.error).toBe('Human review rejected: Needs changes');
+
+      expect(enqueuedJobs.length).toBe(0);
     });
 
     test('returns error when no pending review found', async () => {
