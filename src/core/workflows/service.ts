@@ -283,10 +283,3 @@ export class WorkflowService {
 }
 
 export const workflowService = new WorkflowService();
-
-/**
- * Get the workflow service singleton.
- */
-export function getWorkflowService(): WorkflowService {
-  return workflowService;
-}
