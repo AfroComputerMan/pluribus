@@ -39,7 +39,7 @@ export class WorkflowService {
       });
     }
 
-    log.info({ name: input.name, nodeCount: input.nodes.length }, 'Creating workflow');
+    log.info('Creating workflow', { name: input.name, nodeCount: input.nodes.length });
 
     return this.repository.create(input) as Promise<Workflow>;
   }
@@ -59,13 +59,13 @@ export class WorkflowService {
       }
     }
 
-    log.info({ id }, 'Updating workflow');
+    log.info('Updating workflow', { id });
 
     return this.repository.update(id, input) as Promise<Workflow>;
   }
 
   async deleteWorkflow(id: string): Promise<boolean> {
-    log.info({ id }, 'Deleting workflow');
+    log.info('Deleting workflow', { id });
     return this.repository.delete(id);
   }
 
@@ -96,14 +96,11 @@ export class WorkflowService {
     // Create the run record
     const run = await this.repository.createRun(workflowId, triggerType, input);
 
-    log.info(
-      {
-        workflowId,
-        runId: run.id,
-        triggerType,
-      },
-      'Workflow run triggered'
-    );
+    log.info('Workflow run triggered', {
+      workflowId,
+      runId: run.id,
+      triggerType,
+    });
 
     // Enqueue for processing
     await enqueueWorkflow({
@@ -126,7 +123,7 @@ export class WorkflowService {
       throw new ValidationError(`Cannot cancel run with status '${run.status}'`);
     }
 
-    log.info({ runId }, 'Cancelling workflow run');
+    log.info('Cancelling workflow run', { runId });
 
     return this.repository.cancelRun(runId) as Promise<WorkflowRun>;
   }
@@ -146,7 +143,7 @@ export class WorkflowService {
       throw new ValidationError('Cannot retry run: original workflow has been deleted');
     }
 
-    log.info({ originalRunId: runId, workflowId: originalRun.workflowId }, 'Retrying workflow run');
+    log.info('Retrying workflow run', { originalRunId: runId, workflowId: originalRun.workflowId });
 
     return this.triggerRun(
       originalRun.workflowId,
@@ -242,14 +239,11 @@ export class WorkflowService {
       throw new ValidationError(`Node is not waiting for review (status: ${nodeExecution.status})`);
     }
 
-    log.info(
-      {
-        runId,
-        nodeId,
-        approved: decision.approved,
-      },
-      'Human review submitted'
-    );
+    log.info('Human review submitted', {
+      runId,
+      nodeId,
+      approved: decision.approved,
+    });
 
     // Update the node execution with the review decision
     await this.repository.updateNodeExecution(runId, nodeId, {
