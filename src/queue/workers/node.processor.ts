@@ -202,7 +202,7 @@ export class NodeProcessor {
         // Update workflow run status to pending
         await db.update(workflowRuns).set({ status: 'pending' }).where(eq(workflowRuns.id, runId));
 
-        log.info({ runId, nodeId }, 'Workflow paused for human review');
+        log.info('Workflow paused for human review', { runId, nodeId });
         return result;
       }
 
