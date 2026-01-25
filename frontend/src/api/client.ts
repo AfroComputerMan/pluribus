@@ -156,7 +156,7 @@ export const api = {
       apiFetch<DataResponse<WorkflowRun>>(`/runs/${id}`),
 
     create: (workflowId: string, input: Record<string, unknown>) =>
-      apiFetch<DataResponse<WorkflowRun>>(`/workflows/${workflowId}/runs`, {
+      apiFetch<DataResponse<WorkflowRun>>(`/workflows/${workflowId}/run`, {
         method: 'POST',
         body: JSON.stringify({ input }),
       }),
