@@ -1,5 +1,11 @@
 import { logger } from '@/observability/logger';
-import { agentExecutor, conditionExecutor } from './executors';
+import {
+  agentExecutor,
+  conditionExecutor,
+  humanReviewExecutor,
+  loopExecutor,
+  parallelExecutor,
+} from './executors';
 import { NodeProcessor } from './node.processor';
 import type { WorkerConfig } from './types';
 import { WorkflowProcessor } from './workflow.processor';
@@ -29,9 +35,12 @@ export class WorkerManager {
     this.workflowProcessor = new WorkflowProcessor(config.workflow);
     this.nodeProcessor = new NodeProcessor(config.node);
 
-    // Register default executors
+    // Register all node executors
     this.nodeProcessor.registerExecutor(agentExecutor);
     this.nodeProcessor.registerExecutor(conditionExecutor);
+    this.nodeProcessor.registerExecutor(parallelExecutor);
+    this.nodeProcessor.registerExecutor(loopExecutor);
+    this.nodeProcessor.registerExecutor(humanReviewExecutor);
   }
 
   /**
