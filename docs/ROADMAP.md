@@ -1,7 +1,28 @@
 # Pluribus Implementation Roadmap
 
-**Last Updated**: 2026-01-24
-**Status**: Active Development
+**Last Updated**: 2026-01-25
+**Status**: Active Development - Nearing MVP
+
+---
+
+## 🎯 Current State: 95% to MVP!
+
+**What's Working** ✅:
+- Complete workflow engine with DAG execution
+- All queue workers and node processors
+- Full orchestrator (scheduler, webhooks, events)
+- Claude Code integration adapter
+- All 5 node executors (agent/condition/parallel/loop/human-review)
+- Complete REST API for all resources
+
+**What's Missing for MVP** ⚠️:
+1. **Agent Executor → Adapter Wiring** (~2 hours) - Single file change!
+2. **MVP UI** (~1-2 days) - 3 pages, basic styling
+3. **SSE Endpoint** (~1 hour) - Real-time updates
+
+**Timeline to MVP**: 2-3 days of focused work
+
+**Why This Matters**: Backend is essentially complete. One small fix + basic UI = working product with visual feedback.
 
 ---
 
@@ -10,16 +31,17 @@
 | Module | Status | Completeness | Priority |
 |--------|--------|--------------|----------|
 | [Agents](#agents-module) | **Complete** | 95% | - |
-| [Workflows](#workflows-module) | **Partial** | 40% | P0 |
-| [Orchestrator](#orchestrator-module) | **Not Started** | 0% | P0 |
-| [Queue Workers](#queue-workers) | **Not Started** | 0% | P0 |
+| [Workflows](#workflows-module) | **Complete** | 90% | ✅ |
+| [Orchestrator](#orchestrator-module) | **Complete** | 90% | ✅ |
+| [Queue Workers](#queue-workers) | **Mostly Complete** | 80% | P0 |
+| [Integrations](#integrations) | **Claude Code Ready** | 70% | P0 |
+| [MVP UI](#mvp-ui) | **Not Started** | 0% | P0 |
 | [Runtime Execution](#runtime-execution) | **Stub Only** | 10% | P1 |
-| [Integrations](#integrations) | **Framework Only** | 15% | P1 |
 | [MCP](#mcp-module) | **Partial** | 60% | P1 |
-| [Skills](#skills-module) | **Partial** | 60% | P2 |
 | [Observability](#observability-module) | **Partial** | 70% | P2 |
+| [Skills](#skills-module) | **Partial** | 60% | P2 |
 | [Vault](#vault-module) | **Partial** | 65% | P2 |
-| [Frontend UI](#frontend-ui) | **Design Only** | 0% | P3 |
+| [Full Frontend UI](#frontend-ui-full) | **Design Only** | 0% | P3 |
 | [WebSocket](#websocket-real-time) | **Not Started** | 0% | P3 |
 | [Database Configuration](#database-configuration) | **Not Started** | 0% | P3 |
 
@@ -50,7 +72,7 @@
 ---
 
 ### Workflows Module
-**Status: Partial** | **Location**: `src/core/workflows/`
+**Status: Complete** | **Location**: `src/core/workflows/`
 
 #### Implemented
 - [x] Type definitions for all node types (`types.ts`)
@@ -60,61 +82,61 @@
 - [x] Zod validation schemas (`schemas.ts`)
 - [x] Database tables (workflows, workflowRuns, nodeExecutions)
 - [x] CRUD API endpoints for workflows
-- [x] Run creation endpoint (`POST /api/workflows/:id/run`)
+- [x] Run creation endpoint with queue integration (`POST /api/workflows/:id/run`)
+- [x] **DAG Execution Engine** (`src/queue/workers/dag.ts`)
+  - [x] DAG traversal algorithm (topologicalSort)
+  - [x] Node dependency resolution (analyzeDAG)
+  - [x] Ready node identification (getReadyNodes)
+  - [x] DAG validation (validateDAG)
+- [x] **Node Executors** (`src/queue/workers/executors/`)
+  - [x] AgentNode executor framework
+  - [x] ConditionNode evaluator
+  - [x] ParallelNode coordinator
+  - [x] LoopNode iterator
+  - [x] HumanReviewNode approval handler
+- [x] **Error Handling**
+  - [x] Retry logic with exponential backoff (BullMQ)
+  - [x] Error strategy execution (continue/stop/fallback)
+  - [x] Node failure handling
+- [x] **State Management**
+  - [x] Workflow context/state persistence in DB
+  - [x] Node execution tracking
 - [x] Integration tests for CRUD
 
-#### Not Implemented (Critical Path)
-- [ ] **Workflow Service** - business logic layer
-- [ ] **Workflow Repository** - data access layer
-- [ ] **DAG Execution Engine**
-  - [ ] DAG traversal algorithm
-  - [ ] Node dependency resolution
-  - [ ] Input/output mapping between nodes
-  - [ ] Parallel branch coordination
-  - [ ] Join strategies (all/any/race)
-- [ ] **Node Executors**
-  - [ ] AgentNode executor (calls runtime)
-  - [ ] ConditionNode evaluator (expression evaluation)
-  - [ ] ParallelNode coordinator
-  - [ ] LoopNode iterator
-  - [ ] HumanReviewNode approval handler
-- [ ] **Error Handling**
-  - [ ] Retry logic implementation
-  - [ ] Fallback node execution
-  - [ ] onFailure callbacks
-- [ ] **State Management**
-  - [ ] Workflow context/state persistence
-  - [ ] Checkpoint/resume capabilities
-- [ ] Run retry endpoint (`POST /api/runs/:id/retry` - has TODO)
-- [ ] Human review approval (`POST /api/runs/:id/review` - has TODO)
+#### Not Implemented (Minor)
+- [ ] Run retry endpoint (`POST /api/runs/:id/retry` - needs enqueue call)
+- [ ] Human review resume (`POST /api/runs/:id/review` - needs workflow resume)
 
 ---
 
 ### Orchestrator Module
-**Status: Not Started** | **Location**: `src/core/orchestrator/` (does not exist)
+**Status: Complete** | **Location**: `src/core/orchestrator/`
 
-#### Not Implemented
-- [ ] **Module Creation** - directory and file structure
-- [ ] **Schedule Trigger Service**
-  - [ ] Cron expression parsing
-  - [ ] Schedule registration/deregistration
-  - [ ] Next run calculation
-- [ ] **Webhook Trigger Service**
-  - [ ] Webhook endpoint receiver
-  - [ ] Signature validation
-  - [ ] Payload parsing and workflow matching
-- [ ] **Event Bus**
-  - [ ] Internal event pub/sub
-  - [ ] Event-to-workflow mapping
+#### Implemented
+- [x] Module structure (types, schemas, service, repository)
+- [x] **Schedule Trigger Service** (`scheduler.ts`)
+  - [x] Cron expression parsing
+  - [x] Schedule registration/deregistration
+  - [x] BullMQ repeatable job integration
+- [x] **Webhook Trigger Service** (`webhook.ts`)
+  - [x] Webhook endpoint receiver
+  - [x] Signature validation
+  - [x] Payload parsing
+- [x] **Event Bus** (`event-bus.ts`)
+  - [x] Internal event pub/sub
+  - [x] Event-to-workflow mapping
+- [x] Cron utilities (`cron.ts`)
+
+#### Not Implemented (Future)
 - [ ] **Trigger Management API**
-  - [ ] CRUD for triggers
+  - [ ] CRUD endpoints for triggers
   - [ ] Trigger enable/disable
-  - [ ] Trigger history
+  - [ ] Trigger history tracking
 
 ---
 
 ### Queue Workers
-**Status: Not Started** | **Location**: `src/queue/`
+**Status: Mostly Complete** | **Location**: `src/queue/workers/`
 
 #### Implemented
 - [x] Redis connection setup
@@ -123,30 +145,41 @@
 - [x] Enqueue helper functions
 - [x] Retry configuration (exponential backoff)
 - [x] Graceful shutdown
+- [x] **Workflow Queue Processor** (`workflow.processor.ts`)
+  - [x] Job handler registration
+  - [x] Workflow initialization
+  - [x] DAG analysis and ready node detection
+  - [x] First node(s) enqueuing
+  - [x] Run status updates
+  - [x] Event emission
+- [x] **Node Queue Processor** (`node.processor.ts`)
+  - [x] Node executor registration and dispatch
+  - [x] Output capture and storage
+  - [x] Downstream node enqueuing
+  - [x] Error handling with strategies
+  - [x] Input mapping resolution
+- [x] **Event Listeners**
+  - [x] Event handler registration
+  - [x] Event emission system
+- [x] **All Node Executors** (`executors/`)
+  - [x] Agent executor (framework ready, needs adapter wiring)
+  - [x] Condition executor (expression evaluation)
+  - [x] Parallel executor (branch coordination)
+  - [x] Loop executor (iteration logic)
+  - [x] Human review executor (approval wait)
 
-#### Not Implemented (Critical Path)
-- [ ] **Workflow Queue Processor**
-  - [ ] Job handler registration
-  - [ ] Workflow initialization
-  - [ ] First node(s) enqueuing
-  - [ ] Run status updates
-- [ ] **Node Queue Processor**
-  - [ ] Node executor dispatch
-  - [ ] Output capture and storage
-  - [ ] Downstream node enqueuing
-  - [ ] Error handling and retry
-- [ ] **Schedule Queue Processor**
+#### Not Implemented
+- [ ] **Agent Executor Real Implementation** (currently stubbed)
+  - [ ] Fetch agent config from database
+  - [ ] Get adapter from registry
+  - [ ] Execute task with streaming
+  - [ ] Track token usage and costs
+- [ ] **Schedule Queue Processor** (lower priority)
   - [ ] Cron job handler
   - [ ] Repeatable job management
-  - [ ] Missed run handling
-- [ ] **Event Listeners**
-  - [ ] Job completed handler
-  - [ ] Job failed handler
-  - [ ] Job stalled detection
-- [ ] **Monitoring**
-  - [ ] Queue metrics (depth, latency)
-  - [ ] Dead letter queue handling
-  - [ ] Job progress tracking
+- [ ] **Monitoring** (future enhancement)
+  - [ ] Queue metrics dashboard
+  - [ ] Dead letter queue UI
 
 ---
 
@@ -188,7 +221,7 @@
 ---
 
 ### Integrations
-**Status: Framework Only** | **Location**: `src/integrations/`
+**Status: Claude Code Ready** | **Location**: `src/integrations/`
 
 #### Implemented
 - [x] Type definitions (`types.ts`)
@@ -199,28 +232,33 @@
   - Cost estimation interface
 - [x] AdapterRegistry singleton (`registry.ts`)
 - [x] Unit tests for registry
+- [x] **Claude Code Adapter** (`adapters/claude-code.ts`)
+  - [x] Process spawning (`claude` CLI)
+  - [x] Session management with state tracking
+  - [x] CLI version detection and validation
+  - [x] Command building with parameters
+  - [x] Output line parsing
+  - [x] Cost estimation with pricing model
+  - [x] Credential validation
+  - [x] Connection/disconnection lifecycle
 
 #### Not Implemented
-- [ ] **Claude Code Adapter**
-  - [ ] Process spawning (`claude` CLI)
-  - [ ] Session management
-  - [ ] Streaming output capture
-  - [ ] Tool call handling
-- [ ] **Codex Adapter**
+- [ ] **Agent Executor Integration** (wire adapter to executor)
+  - [ ] Register adapter in executor
+  - [ ] Call adapter.execute() from agent executor
+  - [ ] Stream output to node execution record
+- [ ] **Codex Adapter** (future)
   - [ ] OpenAI API integration
   - [ ] Codex-specific prompting
-- [ ] **OpenCode Adapter**
+- [ ] **OpenCode Adapter** (future)
   - [ ] OpenCode CLI integration
-- [ ] **Local Bridge Adapter**
+- [ ] **Local Bridge Adapter** (future)
   - [ ] Local script execution
   - [ ] Custom tool integration
-- [ ] **Adapter Lifecycle**
+- [ ] **Adapter Lifecycle Enhancements** (future)
   - [ ] Connection pooling
   - [ ] Health checks
   - [ ] Automatic reconnection
-- [ ] **Cost Tracking Integration**
-  - [ ] Token counting
-  - [ ] Cost estimation hooks
 
 ---
 
@@ -362,8 +400,79 @@
 
 ---
 
-### Frontend UI
-**Status: Design Only** | **Location**: None (not yet created)
+### MVP UI
+**Status: Not Started** | **Location**: `frontend/` (to be created) | **Priority: P0**
+
+Minimal viable interface to see workflows running and get visual feedback. Focus on functionality over design.
+
+#### Philosophy
+- **Fast to build**: Vite + React + Tailwind (no complex setup)
+- **Functional over pretty**: Basic styling, focus on working features
+- **Server-Sent Events**: Simpler than WebSocket for MVP (upgrade later)
+- **3 core pages**: Just enough to trigger and monitor workflows
+
+#### Project Setup
+- [ ] Initialize Vite React TypeScript project
+- [ ] Add Tailwind CSS with minimal config
+- [ ] Create basic routing (React Router)
+- [ ] Setup API client (fetch wrapper)
+- [ ] Add environment config for backend URL
+
+#### Core Pages
+
+**1. Workflows List (`/`)**
+- [ ] Table showing all workflows (name, description, status)
+- [ ] "Run" button for each workflow
+- [ ] Click row to navigate to runs list
+- [ ] Simple search/filter by name
+
+**2. Workflow Runs (`/workflows/:id/runs`)**
+- [ ] Table of runs for selected workflow
+- [ ] Status badge (pending/running/completed/failed)
+- [ ] Timestamp, duration, trigger type
+- [ ] Click run to see details
+- [ ] "New Run" button at top
+
+**3. Run Detail (`/runs/:id`)**
+- [ ] Run metadata (workflow name, status, timestamps)
+- [ ] Node execution timeline (vertical list)
+- [ ] Each node shows: name, status, started/completed time
+- [ ] Click node to see input/output JSON
+- [ ] Auto-refresh with SSE for live updates
+
+#### Real-time Updates (Server-Sent Events)
+- [ ] Backend SSE endpoint `/api/runs/:id/events`
+- [ ] Frontend EventSource connection
+- [ ] Listen for `node:started`, `node:completed`, `run:completed`
+- [ ] Update UI in real-time without polling
+
+#### Basic Components
+- [ ] StatusBadge (colored pill: pending=gray, running=blue, completed=green, failed=red)
+- [ ] DataTable (reusable table with sort/filter)
+- [ ] JsonViewer (collapsible JSON display)
+- [ ] Button (primary/secondary variants)
+- [ ] Layout with simple header
+
+#### What's NOT in MVP
+- ❌ No workflow creation UI (use API/curl for now)
+- ❌ No agent configuration UI (use API/curl)
+- ❌ No fancy graphs or visualizations
+- ❌ No authentication/users
+- ❌ No settings pages
+- ❌ No dark mode
+- ❌ No complex state management (just React Query)
+
+#### Success Criteria
+✅ Can see all workflows
+✅ Can trigger a workflow run
+✅ Can watch nodes execute in real-time
+✅ Can inspect node inputs/outputs
+✅ Can see if run succeeded or failed
+
+---
+
+### Frontend UI (Full)
+**Status: Design Only** | **Location**: None (post-MVP) | **Priority: P3**
 
 Design specification complete in `docs/ui-specification.md`.
 
@@ -527,57 +636,105 @@ When `DATABASE_URL` or `REDIS_URL` is set via environment:
 
 ## Implementation Priority
 
-### P0 - Critical Path (Enables Core Functionality)
+### P0 - Get to Working MVP (Days, Not Weeks)
 
-These must be completed for workflows to actually execute:
+**Goal**: Trigger a workflow, watch it execute, see results
 
-1. **Queue Workers** - Nothing processes jobs currently
-2. **Workflow Execution Engine** - DAG traversal and node coordination
-3. **Orchestrator** - Triggers and scheduling
+1. **Wire Agent Executor** (~2 hours)
+   - Connect executor to adapter registry
+   - Call Claude Code adapter from agent executor
+   - Store outputs in database
 
-### P1 - Core Features
+2. **MVP UI** (~1-2 days)
+   - Vite + React setup
+   - 3 core pages (workflows list, runs list, run detail)
+   - SSE for real-time updates
+   - Basic styling with Tailwind
 
-Required for production use:
+3. **Backend SSE Endpoint** (~1 hour)
+   - `/api/runs/:id/events` endpoint
+   - Emit events from queue workers
+   - Use Redis pub/sub for multi-instance
 
-4. **Runtime Execution** - Agent isolation strategies
-5. **Integrations** - At least one adapter (Claude Code)
-6. **MCP Client** - Tool discovery and execution
+4. **End-to-End Testing** (~2 hours)
+   - Create test workflow via API
+   - Trigger from UI
+   - Verify execution
+   - Check real-time updates
 
-### P2 - Enhancement
+**🎯 MVP Milestone**: Can visually see workflows execute in browser
 
-Improve usability and reliability:
+---
 
-7. **Vault Service** - Credential management API
-8. **Observability** - Full logging and tracing
-9. **Skills** - Template rendering
+### P1 - Production Readiness
 
-### P3 - User Interface & Configuration
+Make it reliable and usable:
 
-Required for end-user interaction:
+5. **Error Handling Polish**
+   - Run retry endpoint (wire up enqueue)
+   - Human review resume (trigger continuation)
+   - Better error messages in UI
 
-10. **Frontend UI** - Next.js application with all views
-11. **WebSocket Real-time** - Live updates and streaming
-12. **Onboarding Flow** - First-run user setup
-13. **Database Configuration** - User-configurable PostgreSQL/Redis connections
+6. **Observability Improvements**
+   - Database log persistence
+   - Workflow cost aggregation
+   - Error rate tracking
+
+7. **Runtime Execution** (currently stubbed)
+   - SharedProcessStrategy (in-process execution)
+   - Resource limits and timeouts
+   - Event streaming
+
+8. **MCP Client** (tool discovery/execution)
+   - Connect to MCP servers
+   - Discover and cache tools
+   - Execute tools from workflows
+
+---
+
+### P2 - Feature Expansion
+
+Add more capabilities:
+
+9. **Vault Service** - Credential encryption API
+10. **Skills** - Template rendering engine
+11. **Additional Adapters** - Codex, OpenCode, etc.
+12. **Workflow Builder UI** - Visual DAG editor
+13. **Agent Configuration UI** - Create/edit agents visually
+
+---
+
+### P3 - Enterprise Features
+
+Long-term enhancements:
+
+14. **Full Frontend UI** - Complete design system implementation
+15. **WebSocket Upgrade** - Replace SSE with WebSocket
+16. **Database Configuration UI** - User-configurable connections
+17. **Multi-tenancy** - User accounts and permissions
+18. **Audit Logging** - Comprehensive activity tracking
+19. **Performance Optimization** - Caching, indexes, query optimization
 
 ---
 
 ## Known TODOs in Code
 
-| File | Line | Description |
-|------|------|-------------|
-| `src/api/routes/runs.ts` | 132 | Enqueue new run for execution |
-| `src/api/routes/runs.ts` | 164 | Resume workflow execution |
-| `src/api/routes/mcp.ts` | 121 | Implement MCP tool discovery |
-| `src/api/routes/mcp.ts` | 189 | Implement MCP server scanning |
-| `src/observability/logger.ts` | 60 | Store logs in database |
-| `src/api/routes/observability.ts` | 150 | Workflow cost aggregation |
+| File | Line | Description | Priority |
+|------|------|-------------|----------|
+| `src/queue/workers/executors/agent.executor.ts` | 32 | **Connect to adapter registry and execute real agents** | **P0 - CRITICAL** |
+| `src/api/routes/runs.ts` | 132 | Enqueue retry run for execution | P1 |
+| `src/api/routes/runs.ts` | 164 | Resume workflow after human review | P1 |
+| `src/observability/logger.ts` | 60 | Store logs in database | P1 |
+| `src/api/routes/observability.ts` | 150 | Workflow cost aggregation | P2 |
+| `src/vault/service.ts` | 154 | OAuth token refresh logic | P2 |
+| `src/api/routes/mcp.ts` | 121 | Implement MCP tool discovery | P2 |
+| `src/api/routes/mcp.ts` | 189 | Implement MCP server scanning | P3 |
 
 ---
 
 ## Architecture Notes
 
-### Execution Flow (Target State)
+### Execution Flow (Current State)
 
 ```
 User triggers workflow
@@ -587,42 +744,61 @@ User triggers workflow
 │   API Handler   │ POST /api/workflows/:id/run
 └────────┬────────┘
          │ Creates workflowRun record
-         │ Calls enqueueWorkflow()
+         │ Calls enqueueWorkflow() ✅
          ▼
 ┌─────────────────┐
-│ Workflow Queue  │ BullMQ
+│ Workflow Queue  │ BullMQ ✅
 └────────┬────────┘
          │ Job picked up by worker
          ▼
 ┌─────────────────┐
-│Workflow Processor│ (NOT IMPLEMENTED)
+│Workflow Processor│ ✅ IMPLEMENTED
 └────────┬────────┘
-         │ Resolves DAG, finds ready nodes
-         │ Enqueues node jobs
+         │ Analyzes DAG ✅
+         │ Finds ready nodes ✅
+         │ Enqueues node jobs ✅
          ▼
 ┌─────────────────┐
-│   Node Queue    │ BullMQ
+│   Node Queue    │ BullMQ ✅
 └────────┬────────┘
          │ Job picked up by worker
          ▼
 ┌─────────────────┐
-│ Node Processor  │ (NOT IMPLEMENTED)
+│ Node Processor  │ ✅ IMPLEMENTED
 └────────┬────────┘
-         │ Dispatches to appropriate executor
+         │ Dispatches to executor ✅
          ▼
-┌─────────────────┐
-│  Node Executor  │ (NOT IMPLEMENTED)
-│ • AgentNode     │──▶ Runtime + Adapter
-│ • ConditionNode │──▶ Expression Evaluator
-│ • ParallelNode  │──▶ Branch Coordinator
-│ • LoopNode      │──▶ Iterator
-│ • HumanReview   │──▶ Approval Wait
-└─────────────────┘
+┌─────────────────────────────┐
+│  Node Executors  │ ✅ IMPLEMENTED
+│ • AgentNode      │──▶ ⚠️  Adapter (STUBBED - needs wiring)
+│ • ConditionNode  │──▶ ✅ Expression Evaluator
+│ • ParallelNode   │──▶ ✅ Branch Coordinator
+│ • LoopNode       │──▶ ✅ Iterator
+│ • HumanReview    │──▶ ✅ Approval Wait
+└─────────────────────────────┘
+         │
+         │ Outputs stored ✅
+         │ Downstream nodes enqueued ✅
+         ▼
+    Workflow Completes ✅
 ```
+
+**Current Status**: 95% functional! Only missing piece is agent executor → adapter connection.
+
+**What works**:
+✅ Workflow triggering via API
+✅ DAG analysis and topological ordering
+✅ Node dependency resolution
+✅ Parallel execution coordination
+✅ Error handling with retry strategies
+✅ All node types except real agent execution
+
+**What's stubbed**:
+⚠️ Agent executor returns placeholder (needs to call adapter registry)
 
 ### Service Pattern
 
-Each domain should follow this structure:
+Each domain follows this structure:
 
 ```
 src/core/{domain}/
@@ -633,31 +809,134 @@ src/core/{domain}/
 └── index.ts       # Public exports
 ```
 
-Currently missing service/repository for: workflows, skills, vault.
+**Status**:
+- ✅ Agents: Complete service/repository pattern
+- ✅ Orchestrator: Complete service/repository pattern
+- ⚠️ Workflows: Missing service/repository (queries in routes directly)
+- ⚠️ Skills: Missing service/repository (queries in routes directly)
+- ⚠️ Vault: Has service, missing repository
+
+**Note**: Missing patterns don't block MVP, can refactor later for cleaner architecture.
 
 ---
 
-## Next Steps
+## Next Steps to MVP
 
-### Backend (P0-P2)
-1. Create `src/queue/workers/` directory
-2. Implement `WorkflowProcessor` class
-3. Implement `NodeProcessor` class with executor dispatch
-4. Create `src/core/orchestrator/` module
-5. Add at least one integration adapter (Claude Code)
-6. Wire up MCP client for tool discovery
+### Step 1: Wire Agent Executor (2 hours) 🔴 CRITICAL
+**File**: `src/queue/workers/executors/agent.executor.ts`
 
-### Frontend (P3)
-7. Initialize Next.js project (separate repo or monorepo)
-8. Implement design system (CSS tokens, fonts)
-9. Build reusable component library
-10. Create Dashboard and Agent views
-11. Add WebSocket client for real-time updates
-12. Implement onboarding flow (including database setup step)
+```typescript
+// Replace TODO block with:
+1. Import claudeCodeAdapter from '@/integrations/adapters/claude-code'
+2. Fetch agent config: await db.query.agents.findFirst(...)
+3. Get credentials from vault (if needed)
+4. Call adapter.execute({ prompt, tools, ... })
+5. Stream output chunks to database
+6. Track token usage in usageRecords
+```
 
-### Configuration (P3)
-13. Create local config file storage (`~/.pluribus/config.json`)
-14. Add database configuration API endpoints
-15. Implement connection validation (PostgreSQL/Redis)
-16. Add Settings page database section
-17. Handle env var override indicator in UI
+**Acceptance**: Can trigger workflow with agent node and see real Claude Code execution
+
+---
+
+### Step 2: Backend SSE Endpoint (1 hour)
+**File**: `src/api/routes/runs.ts`
+
+```typescript
+// Add new endpoint:
+GET /api/runs/:id/events - Server-sent events stream
+- Connect to Redis pub/sub
+- Subscribe to run:{runId} channel
+- Forward events to SSE client
+- Handle disconnect cleanup
+```
+
+**Acceptance**: Can curl endpoint and receive events in real-time
+
+---
+
+### Step 3: MVP UI Setup (2-3 hours)
+**Directory**: Create `frontend/`
+
+```bash
+# Commands:
+npm create vite@latest frontend -- --template react-ts
+cd frontend
+npm install
+npm install react-router-dom @tanstack/react-query tailwindcss
+npx tailwindcss init
+```
+
+**Files to create**:
+- `src/api/client.ts` - Fetch wrapper with base URL
+- `src/pages/WorkflowsList.tsx` - List all workflows
+- `src/pages/RunsList.tsx` - Runs for workflow
+- `src/pages/RunDetail.tsx` - Real-time run viewer
+- `src/components/StatusBadge.tsx` - Colored status pill
+- `src/App.tsx` - Router setup
+
+**Acceptance**: `npm run dev` shows empty pages with routing
+
+---
+
+### Step 4: Implement UI Pages (4-6 hours)
+
+**WorkflowsList.tsx**:
+- Fetch from `GET /api/workflows`
+- Table with name, description
+- "Run" button → POST `/api/workflows/:id/run`
+- Click row → navigate to `/workflows/:id/runs`
+
+**RunsList.tsx**:
+- Fetch from `GET /api/workflows/:id/runs`
+- Table with status, timestamps
+- Click row → navigate to `/runs/:id`
+
+**RunDetail.tsx**:
+- Fetch from `GET /api/runs/:id`
+- Show run metadata
+- List node executions from `GET /api/runs/:id/nodes`
+- EventSource connection to `/api/runs/:id/events`
+- Update UI when events arrive
+
+**Acceptance**: Can see workflows, trigger runs, watch execution
+
+---
+
+### Step 5: End-to-End Test (1 hour)
+
+1. Create test workflow via API:
+```bash
+curl -X POST http://localhost:3000/api/workflows \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Test Workflow",
+    "description": "Simple test",
+    "nodes": [{
+      "id": "node1",
+      "type": "agent",
+      "name": "Test Agent",
+      "agentId": "<agent-id>",
+      "input": { "prompt": "Say hello" }
+    }]
+  }'
+```
+
+2. Open UI, find workflow
+3. Click "Run" button
+4. Watch node execute in real-time
+5. Verify output appears
+
+**Acceptance**: ✅ Working MVP with visual feedback!
+
+---
+
+### After MVP (P1+)
+
+Once MVP is working, tackle in order:
+- Add retry/resume endpoints
+- Improve error handling UI
+- Add workflow creation form
+- Implement MCP tool discovery
+- Add observability dashboards
+- Build full design system
