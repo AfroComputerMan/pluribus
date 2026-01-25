@@ -37,12 +37,19 @@ describe('ProcessIsolationStrategy', () => {
 
       for await (const event of strategy.execute(mockTask)) {
         events.push(event);
+        // Log error details for debugging CI failures
+        if (event.type === 'error') {
+          console.error('Worker process error:', event.error);
+        }
         if (event.type === 'completed' || event.type === 'error') {
           break;
         }
       }
 
       expect(events.length).toBeGreaterThan(0);
+      if (events[0]?.type !== 'started') {
+        console.error('First event was not "started":', events[0]);
+      }
       expect(events[0]?.type).toBe('started');
     });
 
