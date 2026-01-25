@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { AgentNode, ConditionNode, WorkflowEdge, WorkflowNode } from '@/db/schema';
+import type { AgentNode, WorkflowEdge, WorkflowNode } from '@/db/schema';
 import { analyzeDAG, getReadyNodes, validateDAG } from '@/queue/workers/dag';
 
 describe('DAG Analysis', () => {
@@ -11,18 +11,6 @@ describe('DAG Analysis', () => {
     input: {},
   });
 
-  // Helper to create condition nodes
-  const _createConditionNode = (
-    id: string,
-    trueBranch: string,
-    falseBranch: string
-  ): ConditionNode => ({
-    id,
-    type: 'condition',
-    expression: 'true',
-    trueBranch,
-    falseBranch,
-  });
 
   // Helper to create edges
   const createEdge = (from: string, to: string): WorkflowEdge => ({

@@ -83,6 +83,7 @@ class MockIsolationStrategy implements IsolationStrategy {
   prepare = mock(async (_task: RuntimeTask) => {});
 
   execute = mock(async function* (
+    this: MockIsolationStrategy,
     _task: RuntimeTask
   ): AsyncGenerator<ExecutionEvent> {
     yield { type: 'started', timestamp: new Date() };
@@ -491,7 +492,7 @@ describe('RuntimeManager', () => {
     });
 
     it('should include execution ID in error context', async () => {
-      const result = await manager.execute(runtimeTask, 'nonexistent');
+      const result = await manager.execute(runtimeTask, 'nonexistent' as IsolationLevel);
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('nonexistent');

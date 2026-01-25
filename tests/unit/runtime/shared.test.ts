@@ -2,7 +2,6 @@ import { describe, expect, it, beforeEach, mock } from 'bun:test';
 import type {
   IsolationStrategy,
   RuntimeTask,
-  ResourceLimits,
 } from '@/runtime/types';
 import type {
   AgentAdapter,

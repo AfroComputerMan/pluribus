@@ -66,41 +66,6 @@ const createRuntimeTask = (
   ...overrides,
 });
 
-// Mock docker spawn result
-interface MockDockerSpawn {
-  pid: number;
-  exitCode: Promise<number>;
-  stdout: ReadableStream<Uint8Array>;
-  stderr: ReadableStream<Uint8Array>;
-  kill: () => void;
-}
-
-const createMockDockerSpawn = (
-  output: string = '',
-  exitCode = 0
-): MockDockerSpawn => {
-  const encoder = new TextEncoder();
-
-  return {
-    pid: 54321,
-    exitCode: Promise.resolve(exitCode),
-    stdout: new ReadableStream({
-      start(controller) {
-        if (output) {
-          controller.enqueue(encoder.encode(output));
-        }
-        controller.close();
-      },
-    }),
-    stderr: new ReadableStream({
-      start(controller) {
-        controller.close();
-      },
-    }),
-    kill: mock(() => {}),
-  };
-};
-
 // Mock ContainerIsolationStrategy implementation
 class ContainerIsolationStrategy implements IsolationStrategy {
   readonly level = 'container' as const;
@@ -116,7 +81,6 @@ class ContainerIsolationStrategy implements IsolationStrategy {
 
     try {
       // Build docker run command
-      const dockerArgs = this.buildDockerArgs(task, containerId);
 
       // Mock docker execution
       yield { type: 'started', timestamp: new Date() };
@@ -130,7 +94,7 @@ class ContainerIsolationStrategy implements IsolationStrategy {
     }
   }
 
-  private buildDockerArgs(task: RuntimeTask, containerId: string): string[] {
+  buildDockerArgs(task: RuntimeTask, containerId: string): string[] {
     const args = [
       'run',
       '--rm',
