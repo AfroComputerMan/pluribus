@@ -50,3 +50,30 @@ export interface SkillExport {
     parameters?: SkillParameter[];
   };
 }
+
+// Bulk import result
+export interface ImportResult {
+  imported: Skill[];
+  skipped: Array<{ name: string; reason: string }>;
+  errors: Array<{ name: string; error: string }>;
+}
+
+// Import options
+export interface ImportOptions {
+  conflictResolution: 'skip' | 'overwrite' | 'rename';
+}
+
+// Template validation result
+export interface ValidationResult {
+  valid: boolean;
+  errors: Array<{
+    message: string;
+    line?: number;
+    column?: number;
+  }>;
+  warnings: Array<{
+    message: string;
+    parameter?: string;
+  }>;
+  requiredParameters: string[];
+}

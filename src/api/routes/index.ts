@@ -4,3 +4,4 @@ export { runs } from './runs';
 export { mcp } from './mcp';
 export { skillRoutes } from './skills';
 export { observability } from './observability';
+export { vault } from './vault';
