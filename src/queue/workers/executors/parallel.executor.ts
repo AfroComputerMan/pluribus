@@ -25,15 +25,12 @@ export class ParallelExecutor implements NodeExecutor<ParallelNode> {
   ): Promise<NodeProcessorResult> {
     const startedAt = new Date();
 
-    log.info(
-      {
-        nodeId: node.id,
-        branches: node.branches,
-        joinStrategy: node.joinStrategy,
-        runId: context.runId,
-      },
-      'Executing parallel node'
-    );
+    log.info('Executing parallel node', {
+      nodeId: node.id,
+      branches: node.branches,
+      joinStrategy: node.joinStrategy,
+      runId: context.runId,
+    });
 
     try {
       // 1. Enqueue all branch nodes for parallel execution
@@ -51,10 +48,11 @@ export class ParallelExecutor implements NodeExecutor<ParallelNode> {
           },
         });
 
-        log.debug(
-          { runId: context.runId, branchNodeId, parentId: node.id },
-          'Enqueued parallel branch'
-        );
+        log.debug('Enqueued parallel branch', {
+          runId: context.runId,
+          branchNodeId,
+          parentId: node.id,
+        });
       }
 
       // 2. Wait for branches based on join strategy
@@ -62,15 +60,12 @@ export class ParallelExecutor implements NodeExecutor<ParallelNode> {
 
       const completedAt = new Date();
 
-      log.info(
-        {
-          nodeId: node.id,
-          joinStrategy: node.joinStrategy,
-          branchResults: result.completedBranches,
-          durationMs: completedAt.getTime() - startedAt.getTime(),
-        },
-        'Parallel node completed'
-      );
+      log.info('Parallel node completed', {
+        nodeId: node.id,
+        joinStrategy: node.joinStrategy,
+        branchResults: result.completedBranches,
+        durationMs: completedAt.getTime() - startedAt.getTime(),
+      });
 
       return {
         nodeId: node.id,
@@ -89,13 +84,10 @@ export class ParallelExecutor implements NodeExecutor<ParallelNode> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      log.error(
-        {
-          nodeId: node.id,
-          error: errorMessage,
-        },
-        'Parallel node failed'
-      );
+      log.error('Parallel node failed', {
+        nodeId: node.id,
+        error: errorMessage,
+      });
 
       return {
         nodeId: node.id,
@@ -199,20 +191,28 @@ export class ParallelExecutor implements NodeExecutor<ParallelNode> {
         case 'race':
           // First branch to complete (success or failure) determines outcome
           if (completedBranches.length > 0) {
+            const firstCompleted = completedBranches[0];
+            if (!firstCompleted) {
+              break;
+            }
             return {
               success: true,
-              completedBranches: [completedBranches[0]],
+              completedBranches: [firstCompleted],
               failedBranches,
-              branchOutputs: { [completedBranches[0]]: branchOutputs[completedBranches[0]] },
+              branchOutputs: { [firstCompleted]: branchOutputs[firstCompleted] },
             };
           }
           if (failedBranches.length > 0) {
+            const firstFailed = failedBranches[0];
+            if (!firstFailed) {
+              break;
+            }
             return {
               success: false,
               completedBranches,
-              failedBranches: [failedBranches[0]],
+              failedBranches: [firstFailed],
               branchOutputs,
-              error: `First branch failed: ${failedBranches[0]}`,
+              error: `First branch failed: ${firstFailed}`,
             };
           }
           break;
