@@ -1,6 +1,6 @@
 import { logger } from '@/observability/logger';
-import { WorkflowProcessor, getWorkflowProcessor } from './workflow.processor';
-import { NodeProcessor, getNodeProcessor } from './node.processor';
+import { WorkflowProcessor } from './workflow.processor';
+import { NodeProcessor } from './node.processor';
 import { agentExecutor, conditionExecutor } from './executors';
 import type { WorkerConfig } from './types';
 

@@ -1,6 +1,6 @@
 import type { Job } from 'bullmq';
-import type { WorkflowNode, WorkflowEdge } from '@/db/schema';
-import type { NodeJobData, WorkflowJobData } from '../client';
+import type { WorkflowNode } from '@/db/schema';
+import type { NodeJobData } from '../client';
 
 // Worker status
 export type WorkerStatus = 'idle' | 'running' | 'paused' | 'stopped';

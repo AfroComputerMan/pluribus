@@ -13,8 +13,8 @@ import type {
   NodeProcessorResult,
   WorkerConfig,
   WorkerEventHandler,
-  DEFAULT_WORKER_CONFIG,
 } from './types';
+import { DEFAULT_WORKER_CONFIG } from './types';
 
 const log = logger.child('queue:node-processor');
 
@@ -37,7 +37,7 @@ export class NodeProcessor {
    */
   registerExecutor<T extends WorkflowNode>(executor: NodeExecutor<T>): void {
     this.executors.set(executor.type, executor as NodeExecutor);
-    log.debug({ type: executor.type }, 'Registered node executor');
+    log.debug('Registered node executor', { type: executor.type });
   }
 
   /**
@@ -62,11 +62,11 @@ export class NodeProcessor {
     );
 
     this.worker.on('completed', (job, result) => {
-      log.info({ nodeId: job.data.nodeId, result }, 'Node job completed');
+      log.info('Node job completed', { nodeId: job.data.nodeId, result });
     });
 
     this.worker.on('failed', (job, error) => {
-      log.error({ nodeId: job?.data.nodeId, error: error.message }, 'Node job failed');
+      log.error('Node job failed', { nodeId: job?.data.nodeId, error: error.message });
     });
 
     log.info('Node processor started');
@@ -114,7 +114,7 @@ export class NodeProcessor {
       try {
         await handler(event);
       } catch (error) {
-        log.error({ error }, 'Event handler error');
+        log.error('Event handler error', { error });
       }
     }
   }
@@ -126,7 +126,7 @@ export class NodeProcessor {
     const { runId, workflowId, nodeId, input, context } = job.data;
     const startedAt = new Date();
 
-    log.info({ runId, nodeId }, 'Processing node');
+    log.info('Processing node', { runId, nodeId });
 
     try {
       // 1. Create node execution record
@@ -179,8 +179,8 @@ export class NodeProcessor {
       };
 
       // Execute with resolved input
-      const updatedNode = { ...node, input: resolvedInput };
-      const result = await executor.execute(updatedNode, executionContext, job);
+      const updatedNode = { ...node, input: resolvedInput ?? {} };
+      const result = await executor.execute(updatedNode as WorkflowNode, executionContext, job);
 
       // 5. Update node execution record
       await db
@@ -207,7 +207,7 @@ export class NodeProcessor {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const completedAt = new Date();
 
-      log.error({ runId, nodeId, error: errorMessage }, 'Node processing failed');
+      log.error('Node processing failed', { runId, nodeId, error: errorMessage });
 
       // Update node execution record with error
       await db
@@ -243,14 +243,13 @@ export class NodeProcessor {
     runId: string,
     node: WorkflowNode,
     rawInput: Record<string, unknown>,
-    context: Record<string, unknown>
+    _context: Record<string, unknown>
   ): Promise<Record<string, unknown> | undefined> {
     if (!('input' in node)) {
       return rawInput;
     }
 
     const resolved: Record<string, unknown> = {};
-    const nodeInput = node.input as Record<string, unknown>;
 
     for (const [key, value] of Object.entries(rawInput)) {
       if (typeof value === 'object' && value !== null && 'fromNode' in value) {
@@ -274,7 +273,7 @@ export class NodeProcessor {
             ref.path
           );
         } else {
-          log.warn({ runId, fromNode: ref.fromNode, path: ref.path }, 'Referenced node output not found');
+          log.warn('Referenced node output not found', { runId, fromNode: ref.fromNode, path: ref.path });
           resolved[key] = null;
         }
       } else {
@@ -354,7 +353,7 @@ export class NodeProcessor {
         },
       });
 
-      log.debug({ runId, nodeId }, 'Enqueued next node');
+      log.debug('Enqueued next node', { runId, nodeId });
     }
 
     // Check if workflow is complete (no more ready nodes and all nodes done)
@@ -371,7 +370,7 @@ export class NodeProcessor {
           })
           .where(eq(workflowRuns.id, runId));
 
-        log.info({ runId, workflowId }, 'Workflow completed');
+        log.info('Workflow completed', { runId, workflowId });
       }
     }
   }
@@ -402,10 +401,10 @@ export class NodeProcessor {
         })
         .where(eq(workflowRuns.id, runId));
 
-      log.info({ runId, nodeId }, 'Workflow stopped due to node failure');
+      log.info('Workflow stopped due to node failure', { runId, nodeId });
     } else if (strategy.onFailure === 'continue') {
       // Continue with other nodes - don't mark workflow as failed yet
-      log.info({ runId, nodeId }, 'Continuing workflow despite node failure');
+      log.info('Continuing workflow despite node failure', { runId, nodeId });
     } else if (strategy.onFailure === 'human-review') {
       // Mark workflow as waiting for review
       await db
@@ -413,7 +412,7 @@ export class NodeProcessor {
         .set({ status: 'pending' })
         .where(eq(workflowRuns.id, runId));
 
-      log.info({ runId, nodeId }, 'Workflow waiting for human review');
+      log.info('Workflow waiting for human review', { runId, nodeId });
     }
   }
 }

@@ -248,11 +248,13 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput({ name: 'Test Workflow' }))
         .returning();
 
-      const res = await app.request(`/api/workflows/${created?.id}`);
+      if (!created) throw new Error('Failed to create workflow');
+
+      const res = await app.request(`/api/workflows/${created.id}`);
       const json = (await res.json()) as { data: { id: string; name: string } };
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created?.id);
+      expect(json.data.id).toBe(created.id);
       expect(json.data.name).toBe('Test Workflow');
     });
 
@@ -288,8 +290,10 @@ describe('Workflows API Integration', () => {
 
       const [created] = await containers.db.insert(schema.workflows).values(workflow).returning();
 
-      const res = await app.request(`/api/workflows/${created?.id}`);
-      const json = (await res.json()) as { data: Record<string, unknown> };
+      if (!created) throw new Error('Failed to create workflow');
+
+      const res = await app.request(`/api/workflows/${created.id}`);
+      const json = (await res.json()) as { data: { nodes: unknown[]; edges: unknown[] } };
 
       expect(res.status).toBe(200);
       expect(json.data.nodes.length).toBe(2);
@@ -355,8 +359,8 @@ describe('Workflows API Integration', () => {
       };
 
       expect(res.status).toBe(201);
-      expect(json.data.nodes[0].type).toBe('parallel');
-      expect(json.data.nodes[0].joinStrategy).toBe('all');
+      expect(json.data.nodes[0]?.type).toBe('parallel');
+      expect(json.data.nodes[0]?.joinStrategy).toBe('all');
     });
 
     test('creates workflow with multiple triggers', async () => {
@@ -418,7 +422,7 @@ describe('Workflows API Integration', () => {
       const json = (await res.json()) as { data: { nodes: Array<{ id: string }> } };
 
       expect(res.status).toBe(200);
-      expect(json.data.nodes[0].id).toBe('new-node');
+      expect(json.data.nodes[0]?.id).toBe('new-node');
     });
 
     test('updates error strategy', async () => {
@@ -500,7 +504,9 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${workflow?.id}/run`, {
+      if (!workflow) throw new Error('Failed to create workflow');
+
+      const res = await app.request(`/api/workflows/${workflow.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: { key: 'value' } }),
@@ -511,7 +517,7 @@ describe('Workflows API Integration', () => {
 
       expect(res.status).toBe(202);
       expect(json.data.id).toBeDefined();
-      expect(json.data.workflowId).toBe(workflow?.id);
+      expect(json.data.workflowId).toBe(workflow.id);
       expect(json.data.status).toBe('pending');
       expect(json.data.triggerType).toBe('api');
     });
