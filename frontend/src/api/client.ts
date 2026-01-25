@@ -124,48 +124,50 @@ export interface NodeRun {
   updatedAt: string;
 }
 
-export interface PaginatedResponse<T> {
+export interface ListResponse<T> {
   data: T[];
-  pagination: {
-    page: number;
+  meta: {
     limit: number;
-    total: number;
-    totalPages: number;
+    offset: number;
   };
+}
+
+export interface DataResponse<T> {
+  data: T;
 }
 
 // API Methods
 export const api = {
   // Workflows
   workflows: {
-    list: (params?: { page?: number; limit?: number }) =>
-      apiFetch<PaginatedResponse<Workflow>>('/workflows', { params }),
+    list: (params?: { limit?: number; offset?: number }) =>
+      apiFetch<ListResponse<Workflow>>('/workflows', { params }),
 
     get: (id: string) =>
-      apiFetch<Workflow>(`/workflows/${id}`),
+      apiFetch<DataResponse<Workflow>>(`/workflows/${id}`),
   },
 
   // Workflow Runs
   workflowRuns: {
-    list: (workflowId: string, params?: { page?: number; limit?: number }) =>
-      apiFetch<PaginatedResponse<WorkflowRun>>(`/workflows/${workflowId}/runs`, { params }),
+    list: (workflowId: string, params?: { limit?: number; offset?: number }) =>
+      apiFetch<ListResponse<WorkflowRun>>(`/workflows/${workflowId}/runs`, { params }),
 
     get: (id: string) =>
-      apiFetch<WorkflowRun>(`/runs/${id}`),
+      apiFetch<DataResponse<WorkflowRun>>(`/runs/${id}`),
 
     create: (workflowId: string, input: Record<string, unknown>) =>
-      apiFetch<WorkflowRun>(`/workflows/${workflowId}/runs`, {
+      apiFetch<DataResponse<WorkflowRun>>(`/workflows/${workflowId}/runs`, {
         method: 'POST',
         body: JSON.stringify({ input }),
       }),
 
     retry: (id: string) =>
-      apiFetch<WorkflowRun>(`/runs/${id}/retry`, {
+      apiFetch<DataResponse<WorkflowRun>>(`/runs/${id}/retry`, {
         method: 'POST',
       }),
 
     cancel: (id: string) =>
-      apiFetch<WorkflowRun>(`/runs/${id}/cancel`, {
+      apiFetch<DataResponse<WorkflowRun>>(`/runs/${id}/cancel`, {
         method: 'POST',
       }),
   },
@@ -173,6 +175,6 @@ export const api = {
   // Node Runs
   nodeRuns: {
     list: (workflowRunId: string) =>
-      apiFetch<NodeRun[]>(`/runs/${workflowRunId}/nodes`),
+      apiFetch<DataResponse<NodeRun[]>>(`/runs/${workflowRunId}/nodes`),
   },
 };
