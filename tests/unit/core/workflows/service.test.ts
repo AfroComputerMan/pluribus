@@ -1,8 +1,8 @@
-import { describe, expect, it, mock, beforeEach, spyOn } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { WorkflowRepository } from '@/core/workflows/repository';
 import { WorkflowService } from '@/core/workflows/service';
-import { WorkflowRepository } from '@/core/workflows/repository';
+import type { CreateWorkflowInput } from '@/core/workflows/types';
 import { ValidationError } from '@/lib/errors';
-import type { CreateWorkflowInput, Workflow } from '@/core/workflows/types';
 
 describe('WorkflowService', () => {
   // Create a mock repository
@@ -21,19 +21,23 @@ describe('WorkflowService', () => {
     findNodeExecution: mock(() => Promise.resolve(null)),
     createNodeExecution: mock(() => Promise.resolve({})),
     updateNodeExecution: mock(() => Promise.resolve({})),
-    getRunProgress: mock(() => Promise.resolve({ total: 0, completed: 0, failed: 0, running: 0, pending: 0 })),
-    getRunStats: mock(() => Promise.resolve({ totalRuns: 0, successfulRuns: 0, failedRuns: 0, avgDurationMs: null })),
+    getRunProgress: mock(() =>
+      Promise.resolve({ total: 0, completed: 0, failed: 0, running: 0, pending: 0 })
+    ),
+    getRunStats: mock(() =>
+      Promise.resolve({ totalRuns: 0, successfulRuns: 0, failedRuns: 0, avgDurationMs: null })
+    ),
   } as unknown as WorkflowRepository;
 
   let service: WorkflowService;
 
   beforeEach(() => {
     // Reset all mocks
-    Object.values(mockRepository).forEach((fn) => {
+    for (const fn of Object.values(mockRepository)) {
       if (typeof fn === 'function' && 'mockClear' in fn) {
         (fn as ReturnType<typeof mock>).mockClear();
       }
-    });
+    }
 
     service = new WorkflowService(mockRepository);
   });
@@ -118,9 +122,7 @@ describe('WorkflowService', () => {
         edges: [{ id: 'e1', from: 'A', to: 'B' }], // B doesn't exist
       };
 
-      await expect(service.updateWorkflow('workflow-123', update)).rejects.toThrow(
-        ValidationError
-      );
+      await expect(service.updateWorkflow('workflow-123', update)).rejects.toThrow(ValidationError);
     });
   });
 
@@ -151,11 +153,9 @@ describe('WorkflowService', () => {
       const result = await service.triggerRun('workflow-123', 'manual', { key: 'value' });
 
       expect(result.id).toBe('run-123');
-      expect(mockRepository.createRun).toHaveBeenCalledWith(
-        'workflow-123',
-        'manual',
-        { key: 'value' }
-      );
+      expect(mockRepository.createRun).toHaveBeenCalledWith('workflow-123', 'manual', {
+        key: 'value',
+      });
     });
   });
 
