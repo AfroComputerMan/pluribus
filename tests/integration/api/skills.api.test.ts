@@ -295,11 +295,11 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ name: 'Test Skill' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`);
+      const res = await app.request(`/api/skills/${created!.id}`);
       const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created?.id);
+      expect(json.data.id).toBe(created!.id);
       expect(json.data.name).toBe('Test Skill');
     });
 
@@ -333,7 +333,7 @@ describe('Skills API Integration', () => {
         )
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`);
+      const res = await app.request(`/api/skills/${created!.id}`);
       const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
@@ -425,7 +425,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
@@ -442,7 +442,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ content: 'Original content' }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: 'Updated content with {{variable}}' }),
@@ -459,7 +459,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput({ tags: ['old-tag'] }))
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: ['new-tag-1', 'new-tag-2'] }),
@@ -491,7 +491,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput())
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}`, {
+      const res = await app.request(`/api/skills/${created!.id}`, {
         method: 'DELETE',
       });
       const json = (await res.json()) as any;
@@ -501,7 +501,7 @@ describe('Skills API Integration', () => {
 
       // Verify deleted from database
       const dbSkill = await containers.db.query.skills.findFirst({
-        where: eq(schema.skills.id, created?.id),
+        where: eq(schema.skills.id, created!.id),
       });
       expect(dbSkill).toBeUndefined();
     });
@@ -580,7 +580,7 @@ describe('Skills API Integration', () => {
         )
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}/export`);
+      const res = await app.request(`/api/skills/${created!.id}/export`);
       const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
@@ -595,7 +595,7 @@ describe('Skills API Integration', () => {
         .values(createTestSkillInput())
         .returning();
 
-      const res = await app.request(`/api/skills/${created?.id}/export`);
+      const res = await app.request(`/api/skills/${created!.id}/export`);
       const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);

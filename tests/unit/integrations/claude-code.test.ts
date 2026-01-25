@@ -306,7 +306,7 @@ describe('ClaudeCodeAdapter', () => {
         events.push(event);
       }
 
-      expect(mockProc?.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockProc!.kill).toHaveBeenCalledWith('SIGTERM');
     });
 
     test('handles process errors', async () => {
