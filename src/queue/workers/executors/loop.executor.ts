@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { eq, and } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { nodeExecutions } from '@/db/schema';
@@ -21,7 +21,7 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
   async execute(
     node: LoopNode,
     context: ExecutionContext,
-    job: Job<NodeJobData>
+    _job: Job<NodeJobData>
   ): Promise<NodeProcessorResult> {
     const startedAt = new Date();
 
@@ -60,13 +60,10 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
 
         currentIteration++;
 
-        log.debug(
-          { nodeId: node.id, iteration: currentIteration },
-          'Starting loop iteration'
-        );
+        log.debug({ nodeId: node.id, iteration: currentIteration }, 'Starting loop iteration');
 
         // Enqueue the body node
-        const iterationNodeId = `${node.body}:iteration:${currentIteration}`;
+        const _iterationNodeId = `${node.body}:iteration:${currentIteration}`;
 
         await enqueueNode({
           runId: context.runId,
@@ -206,9 +203,7 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
    */
   private safeEvaluate(expression: string): boolean {
     // Handle comparison operators
-    const comparisonMatch = expression.match(
-      /^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/
-    );
+    const comparisonMatch = expression.match(/^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
 
     if (comparisonMatch) {
       const [, leftStr, operator, rightStr] = comparisonMatch;
@@ -273,12 +268,7 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
       const executions = await db
         .select()
         .from(nodeExecutions)
-        .where(
-          and(
-            eq(nodeExecutions.workflowRunId, runId),
-            eq(nodeExecutions.nodeId, bodyNodeId)
-          )
-        )
+        .where(and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, bodyNodeId)))
         .orderBy(nodeExecutions.createdAt);
 
       // Find the execution that matches this iteration number
