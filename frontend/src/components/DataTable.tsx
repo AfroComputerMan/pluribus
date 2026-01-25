@@ -3,14 +3,14 @@
  * Reusable table component with sortable headers
  */
 
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
-export interface Column<T> {
+export type Column<T> = {
   key: string;
   header: string;
   render: (item: T) => ReactNode;
   sortable?: boolean;
-}
+};
 
 interface DataTableProps<T> {
   columns: Column<T>[];

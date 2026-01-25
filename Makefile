@@ -1,5 +1,13 @@
 # Makefile - Development Commands
-.PHONY: dev prod build test clean logs shell db-migrate db-studio help
+.PHONY: dev dev-backend dev-frontend dev-all dev-build stop restart restart-backend restart-frontend \
+        prod prod-down build build-prod \
+        db-migrate db-generate db-push db-studio db-seed db-reset \
+        test test-unit test-integration test-migrations test-watch test-coverage \
+        logs logs-app logs-frontend logs-db logs-redis shell shell-frontend psql redis-cli \
+        clean clean-all prune health status \
+        install local-dev local-build local-test lint lint-fix format typecheck \
+        frontend-install frontend-dev frontend-build frontend-lint frontend-preview \
+        help
 
 # Default target
 .DEFAULT_GOAL := help
@@ -19,25 +27,47 @@ help: ## Show this help
 # ===================
 # Development
 # ===================
-dev: ## Start development environment
-	docker compose up -d
+dev: ## Start development environment (backend + frontend)
+	docker compose up -d pluribus frontend
+	@echo "$(GREEN)Backend:$(NC)  http://localhost:3000"
+	@echo "$(GREEN)Frontend:$(NC) http://localhost:5173"
+	docker compose logs -f pluribus frontend
+
+dev-backend: ## Start backend only
+	docker compose up -d pluribus
 	docker compose logs -f pluribus
 
-dev-all: ## Start dev environment with admin UIs (pgAdmin, Redis Commander)
+dev-frontend: ## Start frontend only (requires backend running)
+	docker compose up -d frontend
+	docker compose logs -f frontend
+
+dev-all: ## Start full dev environment with admin UIs (pgAdmin, Redis Commander)
 	docker compose --profile dev-tools up -d
-	docker compose logs -f pluribus
+	@echo "$(GREEN)Backend:$(NC)        http://localhost:3000"
+	@echo "$(GREEN)Frontend:$(NC)       http://localhost:5173"
+	@echo "$(GREEN)Redis Commander:$(NC) http://localhost:8081"
+	@echo "$(GREEN)pgAdmin:$(NC)        http://localhost:8082"
+	docker compose logs -f pluribus frontend
 
 dev-build: ## Rebuild and start development environment
-	docker compose build --no-cache
-	docker compose up -d
-	docker compose logs -f pluribus
+	docker compose build --no-cache pluribus frontend
+	docker compose up -d pluribus frontend
+	docker compose logs -f pluribus frontend
 
 stop: ## Stop all containers
 	docker compose down
 
-restart: ## Restart application container
+restart: ## Restart application containers
+	docker compose restart pluribus frontend
+	docker compose logs -f pluribus frontend
+
+restart-backend: ## Restart backend container only
 	docker compose restart pluribus
 	docker compose logs -f pluribus
+
+restart-frontend: ## Restart frontend container only
+	docker compose restart frontend
+	docker compose logs -f frontend
 
 # ===================
 # Production
@@ -109,8 +139,11 @@ test-coverage: ## Run tests with coverage
 logs: ## Show all container logs
 	docker compose logs -f
 
-logs-app: ## Show application logs only
+logs-app: ## Show backend logs only
 	docker compose logs -f pluribus
+
+logs-frontend: ## Show frontend logs only
+	docker compose logs -f frontend
 
 logs-db: ## Show database logs
 	docker compose logs -f postgres
@@ -118,8 +151,11 @@ logs-db: ## Show database logs
 logs-redis: ## Show Redis logs
 	docker compose logs -f redis
 
-shell: ## Open shell in application container
+shell: ## Open shell in backend container
 	docker compose exec pluribus sh
+
+shell-frontend: ## Open shell in frontend container
+	docker compose exec frontend sh
 
 psql: ## Open PostgreSQL shell
 	docker compose exec postgres psql -U pluribus -d pluribus
@@ -161,26 +197,45 @@ status: ## Show container status
 # ===================
 # Local Development (without Docker)
 # ===================
-install: ## Install dependencies locally
+install: ## Install dependencies locally (backend + frontend)
 	bun install
+	cd frontend && bun install
 
-local-dev: ## Run locally (requires local postgres/redis)
+local-dev: ## Run backend locally (requires local postgres/redis)
 	bun run dev
 
-local-build: ## Build locally
+local-build: ## Build backend locally
 	bun run build
 
 local-test: ## Run tests locally
 	bun test
 
-lint: ## Run linter
+lint: ## Run linter (backend)
 	bun run lint
 
-lint-fix: ## Fix linting issues
+lint-fix: ## Fix linting issues (backend)
 	bun run lint:fix
 
-format: ## Format code
+format: ## Format code (backend)
 	bun run format
 
-typecheck: ## Run TypeScript type checking
+typecheck: ## Run TypeScript type checking (backend)
 	bun run typecheck
+
+# ===================
+# Frontend Local Development
+# ===================
+frontend-install: ## Install frontend dependencies
+	cd frontend && bun install
+
+frontend-dev: ## Run frontend locally
+	cd frontend && bun run dev
+
+frontend-build: ## Build frontend for production
+	cd frontend && bun run build
+
+frontend-lint: ## Run frontend linter
+	cd frontend && bun run lint
+
+frontend-preview: ## Preview frontend production build
+	cd frontend && bun run preview

@@ -1,7 +1,7 @@
 # docker-compose.yml - Development Stack
 services:
   # ===================
-  # Main Application
+  # Main Application (Backend)
   # ===================
   pluribus:
     build:
@@ -18,13 +18,41 @@ services:
       - LOG_LEVEL=debug
     volumes:
       - ./src:/app/src:ro
-      - ./drizzle:/app/drizzle:ro
+      - ./drizzle:/app/drizzle:ro      # Read-write for migration generation
       - ./.env:/app/.env:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - pluribus-network
+    restart: unless-stopped
+
+  # ===================
+  # Frontend (React/Vite)
+  # ===================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: pluribus-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+      # Vite proxy target (inside Docker network)
+      - VITE_API_PROXY_TARGET=http://pluribus:3000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json
+      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json
+    depends_on:
+      - pluribus
     networks:
       - pluribus-network
     restart: unless-stopped
