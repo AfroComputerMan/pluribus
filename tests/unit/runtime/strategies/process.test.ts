@@ -43,7 +43,7 @@ describe('ProcessIsolationStrategy', () => {
       }
 
       expect(events.length).toBeGreaterThan(0);
-      expect(events[0].type).toBe('started');
+      expect(events[0]?.type).toBe('started');
     });
 
     it('should handle timeout', async () => {

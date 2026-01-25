@@ -29,7 +29,7 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
   }
 
   async prepare(task: RuntimeTask): Promise<void> {
-    const { image } = { ...this.defaultOptions, resourceLimits: task.resourceLimits || this.defaultOptions.resourceLimits };
+    const image = this.defaultOptions.image;
     this.log.info('Preparing container', { executionId: task.id, image });
 
     const inspectProc = Bun.spawn(['docker', 'image', 'inspect', image], { stdout: 'pipe', stderr: 'pipe' });

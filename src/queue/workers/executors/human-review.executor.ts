@@ -21,15 +21,12 @@ export class HumanReviewExecutor implements NodeExecutor<HumanReviewNode> {
   ): Promise<NodeProcessorResult> {
     const startedAt = new Date();
 
-    log.info(
-      {
-        nodeId: node.id,
-        prompt: node.prompt,
-        options: node.options,
-        runId: context.runId,
-      },
-      'Human review node started - waiting for input'
-    );
+    log.info('Human review node started - waiting for input', {
+      nodeId: node.id,
+      prompt: node.prompt,
+      options: node.options,
+      runId: context.runId,
+    });
 
     // Human review nodes don't complete immediately.
     // They return a "pending" status that pauses the workflow.

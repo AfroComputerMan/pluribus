@@ -88,7 +88,6 @@ const createMockSpawnResult = (
   events: ExecutionEvent[] = []
 ): MockSpawnResult => {
   const encoder = new TextEncoder();
-  let killCalled = false;
 
   return {
     pid: 12345,
@@ -113,8 +112,8 @@ const createMockSpawnResult = (
       },
     }),
     killed: false,
-    kill: mock((signal?: number) => {
-      killCalled = true;
+    kill: mock((_signal?: number) => {
+      // Mock kill - no-op for testing
     }),
   };
 };
@@ -302,7 +301,7 @@ describe('ProcessIsolationStrategy', () => {
     it('should handle process crashes', async () => {
       // Create a strategy that simulates crash
       class CrashingProcessStrategy extends ProcessIsolationStrategy {
-        async *execute(task: RuntimeTask): AsyncGenerator<ExecutionEvent> {
+        async *execute(_task: RuntimeTask): AsyncGenerator<ExecutionEvent> {
           const crashEvents: ExecutionEvent[] = [
             { type: 'started', timestamp: new Date() },
             { type: 'error', error: new Error('Process crashed') },
@@ -366,7 +365,7 @@ describe('ProcessIsolationStrategy', () => {
   describe('IPC communication', () => {
     it('should handle malformed IPC messages', async () => {
       class MalformedIPCStrategy extends ProcessIsolationStrategy {
-        async *execute(task: RuntimeTask): AsyncGenerator<ExecutionEvent> {
+        async *execute(_task: RuntimeTask): AsyncGenerator<ExecutionEvent> {
           const encoder = new TextEncoder();
           const stream = new ReadableStream({
             start(controller) {
