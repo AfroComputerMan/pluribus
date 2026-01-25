@@ -5,7 +5,8 @@ import { db } from '@/db/client';
 import { nodeExecutions, workflowRuns, workflows } from '@/db/schema';
 import type { WorkflowNode } from '@/db/schema';
 import { logger } from '@/observability/logger';
-import { type NodeJobData, QUEUE_NAMES, enqueueNode, getRedis } from '../client';
+import { type NodeJobData, QUEUE_NAMES, enqueueNode } from '../client';
+import { emitRunEvent, publishRunEvent } from '../events';
 import { analyzeDAG, getReadyNodes } from './dag';
 import type {
   ExecutionContext,
@@ -101,38 +102,7 @@ export class NodeProcessor {
     nodeId: string,
     data?: Record<string, unknown>
   ): Promise<void> {
-    const timestamp = new Date();
-    const event = {
-      type,
-      timestamp,
-      runId,
-      workflowId,
-      nodeId,
-      data,
-    };
-
-    // Publish to Redis pub/sub for SSE clients (convert timestamp to ISO string)
-    try {
-      const redis = getRedis();
-      const channel = `run:${runId}`;
-      const redisEvent = {
-        ...event,
-        timestamp: timestamp.toISOString(),
-      };
-      await redis.publish(channel, JSON.stringify(redisEvent));
-      log.debug('Published event to Redis', { type, runId, nodeId, channel });
-    } catch (error) {
-      log.error('Failed to publish event to Redis', { error, type, runId, nodeId });
-    }
-
-    // Emit to registered handlers
-    for (const handler of this.eventHandlers) {
-      try {
-        await handler(event);
-      } catch (error) {
-        log.error('Event handler error', { error });
-      }
-    }
+    await emitRunEvent(type, runId, workflowId, this.eventHandlers, nodeId, data);
   }
 
   /**
@@ -396,22 +366,7 @@ export class NodeProcessor {
           })
           .where(eq(workflowRuns.id, runId));
 
-        // Emit workflow completed event
-        try {
-          const redis = getRedis();
-          const channel = `run:${runId}`;
-          const event = {
-            type: 'workflow:completed',
-            timestamp: new Date().toISOString(),
-            runId,
-            workflowId,
-          };
-          await redis.publish(channel, JSON.stringify(event));
-          log.debug('Published workflow:completed event to Redis', { runId, channel });
-        } catch (error) {
-          log.error('Failed to publish workflow:completed event', { error, runId });
-        }
-
+        await publishRunEvent('workflow:completed', runId, workflowId);
         log.info('Workflow completed', { runId, workflowId });
       }
     }

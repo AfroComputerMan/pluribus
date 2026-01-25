@@ -13,6 +13,8 @@ import { getValidatedQuery, validateQuery } from '../middleware';
 
 const log = logger.child('api:runs:sse');
 
+const SSE_KEEP_ALIVE_INTERVAL_MS = 30000;
+
 const runs = new Hono();
 
 // GET /api/runs - List all runs
@@ -98,13 +100,13 @@ runs.get('/:id/events', async (c) => {
     let isActive = true;
 
     // Subscribe to the run-specific channel
-    await subscriber.subscribe(channel, (message, _channel) => {
-      if (!isActive || !message || message instanceof Error) return;
+    await subscriber.subscribe(channel, (message) => {
+      if (!isActive || !message) return;
+
+      const messageStr = typeof message === 'string' ? message : message.toString();
 
       try {
-        const event = JSON.parse(message);
-
-        // Send SSE event with proper formatting
+        const event = JSON.parse(messageStr);
         stream.writeSSE({
           data: JSON.stringify(event),
           event: event.type,
@@ -112,7 +114,10 @@ runs.get('/:id/events', async (c) => {
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        log.error('Failed to parse or send SSE message', { error: errorMessage, message });
+        log.error('Failed to parse or send SSE message', {
+          error: errorMessage,
+          message: messageStr,
+        });
       }
     });
 
@@ -129,7 +134,7 @@ runs.get('/:id/events', async (c) => {
       id: Date.now().toString(),
     });
 
-    // Keep connection alive and handle disconnect
+    // Keep connection alive with periodic pings
     const keepAliveInterval = setInterval(async () => {
       if (!isActive) {
         clearInterval(keepAliveInterval);
@@ -147,7 +152,7 @@ runs.get('/:id/events', async (c) => {
         isActive = false;
         clearInterval(keepAliveInterval);
       }
-    }, 30000); // Send ping every 30 seconds
+    }, SSE_KEEP_ALIVE_INTERVAL_MS);
 
     // Cleanup on disconnect
     c.req.raw.signal.addEventListener('abort', async () => {
