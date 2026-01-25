@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import type { AgentNode, ConditionNode, WorkflowEdge, WorkflowNode } from '@/db/schema';
 import { analyzeDAG, getReadyNodes, validateDAG } from '@/queue/workers/dag';
-import type { WorkflowNode, WorkflowEdge, AgentNode, ConditionNode } from '@/db/schema';
 
 describe('DAG Analysis', () => {
   // Helper to create agent nodes
@@ -12,7 +12,7 @@ describe('DAG Analysis', () => {
   });
 
   // Helper to create condition nodes
-  const createConditionNode = (
+  const _createConditionNode = (
     id: string,
     trueBranch: string,
     falseBranch: string
@@ -39,10 +39,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('B', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('B', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
 
@@ -56,10 +53,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'C'),
-        createEdge('B', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'C'), createEdge('B', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
 
@@ -73,10 +67,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('A', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('A', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
 
@@ -90,10 +81,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('B', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('B', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
 
@@ -124,12 +112,8 @@ describe('DAG Analysis', () => {
       expect(dag.topologicalOrder[3]).toBe('D');
 
       // B and C can be in any order, but both before D
-      expect(dag.topologicalOrder.indexOf('B')).toBeLessThan(
-        dag.topologicalOrder.indexOf('D')
-      );
-      expect(dag.topologicalOrder.indexOf('C')).toBeLessThan(
-        dag.topologicalOrder.indexOf('D')
-      );
+      expect(dag.topologicalOrder.indexOf('B')).toBeLessThan(dag.topologicalOrder.indexOf('D'));
+      expect(dag.topologicalOrder.indexOf('C')).toBeLessThan(dag.topologicalOrder.indexOf('D'));
     });
 
     it('should throw error for cyclic graph', () => {
@@ -175,10 +159,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('B', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('B', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
 
@@ -201,10 +182,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('B', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('B', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
       const ready = getReadyNodes(dag, new Set());
@@ -219,10 +197,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('B', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('B', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
       const ready = getReadyNodes(dag, new Set(['A']));
@@ -257,10 +232,7 @@ describe('DAG Analysis', () => {
     });
 
     it('should return empty array when all nodes completed', () => {
-      const nodes: WorkflowNode[] = [
-        createAgentNode('A'),
-        createAgentNode('B'),
-      ];
+      const nodes: WorkflowNode[] = [createAgentNode('A'), createAgentNode('B')];
 
       const edges: WorkflowEdge[] = [createEdge('A', 'B')];
 
@@ -280,10 +252,7 @@ describe('DAG Analysis', () => {
         createAgentNode('C'),
       ];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('A', 'C'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('A', 'C')];
 
       const dag = analyzeDAG(nodes, edges);
       const ready = getReadyNodes(dag, new Set(['A']));
@@ -294,10 +263,7 @@ describe('DAG Analysis', () => {
 
   describe('validateDAG', () => {
     it('should validate a correct DAG', () => {
-      const nodes: WorkflowNode[] = [
-        createAgentNode('A'),
-        createAgentNode('B'),
-      ];
+      const nodes: WorkflowNode[] = [createAgentNode('A'), createAgentNode('B')];
 
       const edges: WorkflowEdge[] = [createEdge('A', 'B')];
 
@@ -335,15 +301,9 @@ describe('DAG Analysis', () => {
     });
 
     it('should detect cycles', () => {
-      const nodes: WorkflowNode[] = [
-        createAgentNode('A'),
-        createAgentNode('B'),
-      ];
+      const nodes: WorkflowNode[] = [createAgentNode('A'), createAgentNode('B')];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('B', 'A'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('B', 'A')];
 
       const result = validateDAG(nodes, edges);
 
@@ -352,15 +312,9 @@ describe('DAG Analysis', () => {
     });
 
     it('should detect no entry nodes (all nodes have dependencies)', () => {
-      const nodes: WorkflowNode[] = [
-        createAgentNode('A'),
-        createAgentNode('B'),
-      ];
+      const nodes: WorkflowNode[] = [createAgentNode('A'), createAgentNode('B')];
 
-      const edges: WorkflowEdge[] = [
-        createEdge('A', 'B'),
-        createEdge('B', 'A'),
-      ];
+      const edges: WorkflowEdge[] = [createEdge('A', 'B'), createEdge('B', 'A')];
 
       const result = validateDAG(nodes, edges);
 
