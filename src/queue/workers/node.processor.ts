@@ -7,14 +7,14 @@ import type { WorkflowNode } from '@/db/schema';
 import { logger } from '@/observability/logger';
 import { type NodeJobData, enqueueNode, QUEUE_NAMES } from '../client';
 import { analyzeDAG, getReadyNodes } from './dag';
-import {
-  DEFAULT_WORKER_CONFIG,
-  type ExecutionContext,
-  type NodeExecutor,
-  type NodeProcessorResult,
-  type WorkerConfig,
-  type WorkerEventHandler,
+import type {
+  ExecutionContext,
+  NodeExecutor,
+  NodeProcessorResult,
+  WorkerConfig,
+  WorkerEventHandler,
 } from './types';
+import { DEFAULT_WORKER_CONFIG } from './types';
 
 const log = logger.child('queue:node-processor');
 
@@ -161,18 +161,26 @@ export class NodeProcessor {
         throw new Error(`No executor registered for node type: ${node.type}`);
       }
 
+      // Convert nodeResults from Record to Map, preserving previous results
+      const nodeResultsMap = new Map<string, NodeProcessorResult>();
+      if (context.nodeResults && typeof context.nodeResults === 'object') {
+        for (const [nodeId, result] of Object.entries(context.nodeResults)) {
+          nodeResultsMap.set(nodeId, result as NodeProcessorResult);
+        }
+      }
+
       const executionContext: ExecutionContext = {
         runId,
         workflowId,
         triggerType: context.triggerType as 'manual' | 'schedule' | 'webhook' | 'api',
         input: context.workflowInput as Record<string, unknown>,
-        nodeResults: new Map(),
+        nodeResults: nodeResultsMap,
         startedAt: new Date(context.startedAt as string),
       };
 
       // Execute with resolved input
-      const updatedNode = { ...node, input: resolvedInput };
-      const result = await executor.execute(updatedNode, executionContext, job);
+      const updatedNode = { ...node, input: resolvedInput ?? {} };
+      const result = await executor.execute(updatedNode as WorkflowNode, executionContext, job);
 
       // 5. Update node execution record
       await db
@@ -191,7 +199,19 @@ export class NodeProcessor {
         output: result.output,
       });
 
-      // 6. Check for and enqueue next nodes
+      // 6. Handle pending status (human review)
+      if (result.status === 'pending') {
+        // Update workflow run status to pending
+        await db
+          .update(workflowRuns)
+          .set({ status: 'pending' })
+          .where(eq(workflowRuns.id, runId));
+
+        log.info({ runId, nodeId }, 'Workflow paused for human review');
+        return result;
+      }
+
+      // 7. Check for and enqueue next nodes
       await this.enqueueNextNodes(runId, workflowId, nodeId, result, context);
 
       return result;

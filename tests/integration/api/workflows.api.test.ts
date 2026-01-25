@@ -188,7 +188,7 @@ describe('Workflows API Integration', () => {
   describe('GET /api/workflows', () => {
     test('returns empty array when no workflows', async () => {
       const res = await app.request('/api/workflows');
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: unknown[]; meta: { limit: number; offset: number } };
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual([]);
@@ -204,7 +204,7 @@ describe('Workflows API Integration', () => {
         ]);
 
       const res = await app.request('/api/workflows');
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: unknown[] };
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -218,7 +218,7 @@ describe('Workflows API Integration', () => {
       }
 
       const res = await app.request('/api/workflows?limit=2');
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: unknown[]; meta: { limit: number } };
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -233,7 +233,7 @@ describe('Workflows API Integration', () => {
       }
 
       const res = await app.request('/api/workflows?limit=2&offset=3');
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: unknown[]; meta: { offset: number } };
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
@@ -248,11 +248,13 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput({ name: 'Test Workflow' }))
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`);
-      const json = (await res.json()) as any;
+      if (!created) throw new Error('Failed to create workflow');
+
+      const res = await app.request(`/api/workflows/${created.id}`);
+      const json = (await res.json()) as { data: { id: string; name: string } };
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created!.id);
+      expect(json.data.id).toBe(created.id);
       expect(json.data.name).toBe('Test Workflow');
     });
 
@@ -260,7 +262,7 @@ describe('Workflows API Integration', () => {
       const fakeId = '00000000-0000-0000-0000-000000000000';
 
       const res = await app.request(`/api/workflows/${fakeId}`);
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { error: { code: string } };
 
       expect(res.status).toBe(404);
       expect(json.error.code).toBe('NOT_FOUND');
@@ -288,8 +290,10 @@ describe('Workflows API Integration', () => {
 
       const [created] = await containers.db.insert(schema.workflows).values(workflow).returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`);
-      const json = (await res.json()) as any;
+      if (!created) throw new Error('Failed to create workflow');
+
+      const res = await app.request(`/api/workflows/${created.id}`);
+      const json = (await res.json()) as { data: { nodes: unknown[]; edges: unknown[] } };
 
       expect(res.status).toBe(200);
       expect(json.data.nodes.length).toBe(2);
@@ -306,7 +310,7 @@ describe('Workflows API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: { id: string; name: string } };
 
       expect(res.status).toBe(201);
       expect(json.data.id).toBeDefined();
@@ -321,7 +325,7 @@ describe('Workflows API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: { id: string } };
 
       // Verify in database
       const dbWorkflow = await containers.db.query.workflows.findFirst({
@@ -350,11 +354,13 @@ describe('Workflows API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as {
+        data: { nodes: Array<{ type: string; joinStrategy: string }> };
+      };
 
       expect(res.status).toBe(201);
-      expect(json.data.nodes[0].type).toBe('parallel');
-      expect(json.data.nodes[0].joinStrategy).toBe('all');
+      expect(json.data.nodes[0]?.type).toBe('parallel');
+      expect(json.data.nodes[0]?.joinStrategy).toBe('all');
     });
 
     test('creates workflow with multiple triggers', async () => {
@@ -368,7 +374,7 @@ describe('Workflows API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: { triggers: unknown[] } };
 
       expect(res.status).toBe(201);
       expect(json.data.triggers.length).toBe(3);
@@ -382,12 +388,12 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: { name: string } };
 
       expect(res.status).toBe(200);
       expect(json.data.name).toBe('Updated Name');
@@ -408,15 +414,15 @@ describe('Workflows API Integration', () => {
         },
       ];
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodes: newNodes }),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: { nodes: Array<{ id: string }> } };
 
       expect(res.status).toBe(200);
-      expect(json.data.nodes[0].id).toBe('new-node');
+      expect(json.data.nodes[0]?.id).toBe('new-node');
     });
 
     test('updates error strategy', async () => {
@@ -425,7 +431,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -436,7 +442,9 @@ describe('Workflows API Integration', () => {
           },
         }),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as {
+        data: { errorStrategy: { retries: number; onFailure: string } };
+      };
 
       expect(res.status).toBe(200);
       expect(json.data.errorStrategy.retries).toBe(5);
@@ -463,17 +471,17 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${created!.id}`, {
+      const res = await app.request(`/api/workflows/${created?.id}`, {
         method: 'DELETE',
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { success: boolean };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
 
       // Verify deleted from database
       const dbWorkflow = await containers.db.query.workflows.findFirst({
-        where: eq(schema.workflows.id, created!.id),
+        where: eq(schema.workflows.id, created?.id ?? ''),
       });
       expect(dbWorkflow).toBeUndefined();
     });
@@ -496,16 +504,20 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${workflow?.id}/run`, {
+      if (!workflow) throw new Error('Failed to create workflow');
+
+      const res = await app.request(`/api/workflows/${workflow.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: { key: 'value' } }),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as {
+        data: { id: string; workflowId: string; status: string; triggerType: string };
+      };
 
       expect(res.status).toBe(202);
       expect(json.data.id).toBeDefined();
-      expect(json.data.workflowId).toBe(workflow?.id);
+      expect(json.data.workflowId).toBe(workflow.id);
       expect(json.data.status).toBe('pending');
       expect(json.data.triggerType).toBe('api');
     });
@@ -521,7 +533,7 @@ describe('Workflows API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: { task: 'test' } }),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: { id: string } };
 
       // Verify run record in database
       const dbRun = await containers.db.query.workflowRuns.findFirst({
@@ -543,7 +555,7 @@ describe('Workflows API Integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: { input: Record<string, unknown> } };
 
       expect(res.status).toBe(202);
       expect(json.data.input).toEqual({});
@@ -570,7 +582,7 @@ describe('Workflows API Integration', () => {
         .returning();
 
       const res = await app.request(`/api/workflows/${workflow?.id}/runs`);
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: unknown[] };
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual([]);
@@ -590,7 +602,7 @@ describe('Workflows API Integration', () => {
       ]);
 
       const res = await app.request(`/api/workflows/${workflow?.id}/runs`);
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: unknown[] };
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(3);
@@ -612,7 +624,7 @@ describe('Workflows API Integration', () => {
       }
 
       const res = await app.request(`/api/workflows/${workflow?.id}/runs?limit=2&offset=2`);
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as { data: unknown[]; meta: { limit: number; offset: number } };
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);
