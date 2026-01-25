@@ -1,10 +1,10 @@
-import { describe, expect, it, mock } from 'bun:test';
-import { ConditionExecutor } from '@/queue/workers/executors/condition.executor';
-import { AgentExecutor } from '@/queue/workers/executors/agent.executor';
+import { describe, expect, it } from 'bun:test';
 import type { AgentNode, ConditionNode } from '@/db/schema';
+import type { NodeJobData } from '@/queue/client';
+import { AgentExecutor } from '@/queue/workers/executors/agent.executor';
+import { ConditionExecutor } from '@/queue/workers/executors/condition.executor';
 import type { ExecutionContext } from '@/queue/workers/types';
 import type { Job } from 'bullmq';
-import type { NodeJobData } from '@/queue/client';
 
 describe('Node Executors', () => {
   // Mock job
@@ -20,9 +20,7 @@ describe('Node Executors', () => {
     }) as Job<NodeJobData>;
 
   // Mock execution context
-  const createContext = (
-    overrides: Partial<ExecutionContext> = {}
-  ): ExecutionContext => ({
+  const createContext = (overrides: Partial<ExecutionContext> = {}): ExecutionContext => ({
     runId: 'run-123',
     workflowId: 'workflow-123',
     triggerType: 'manual',

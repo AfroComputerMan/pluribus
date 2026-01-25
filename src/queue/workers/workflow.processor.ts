@@ -1,18 +1,18 @@
-import { type Job, type Processor, Worker } from 'bullmq';
+import { type Job, Worker } from 'bullmq';
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { workflowRuns, workflows } from '@/db/schema';
 import { logger } from '@/observability/logger';
 import { type WorkflowJobData, enqueueNode, QUEUE_NAMES } from '../client';
-import { analyzeDAG, getReadyNodes } from './dag';
+import { analyzeDAG } from './dag';
 import type {
   ExecutionContext,
   WorkerConfig,
   WorkerEventHandler,
   WorkflowProcessorResult,
-  DEFAULT_WORKER_CONFIG,
 } from './types';
+import { DEFAULT_WORKER_CONFIG } from './types';
 
 const log = logger.child('queue:workflow-processor');
 
@@ -51,11 +51,11 @@ export class WorkflowProcessor {
     );
 
     this.worker.on('completed', (job, result) => {
-      log.info({ runId: job.data.runId, result }, 'Workflow job completed');
+      log.info('Workflow job completed', { runId: job.data.runId, result });
     });
 
     this.worker.on('failed', (job, error) => {
-      log.error({ runId: job?.data.runId, error: error.message }, 'Workflow job failed');
+      log.error('Workflow job failed', { runId: job?.data.runId, error: error.message });
     });
 
     log.info('Workflow processor started');
@@ -101,7 +101,7 @@ export class WorkflowProcessor {
       try {
         await handler(event);
       } catch (error) {
-        log.error({ error }, 'Event handler error');
+        log.error('Event handler error', { error });
       }
     }
   }
@@ -113,7 +113,7 @@ export class WorkflowProcessor {
     const { runId, workflowId, triggerType, input } = job.data;
     const startedAt = new Date();
 
-    log.info({ runId, workflowId, triggerType }, 'Processing workflow');
+    log.info('Processing workflow', { runId, workflowId, triggerType });
 
     try {
       // 1. Update run status to 'running'
@@ -133,14 +133,11 @@ export class WorkflowProcessor {
 
       // 3. Analyze DAG structure
       const dag = analyzeDAG(workflow.nodes, workflow.edges);
-      log.debug(
-        {
-          runId,
-          entryNodes: dag.entryNodes,
-          totalNodes: dag.nodes.size,
-        },
-        'DAG analyzed'
-      );
+      log.debug('DAG analyzed', {
+        runId,
+        entryNodes: dag.entryNodes,
+        totalNodes: dag.nodes.size,
+      });
 
       // 4. Create execution context
       const context: ExecutionContext = {
@@ -168,7 +165,7 @@ export class WorkflowProcessor {
           runId,
           workflowId,
           nodeId,
-          input: this.resolveInputMapping(node.node, input, context),
+          input: this.resolveInputMapping(node.node as { input?: Record<string, unknown> }, input, context),
           context: {
             triggerType,
             workflowInput: input,
@@ -176,7 +173,7 @@ export class WorkflowProcessor {
           },
         });
 
-        log.debug({ runId, nodeId }, 'Enqueued entry node');
+        log.debug('Enqueued entry node', { runId, nodeId });
       }
 
       // Note: The workflow will be marked as completed by the last node processor
@@ -190,7 +187,7 @@ export class WorkflowProcessor {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      log.error({ runId, error: errorMessage }, 'Workflow processing failed');
+      log.error('Workflow processing failed', { runId, error: errorMessage });
 
       // Update run status to 'failed'
       await db
