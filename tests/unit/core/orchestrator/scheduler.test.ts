@@ -1,9 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach, mock } from 'bun:test';
-import { SchedulerService } from '@/core/orchestrator/scheduler';
-import type { OrchestratorRepository } from '@/core/orchestrator/repository';
-import type { WorkflowService } from '@/core/workflows/service';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { EventBus } from '@/core/orchestrator/event-bus';
+import type { OrchestratorRepository } from '@/core/orchestrator/repository';
+import { SchedulerService } from '@/core/orchestrator/scheduler';
 import type { ScheduledTrigger } from '@/core/orchestrator/types';
+import type { WorkflowService } from '@/core/workflows/service';
 
 describe('SchedulerService', () => {
   let scheduler: SchedulerService;
@@ -37,18 +37,19 @@ describe('SchedulerService', () => {
     };
 
     mockWorkflowService = {
-      triggerRun: mock((_workflowId: string, _triggerType?: string, _input?: Record<string, unknown>) =>
-        Promise.resolve({
-          id: 'run-123',
-          workflowId: 'workflow-123',
-          status: 'pending' as const,
-          triggerType: 'schedule' as const,
-          input: {},
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          completedAt: null,
-          error: null,
-        })
+      triggerRun: mock(
+        (_workflowId: string, _triggerType?: string, _input?: Record<string, unknown>) =>
+          Promise.resolve({
+            id: 'run-123',
+            workflowId: 'workflow-123',
+            status: 'pending' as const,
+            triggerType: 'schedule' as const,
+            input: {},
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            completedAt: null,
+            error: null,
+          })
       ),
     };
 

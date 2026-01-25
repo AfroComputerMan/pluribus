@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  parseCron,
+  describeCron,
   getNextRunTime,
   getPreviousRunTime,
   isValidCron,
-  describeCron,
+  parseCron,
 } from '@/core/orchestrator/cron';
 
 describe('Cron Parser', () => {

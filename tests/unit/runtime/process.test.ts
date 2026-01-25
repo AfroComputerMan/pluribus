@@ -1,14 +1,11 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
-  IsolationStrategy,
-  RuntimeTask,
-} from '@/runtime/types';
-import type {
-  AgentAdapter,
   AdapterConnection,
+  AgentAdapter,
   AgentTask,
   ExecutionEvent,
 } from '@/integrations/types';
+import type { IsolationStrategy, RuntimeTask } from '@/runtime/types';
 
 // Mock helpers
 const createMockAdapter = (): AgentAdapter => ({
@@ -54,9 +51,7 @@ const createMockTask = (): AgentTask => ({
   context: 'Test context',
 });
 
-const createRuntimeTask = (
-  overrides: Partial<RuntimeTask> = {}
-): RuntimeTask => ({
+const createRuntimeTask = (overrides: Partial<RuntimeTask> = {}): RuntimeTask => ({
   id: 'task-123',
   adapter: createMockAdapter(),
   connection: createMockConnection(),
@@ -84,9 +79,7 @@ interface MockSpawnResult {
   kill: (signal?: number) => void;
 }
 
-const createMockSpawnResult = (
-  events: ExecutionEvent[] = []
-): MockSpawnResult => {
+const createMockSpawnResult = (events: ExecutionEvent[] = []): MockSpawnResult => {
   const encoder = new TextEncoder();
 
   return {
@@ -101,7 +94,7 @@ const createMockSpawnResult = (
         // Send events as IPC messages
         for (const event of events) {
           const message = JSON.stringify({ type: 'event', data: event });
-          controller.enqueue(encoder.encode(message + '\n'));
+          controller.enqueue(encoder.encode(`${message}\n`));
         }
         controller.close();
       },
@@ -159,7 +152,7 @@ class ProcessIsolationStrategy implements IsolationStrategy {
             if (message.type === 'event') {
               yield message.data as ExecutionEvent;
             }
-          } catch (e) {
+          } catch (_e) {
             // Ignore parse errors
           }
         }
@@ -339,9 +332,7 @@ describe('ProcessIsolationStrategy', () => {
     });
 
     it('should handle cleanup of non-existent process', async () => {
-      await expect(
-        strategy.cleanup('non-existent-id')
-      ).resolves.toBeUndefined();
+      await expect(strategy.cleanup('non-existent-id')).resolves.toBeUndefined();
     });
 
     it('should handle cleanup of already completed process', async () => {
@@ -374,10 +365,10 @@ describe('ProcessIsolationStrategy', () => {
               // Send valid message
               controller.enqueue(
                 encoder.encode(
-                  JSON.stringify({
+                  `${JSON.stringify({
                     type: 'event',
                     data: { type: 'started', timestamp: new Date() },
-                  }) + '\n'
+                  })}\n`
                 )
               );
               controller.close();
@@ -400,7 +391,7 @@ describe('ProcessIsolationStrategy', () => {
                 if (message.type === 'event') {
                   yield message.data as ExecutionEvent;
                 }
-              } catch (e) {
+              } catch (_e) {
                 // Ignore parse errors
               }
             }
@@ -448,7 +439,7 @@ describe('ProcessIsolationStrategy', () => {
                 if (message.type === 'event') {
                   yield message.data as ExecutionEvent;
                 }
-              } catch (e) {
+              } catch (_e) {
                 // Ignore parse errors
               }
             }

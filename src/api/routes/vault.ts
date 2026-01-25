@@ -2,11 +2,7 @@ import { Hono } from 'hono';
 import type { z } from 'zod';
 
 import { createLogger } from '@/observability/logger';
-import {
-  createCredentialSchema,
-  credentialFilterSchema,
-  vaultService,
-} from '@/vault';
+import { createCredentialSchema, credentialFilterSchema, vaultService } from '@/vault';
 import { getValidatedBody, getValidatedQuery, validateBody, validateQuery } from '../middleware';
 
 const vault = new Hono();

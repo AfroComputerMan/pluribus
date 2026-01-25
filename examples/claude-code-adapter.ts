@@ -5,7 +5,7 @@
  * to execute agent tasks via the Claude CLI.
  */
 
-import { claudeCodeAdapter, adapterRegistry } from '@/integrations';
+import { adapterRegistry, claudeCodeAdapter } from '@/integrations';
 
 async function main() {
   // 1. Register the adapter
@@ -45,7 +45,7 @@ async function main() {
   // 5. Execute the task with event streaming
   console.log('\nExecuting task...\n');
 
-  let outputText = '';
+  let _outputText = '';
   for await (const event of claudeCodeAdapter.execute(connection, task, {
     timeout: 60000,
     onEvent: (evt) => {
@@ -67,7 +67,7 @@ async function main() {
         break;
 
       case 'output':
-        outputText += event.content;
+        _outputText += event.content;
         process.stdout.write(event.content);
         break;
 

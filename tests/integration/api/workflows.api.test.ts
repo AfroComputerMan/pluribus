@@ -188,7 +188,10 @@ describe('Workflows API Integration', () => {
   describe('GET /api/workflows', () => {
     test('returns empty array when no workflows', async () => {
       const res = await app.request('/api/workflows');
-      const json = (await res.json()) as { data: unknown[]; meta: { limit: number; offset: number } };
+      const json = (await res.json()) as {
+        data: unknown[];
+        meta: { limit: number; offset: number };
+      };
 
       expect(res.status).toBe(200);
       expect(json.data).toEqual([]);
@@ -624,7 +627,10 @@ describe('Workflows API Integration', () => {
       }
 
       const res = await app.request(`/api/workflows/${workflow?.id}/runs?limit=2&offset=2`);
-      const json = (await res.json()) as { data: unknown[]; meta: { limit: number; offset: number } };
+      const json = (await res.json()) as {
+        data: unknown[];
+        meta: { limit: number; offset: number };
+      };
 
       expect(res.status).toBe(200);
       expect(json.data.length).toBe(2);

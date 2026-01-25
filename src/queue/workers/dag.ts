@@ -1,4 +1,4 @@
-import type { WorkflowNode, WorkflowEdge } from '@/db/schema';
+import type { WorkflowEdge, WorkflowNode } from '@/db/schema';
 import type { DAGAnalysis, DAGNode } from './types';
 
 /**

@@ -1,6 +1,6 @@
-import Handlebars from 'handlebars';
-import { createLogger } from '@/observability/logger';
 import { NotFoundError, ValidationError } from '@/lib/errors';
+import { createLogger } from '@/observability/logger';
+import Handlebars from 'handlebars';
 import { skillRepository } from './repository';
 import type {
   CreateSkillInput,
@@ -22,10 +22,17 @@ export class SkillService {
   }
 
   private registerHelpers(): void {
-    Handlebars.registerHelper('default', (value: unknown, defaultValue: unknown) => value ?? defaultValue);
+    Handlebars.registerHelper(
+      'default',
+      (value: unknown, defaultValue: unknown) => value ?? defaultValue
+    );
     Handlebars.registerHelper('escape', (value: string) => Handlebars.escapeExpression(value));
-    Handlebars.registerHelper('upper', (value: string) => typeof value === 'string' ? value.toUpperCase() : value);
-    Handlebars.registerHelper('lower', (value: string) => typeof value === 'string' ? value.toLowerCase() : value);
+    Handlebars.registerHelper('upper', (value: string) =>
+      typeof value === 'string' ? value.toUpperCase() : value
+    );
+    Handlebars.registerHelper('lower', (value: string) =>
+      typeof value === 'string' ? value.toLowerCase() : value
+    );
   }
 
   async createSkill(data: CreateSkillInput): Promise<Skill> {
@@ -33,7 +40,9 @@ export class SkillService {
     if (data.parameters?.length) {
       const validation = await this.validateTemplate(data.content, data.parameters);
       if (!validation.valid) {
-        throw new ValidationError('Template validation failed: ' + validation.errors.map(e => e.message).join(', '));
+        throw new ValidationError(
+          `Template validation failed: ${validation.errors.map((e) => e.message).join(', ')}`
+        );
       }
     }
     const skill = await this.repository.create(data);
@@ -61,7 +70,9 @@ export class SkillService {
       if (parameters?.length) {
         const validation = await this.validateTemplate(content, parameters);
         if (!validation.valid) {
-          throw new ValidationError('Template validation failed: ' + validation.errors.map(e => e.message).join(', '));
+          throw new ValidationError(
+            `Template validation failed: ${validation.errors.map((e) => e.message).join(', ')}`
+          );
         }
       }
     }
@@ -78,10 +89,12 @@ export class SkillService {
     if (!skill) throw new NotFoundError('Skill', id);
     logger.debug('Rendering skill', { skillId: id, params });
     if (skill.parameters?.length) {
-      const required = skill.parameters.filter(p => p.required);
-      const missing = required.filter(p => !(p.name in params) && p.default === undefined);
+      const required = skill.parameters.filter((p) => p.required);
+      const missing = required.filter((p) => !(p.name in params) && p.default === undefined);
       if (missing.length > 0) {
-        throw new ValidationError('Missing required parameters: ' + missing.map(p => p.name).join(', '));
+        throw new ValidationError(
+          `Missing required parameters: ${missing.map((p) => p.name).join(', ')}`
+        );
       }
       const filledParams = { ...params };
       for (const param of skill.parameters) {
@@ -102,21 +115,28 @@ export class SkillService {
 
   private coerceParameterValue(value: unknown, param: SkillParameter): unknown {
     switch (param.type) {
-      case 'number': return typeof value === 'number' ? value : Number(value);
+      case 'number':
+        return typeof value === 'number' ? value : Number(value);
       case 'boolean':
         if (typeof value === 'boolean') return value;
         if (typeof value === 'string') return value.toLowerCase() === 'true';
         return Boolean(value);
       case 'select':
         if (param.options && !param.options.includes(String(value))) {
-          throw new ValidationError('Invalid value for parameter ' + param.name + '. Expected one of: ' + param.options.join(', '));
+          throw new ValidationError(
+            `Invalid value for parameter ${param.name}. Expected one of: ${param.options.join(', ')}`
+          );
         }
         return String(value);
-      default: return String(value);
+      default:
+        return String(value);
     }
   }
 
-  async validateTemplate(template: string, parameters?: SkillParameter[]): Promise<ValidationResult> {
+  async validateTemplate(
+    template: string,
+    parameters?: SkillParameter[]
+  ): Promise<ValidationResult> {
     const errors: ValidationResult['errors'] = [];
     const warnings: ValidationResult['warnings'] = [];
     const requiredParameters: string[] = [];
@@ -124,17 +144,23 @@ export class SkillService {
       const compiled = Handlebars.compile(template, { strict: false });
       const usedParams = this.extractTemplateVariables(template);
       if (parameters) {
-        const paramNames = new Set(parameters.map(p => p.name));
+        const paramNames = new Set(parameters.map((p) => p.name));
         const usedParamNames = new Set(usedParams);
         for (const param of parameters) {
           if (!usedParamNames.has(param.name)) {
-            warnings.push({ message: 'Parameter \'' + param.name + '\' is declared but not used in template', parameter: param.name });
+            warnings.push({
+              message: `Parameter \'${param.name}\' is declared but not used in template`,
+              parameter: param.name,
+            });
           }
           if (param.required) requiredParameters.push(param.name);
         }
         for (const used of usedParams) {
           if (!paramNames.has(used)) {
-            warnings.push({ message: 'Template uses parameter \'' + used + '\' which is not declared', parameter: used });
+            warnings.push({
+              message: `Template uses parameter \'${used}\' which is not declared`,
+              parameter: used,
+            });
           }
         }
       }
@@ -142,7 +168,9 @@ export class SkillService {
       for (const param of usedParams) testData[param] = 'test';
       compiled(testData);
     } catch (error) {
-      errors.push({ message: error instanceof Error ? error.message : 'Template compilation failed' });
+      errors.push({
+        message: error instanceof Error ? error.message : 'Template compilation failed',
+      });
     }
     return { valid: errors.length === 0, errors, warnings, requiredParameters };
   }
@@ -150,21 +178,32 @@ export class SkillService {
   private extractTemplateVariables(template: string): string[] {
     const variables: string[] = [];
     const regex = /\{\{([^}]+)\}\}/g;
-    let match;
-    while ((match = regex.exec(template)) !== null) {
+    let match: RegExpExecArray | null = null;
+    while (true) {
+      match = regex.exec(template);
+      if (match === null) break;
       if (!match[1]) continue;
       const expr = match[1].trim();
       const parts = expr.split(/\s+/);
       const varName = parts[0];
-      if (varName && !['if', 'unless', 'each', 'with', 'lookup', 'default', 'escape', 'upper', 'lower'].includes(varName) &&
-          !varName.startsWith('#') && !varName.startsWith('/')) {
+      if (
+        varName &&
+        !['if', 'unless', 'each', 'with', 'lookup', 'default', 'escape', 'upper', 'lower'].includes(
+          varName
+        ) &&
+        !varName.startsWith('#') &&
+        !varName.startsWith('/')
+      ) {
         if (!variables.includes(varName)) variables.push(varName);
       }
     }
     return variables;
   }
 
-  async importSkills(data: SkillExport[], options: ImportOptions = { conflictResolution: 'skip' }): Promise<ImportResult> {
+  async importSkills(
+    data: SkillExport[],
+    options: ImportOptions = { conflictResolution: 'skip' }
+  ): Promise<ImportResult> {
     logger.info('Importing skills', { count: data.length, options });
     const result: ImportResult = { imported: [], skipped: [], errors: [] };
     for (const exportData of data) {
@@ -174,22 +213,24 @@ export class SkillService {
           ...skill,
           source: 'imported' as const,
           description: skill.description ?? null,
-          parameters: skill.parameters ?? null
+          parameters: skill.parameters ?? null,
         } as CreateSkillInput;
         const existing = await this.repository.findByName(skill.name);
         if (existing) {
           if (options.conflictResolution === 'skip') {
-            result.skipped.push({ name: skill.name, reason: 'Skill with this name already exists' });
-            continue;
+            result.skipped.push({
+              name: skill.name,
+              reason: 'Skill with this name already exists',
+            });
           } else if (options.conflictResolution === 'overwrite') {
             const updated = await this.repository.update(existing.id, skillData);
             result.imported.push(updated);
             logger.info('Skill overwritten', { skillId: existing.id, name: skill.name });
           } else if (options.conflictResolution === 'rename') {
-            let newName = skill.name + ' (imported)';
+            let newName = `${skill.name} (imported)`;
             let counter = 1;
             while (await this.repository.findByName(newName)) {
-              newName = skill.name + ' (imported ' + counter + ')';
+              newName = `${skill.name} (imported ${counter})`;
               counter++;
             }
             const created = await this.repository.create({ ...skillData, name: newName });
@@ -202,11 +243,21 @@ export class SkillService {
           logger.info('Skill imported', { skillId: created.id, name: skill.name });
         }
       } catch (error) {
-        result.errors.push({ name: exportData.skill.name, error: error instanceof Error ? error.message : 'Unknown error' });
-        logger.error('Failed to import skill', { name: exportData.skill.name, error: error instanceof Error ? error.message : 'Unknown error' });
+        result.errors.push({
+          name: exportData.skill.name,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        logger.error('Failed to import skill', {
+          name: exportData.skill.name,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
       }
     }
-    logger.info('Import completed', { imported: result.imported.length, skipped: result.skipped.length, errors: result.errors.length });
+    logger.info('Import completed', {
+      imported: result.imported.length,
+      skipped: result.skipped.length,
+      errors: result.errors.length,
+    });
     return result;
   }
 
@@ -219,7 +270,17 @@ export class SkillService {
         logger.warn('Skill not found for export', { skillId: id });
         continue;
       }
-      exports.push({ version: '1.0', skill: { name: skill.name, description: skill.description, type: skill.type, content: skill.content, tags: skill.tags, parameters: skill.parameters ?? undefined } });
+      exports.push({
+        version: '1.0',
+        skill: {
+          name: skill.name,
+          description: skill.description,
+          type: skill.type,
+          content: skill.content,
+          tags: skill.tags,
+          parameters: skill.parameters ?? undefined,
+        },
+      });
     }
     logger.info('Export completed', { count: exports.length });
     return exports;

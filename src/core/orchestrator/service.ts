@@ -1,22 +1,22 @@
 import { logger } from '@/observability/logger';
-import { SchedulerService, getSchedulerService } from './scheduler';
-import { WebhookService, getWebhookService } from './webhook';
-import { EventBus, getEventBus } from './event-bus';
+import { type EventBus, getEventBus } from './event-bus';
+import { type SchedulerService, getSchedulerService } from './scheduler';
 import type {
-  ScheduledTrigger,
   CreateScheduleInput,
-  UpdateScheduleInput,
-  ScheduleFilter,
-  WebhookTrigger,
   CreateWebhookInput,
+  EventHandler,
+  EventType,
+  OrchestratorEvent,
+  ScheduleFilter,
+  ScheduledTrigger,
+  TriggerResult,
+  UpdateScheduleInput,
   UpdateWebhookInput,
   WebhookFilter,
   WebhookPayload,
-  TriggerResult,
-  EventType,
-  EventHandler,
-  OrchestratorEvent,
+  WebhookTrigger,
 } from './types';
+import { type WebhookService, getWebhookService } from './webhook';
 
 const log = logger.child('orchestrator:service');
 

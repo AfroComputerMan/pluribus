@@ -3,12 +3,7 @@ import { and, desc, eq, ilike, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { skills } from '@/db/schema';
 import { NotFoundError } from '@/lib/errors';
-import type {
-  CreateSkillInput,
-  Skill,
-  SkillFilter,
-  UpdateSkillInput,
-} from './types';
+import type { CreateSkillInput, Skill, SkillFilter, UpdateSkillInput } from './types';
 
 export class SkillRepository {
   async findById(id: string): Promise<Skill | null> {

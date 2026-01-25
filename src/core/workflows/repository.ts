@@ -5,10 +5,10 @@ import { nodeExecutions, workflowRuns, workflows } from '@/db/schema';
 import { NotFoundError } from '@/lib/errors';
 import type {
   CreateWorkflowInput,
+  TriggerType,
   UpdateWorkflowInput,
   WorkflowFilter,
   WorkflowRunFilter,
-  TriggerType,
 } from './types';
 
 export class WorkflowRepository {
@@ -209,10 +209,7 @@ export class WorkflowRepository {
 
   async findNodeExecution(runId: string, nodeId: string) {
     const result = await db.query.nodeExecutions.findFirst({
-      where: and(
-        eq(nodeExecutions.workflowRunId, runId),
-        eq(nodeExecutions.nodeId, nodeId)
-      ),
+      where: and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, nodeId)),
     });
 
     return result;
@@ -256,9 +253,7 @@ export class WorkflowRepository {
     const [result] = await db
       .update(nodeExecutions)
       .set(update)
-      .where(
-        and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, nodeId))
-      )
+      .where(and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, nodeId)))
       .returning();
 
     return result;

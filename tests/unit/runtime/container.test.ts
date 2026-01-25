@@ -1,11 +1,11 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
-import type { IsolationStrategy, RuntimeTask } from '@/runtime/types';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
-  AgentAdapter,
   AdapterConnection,
+  AgentAdapter,
   AgentTask,
   ExecutionEvent,
 } from '@/integrations/types';
+import type { IsolationStrategy, RuntimeTask } from '@/runtime/types';
 
 // Mock helpers
 const createMockAdapter = (): AgentAdapter => ({
@@ -50,9 +50,7 @@ const createMockTask = (): AgentTask => ({
   context: 'Test context',
 });
 
-const createRuntimeTask = (
-  overrides: Partial<RuntimeTask> = {}
-): RuntimeTask => ({
+const createRuntimeTask = (overrides: Partial<RuntimeTask> = {}): RuntimeTask => ({
   id: 'task-123',
   adapter: createMockAdapter(),
   connection: createMockConnection(),
@@ -110,9 +108,7 @@ class ContainerIsolationStrategy implements IsolationStrategy {
     }
 
     if (task.resourceLimits?.maxCpuPercent) {
-      const cpuShares = Math.floor(
-        (task.resourceLimits.maxCpuPercent / 100) * 1024
-      );
+      const cpuShares = Math.floor((task.resourceLimits.maxCpuPercent / 100) * 1024);
       args.push('--cpu-shares', cpuShares.toString());
     }
 
@@ -189,22 +185,14 @@ describe('ContainerIsolationStrategy', () => {
     });
 
     it('should include volume mount args', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       expect(args).toContain('-v');
-      expect(args.some((arg: string) => arg.includes('/workspace'))).toBe(
-        true
-      );
+      expect(args.some((arg: string) => arg.includes('/workspace'))).toBe(true);
     });
 
     it('should set network mode to none by default', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       expect(args).toContain('--network');
       expect(args).toContain('none');
@@ -214,25 +202,17 @@ describe('ContainerIsolationStrategy', () => {
       const task = createRuntimeTask({ timeout: 45000 });
       const args = (strategy as any).buildDockerArgs(task, 'test-container');
 
-      expect(args.some((arg: string) => arg.includes('TIMEOUT_MS=45000'))).toBe(
-        true
-      );
+      expect(args.some((arg: string) => arg.includes('TIMEOUT_MS=45000'))).toBe(true);
     });
 
     it('should use --rm flag for auto-cleanup', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       expect(args).toContain('--rm');
     });
 
     it('should set container name', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'my-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'my-container');
 
       expect(args).toContain('--name');
       expect(args).toContain('my-container');
@@ -360,9 +340,7 @@ describe('ContainerIsolationStrategy', () => {
     });
 
     it('should handle cleanup of non-existent container', async () => {
-      await expect(
-        strategy.cleanup('non-existent-id')
-      ).resolves.toBeUndefined();
+      await expect(strategy.cleanup('non-existent-id')).resolves.toBeUndefined();
     });
 
     it('should cleanup after successful execution', async () => {
@@ -446,10 +424,7 @@ describe('ContainerIsolationStrategy', () => {
 
   describe('volume mounts', () => {
     it('should mount workspace as read-only', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       const volumeArgs = args
         .map((arg: string, i: number) => (args[i - 1] === '-v' ? arg : null))
@@ -459,27 +434,19 @@ describe('ContainerIsolationStrategy', () => {
     });
 
     it('should include container path in mount', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       const volumeArgs = args
         .map((arg: string, i: number) => (args[i - 1] === '-v' ? arg : null))
         .filter(Boolean);
 
-      expect(
-        volumeArgs.some((arg: string) => arg.includes('/workspace'))
-      ).toBe(true);
+      expect(volumeArgs.some((arg: string) => arg.includes('/workspace'))).toBe(true);
     });
   });
 
   describe('security', () => {
     it('should isolate network by default', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       const networkIndex = args.indexOf('--network');
       expect(networkIndex).toBeGreaterThan(-1);
@@ -487,26 +454,18 @@ describe('ContainerIsolationStrategy', () => {
     });
 
     it('should not expose host filesystem', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       // Volume mounts should be explicit, not mounting root
       const volumeArgs = args
         .map((arg: string, i: number) => (args[i - 1] === '-v' ? arg : null))
         .filter(Boolean);
 
-      expect(volumeArgs.every((arg: string) => !arg.startsWith('/:'))).toBe(
-        true
-      );
+      expect(volumeArgs.every((arg: string) => !arg.startsWith('/:'))).toBe(true);
     });
 
     it('should use auto-remove flag', () => {
-      const args = (strategy as any).buildDockerArgs(
-        runtimeTask,
-        'test-container'
-      );
+      const args = (strategy as any).buildDockerArgs(runtimeTask, 'test-container');
 
       expect(args).toContain('--rm');
     });

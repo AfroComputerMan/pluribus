@@ -1,5 +1,5 @@
-import type { Job } from 'bullmq';
 import type { WorkflowNode } from '@/db/schema';
+import type { Job } from 'bullmq';
 import type { NodeJobData } from '../client';
 
 // Worker status
@@ -51,11 +51,7 @@ export interface ExecutionContext {
 // Node executor interface
 export interface NodeExecutor<T extends WorkflowNode = WorkflowNode> {
   type: T['type'];
-  execute(
-    node: T,
-    context: ExecutionContext,
-    job: Job<NodeJobData>
-  ): Promise<NodeProcessorResult>;
+  execute(node: T, context: ExecutionContext, job: Job<NodeJobData>): Promise<NodeProcessorResult>;
 }
 
 // Worker events for observability

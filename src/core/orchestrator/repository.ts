@@ -1,18 +1,18 @@
-import { randomUUID } from 'crypto';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { db } from '@/db/client';
 import { scheduledTriggers, webhookTriggers } from '@/db/schema';
 import { NotFoundError } from '@/lib/errors';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { getNextRunTime } from './cron';
 import type {
-  ScheduledTrigger,
   CreateScheduleInput,
-  UpdateScheduleInput,
-  ScheduleFilter,
-  WebhookTrigger,
   CreateWebhookInput,
+  ScheduleFilter,
+  ScheduledTrigger,
+  UpdateScheduleInput,
   UpdateWebhookInput,
   WebhookFilter,
+  WebhookTrigger,
 } from './types';
 
 /**
@@ -72,10 +72,7 @@ export class OrchestratorRepository {
       .select()
       .from(scheduledTriggers)
       .where(
-        and(
-          eq(scheduledTriggers.enabled, true),
-          sql`${scheduledTriggers.nextRunAt} <= ${before}`
-        )
+        and(eq(scheduledTriggers.enabled, true), sql`${scheduledTriggers.nextRunAt} <= ${before}`)
       )
       .orderBy(scheduledTriggers.nextRunAt);
   }
@@ -127,21 +124,13 @@ export class OrchestratorRepository {
     if (input.cron !== undefined) {
       updates.cron = input.cron;
       // Recalculate next run time
-      updates.nextRunAt = getNextRunTime(
-        input.cron,
-        now,
-        input.timezone || existing.timezone
-      );
+      updates.nextRunAt = getNextRunTime(input.cron, now, input.timezone || existing.timezone);
     }
 
     if (input.timezone !== undefined) {
       updates.timezone = input.timezone;
       // Recalculate next run time with new timezone
-      updates.nextRunAt = getNextRunTime(
-        input.cron || existing.cron,
-        now,
-        input.timezone
-      );
+      updates.nextRunAt = getNextRunTime(input.cron || existing.cron, now, input.timezone);
     }
 
     if (input.enabled !== undefined) {
@@ -361,10 +350,7 @@ export class OrchestratorRepository {
    * Delete a webhook.
    */
   async deleteWebhook(id: string): Promise<boolean> {
-    const result = await db
-      .delete(webhookTriggers)
-      .where(eq(webhookTriggers.id, id))
-      .returning();
+    const result = await db.delete(webhookTriggers).where(eq(webhookTriggers.id, id)).returning();
 
     return result.length > 0;
   }

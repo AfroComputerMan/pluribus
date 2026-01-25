@@ -14,12 +14,16 @@ export function parseCron(expression: string): ParsedCron {
   const parts = expression.trim().split(/\s+/);
 
   if (parts.length !== 5) {
-    throw new Error(
-      `Invalid cron expression: expected 5 parts, got ${parts.length}`
-    );
+    throw new Error(`Invalid cron expression: expected 5 parts, got ${parts.length}`);
   }
 
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts as [string, string, string, string, string];
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
 
   return {
     minute: parseField(minute, 0, 59),
@@ -45,9 +49,9 @@ function parseField(field: string, min: number, max: number): number[] {
       const splitParts = part.split('/');
       const range = splitParts[0] ?? '*';
       const stepStr = splitParts[1] ?? '1';
-      const step = parseInt(stepStr, 10);
+      const step = Number.parseInt(stepStr, 10);
 
-      if (isNaN(step) || step <= 0) {
+      if (Number.isNaN(step) || step <= 0) {
         throw new Error(`Invalid step value: ${stepStr}`);
       }
 
@@ -76,8 +80,8 @@ function parseField(field: string, min: number, max: number): number[] {
     }
     // Handle single value
     else {
-      const value = parseInt(part, 10);
-      if (isNaN(value) || value < min || value > max) {
+      const value = Number.parseInt(part, 10);
+      if (Number.isNaN(value) || value < min || value > max) {
         throw new Error(`Invalid value: ${part} (expected ${min}-${max})`);
       }
       values.add(value);
@@ -94,10 +98,10 @@ function parseRange(range: string, min: number, max: number): [number, number] {
   const splitParts = range.split('-');
   const startStr = splitParts[0] ?? '';
   const endStr = splitParts[1] ?? '';
-  const start = parseInt(startStr, 10);
-  const end = parseInt(endStr, 10);
+  const start = Number.parseInt(startStr, 10);
+  const end = Number.parseInt(endStr, 10);
 
-  if (isNaN(start) || isNaN(end)) {
+  if (Number.isNaN(start) || Number.isNaN(end)) {
     throw new Error(`Invalid range: ${range}`);
   }
 
@@ -242,8 +246,19 @@ export function describeCron(expression: string): string {
   // Months
   if (parsed.month.length < 12) {
     const monthNames = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     const months = parsed.month.map((m) => monthNames[m]);
     parts.push(`in ${months.join(', ')}`);

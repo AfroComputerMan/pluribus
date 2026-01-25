@@ -46,7 +46,7 @@ describe('ClaudeCodeAdapter', () => {
         const proc = createMockProcess();
         // Automatically emit success for check commands
         setTimeout(() => {
-          proc.stdout!.emit('data', Buffer.from('1.0.0\n'));
+          proc.stdout?.emit('data', Buffer.from('1.0.0\n'));
           proc.emit('exit', 0);
         }, 1);
         return proc;
@@ -116,7 +116,7 @@ describe('ClaudeCodeAdapter', () => {
       mockSpawn.mockImplementation(() => {
         const proc = createMockProcess();
         setTimeout(() => {
-          proc.stdout!.emit('data', Buffer.from('1.0.0\n'));
+          proc.stdout?.emit('data', Buffer.from('1.0.0\n'));
           proc.emit('exit', 0);
         }, 1);
         return proc;
@@ -219,7 +219,7 @@ describe('ClaudeCodeAdapter', () => {
           const stdout = proc.stdout as Readable;
           stdout.push('{"type":"message_start"}\n');
           stdout.push(
-            '{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}\n',
+            '{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}\n'
           );
           stdout.push('{"type":"message_stop","usage":{"input_tokens":10,"output_tokens":5}}\n');
           stdout.push(null); // End stream
@@ -306,7 +306,7 @@ describe('ClaudeCodeAdapter', () => {
         events.push(event);
       }
 
-      expect(mockProc!.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(mockProc?.kill).toHaveBeenCalledWith('SIGTERM');
     });
 
     test('handles process errors', async () => {

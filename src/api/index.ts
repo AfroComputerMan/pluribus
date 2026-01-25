@@ -7,7 +7,16 @@ import { timing } from 'hono/timing';
 import { checkDatabaseHealth } from '@/db';
 import { checkQueueHealth } from '@/queue';
 import { errorHandler } from './middleware';
-import { agents, mcp, observability, orchestrator, runs, skillRoutes, vault, workflowRoutes } from './routes';
+import {
+  agents,
+  mcp,
+  observability,
+  orchestrator,
+  runs,
+  skillRoutes,
+  vault,
+  workflowRoutes,
+} from './routes';
 
 // Create Hono app
 export const app = new Hono();

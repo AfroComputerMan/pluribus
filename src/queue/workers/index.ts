@@ -1,14 +1,14 @@
 import { logger } from '@/observability/logger';
-import { WorkflowProcessor } from './workflow.processor';
-import { NodeProcessor } from './node.processor';
 import {
   agentExecutor,
   conditionExecutor,
-  parallelExecutor,
-  loopExecutor,
   humanReviewExecutor,
+  loopExecutor,
+  parallelExecutor,
 } from './executors';
+import { NodeProcessor } from './node.processor';
 import type { WorkerConfig } from './types';
+import { WorkflowProcessor } from './workflow.processor';
 
 const log = logger.child('queue:workers');
 
@@ -71,10 +71,7 @@ export class WorkerManager {
 
     log.info('Stopping queue workers...');
 
-    await Promise.all([
-      this.workflowProcessor.stop(),
-      this.nodeProcessor.stop(),
-    ]);
+    await Promise.all([this.workflowProcessor.stop(), this.nodeProcessor.stop()]);
 
     this.running = false;
     log.info('Queue workers stopped');

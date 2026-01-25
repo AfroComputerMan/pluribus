@@ -1,13 +1,13 @@
-import { createLogger } from '@/observability/logger';
 import { IntegrationError, ValidationError } from '@/lib/errors';
+import { createLogger } from '@/observability/logger';
 import { decrypt, encrypt } from './crypto';
 import { vaultRepository } from './repository';
 import type {
   ApiKeyCredentialData,
+  CreateCredentialInput,
   Credential,
   CredentialFilter,
   CredentialMetadata,
-  CreateCredentialInput,
   OAuthCredentialData,
 } from './types';
 

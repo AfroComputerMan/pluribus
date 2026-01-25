@@ -1,14 +1,11 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
-  IsolationStrategy,
-  RuntimeTask,
-} from '@/runtime/types';
-import type {
-  AgentAdapter,
   AdapterConnection,
+  AgentAdapter,
   AgentTask,
   ExecutionEvent,
 } from '@/integrations/types';
+import type { IsolationStrategy, RuntimeTask } from '@/runtime/types';
 
 // Mock helpers
 const createMockAdapter = (): AgentAdapter => ({
@@ -62,9 +59,7 @@ const createMockTask = (): AgentTask => ({
   },
 });
 
-const createRuntimeTask = (
-  overrides: Partial<RuntimeTask> = {}
-): RuntimeTask => ({
+const createRuntimeTask = (overrides: Partial<RuntimeTask> = {}): RuntimeTask => ({
   id: 'task-123',
   adapter: createMockAdapter(),
   connection: createMockConnection(),
@@ -265,9 +260,7 @@ describe('SharedProcessStrategy', () => {
     });
 
     it('should handle cleanup of non-existent execution', async () => {
-      await expect(
-        strategy.cleanup('non-existent-id')
-      ).resolves.toBeUndefined();
+      await expect(strategy.cleanup('non-existent-id')).resolves.toBeUndefined();
     });
   });
 
