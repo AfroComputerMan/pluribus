@@ -6,7 +6,11 @@ import { workflowRunFilterSchema } from '@/core/workflows';
 import { db } from '@/db';
 import { nodeExecutions, workflowRuns } from '@/db/schema';
 import { NotFoundError, ValidationError } from '@/lib/errors';
+import { logger } from '@/observability/logger';
+import { enqueueWorkflow } from '@/queue/client';
 import { getValidatedQuery, validateQuery } from '../middleware';
+
+const log = logger.child('api:runs');
 
 const runs = new Hono();
 
@@ -118,6 +122,11 @@ runs.post('/:id/retry', async (c) => {
     });
   }
 
+  // Verify workflow still exists
+  if (!originalRun.workflowId) {
+    throw new ValidationError('Cannot retry run: original workflow has been deleted');
+  }
+
   // Create new run with same input
   const [newRun] = await db
     .insert(workflowRuns)
@@ -129,7 +138,23 @@ runs.post('/:id/retry', async (c) => {
     })
     .returning();
 
-  // TODO: Enqueue new run for execution
+  if (!newRun) {
+    throw new Error('Failed to create new run');
+  }
+
+  log.info('Retrying workflow run', {
+    originalRunId: id,
+    newRunId: newRun.id,
+    workflowId: originalRun.workflowId,
+  });
+
+  // Enqueue new run for execution
+  await enqueueWorkflow({
+    runId: newRun.id,
+    workflowId: originalRun.workflowId,
+    triggerType: 'api',
+    input: (originalRun.input as Record<string, unknown>) || {},
+  });
 
   return c.json({ data: newRun }, 202);
 });
@@ -146,12 +171,25 @@ runs.post('/:id/review', async (c) => {
   const body = await c.req.json();
   const { decision, comment } = reviewDecisionSchema.parse(body);
 
+  // Get the workflow run to verify it exists and get workflow info
+  const run = await db.query.workflowRuns.findFirst({
+    where: eq(workflowRuns.id, id),
+  });
+
+  if (!run) {
+    throw new NotFoundError('WorkflowRun', id);
+  }
+
+  if (!run.workflowId) {
+    throw new ValidationError('Cannot resume run: workflow has been deleted');
+  }
+
   // Find pending human review node
   const [node] = await db
     .update(nodeExecutions)
     .set({
       status: 'completed',
-      output: { decision, comment },
+      output: { decision, comment, reviewedAt: new Date().toISOString() },
       completedAt: new Date(),
     })
     .where(and(eq(nodeExecutions.workflowRunId, id), eq(nodeExecutions.status, 'running')))
@@ -161,7 +199,23 @@ runs.post('/:id/review', async (c) => {
     throw new ValidationError('No pending human review found for this run');
   }
 
-  // TODO: Resume workflow execution
+  log.info('Human review submitted', {
+    runId: id,
+    nodeId: node.nodeId,
+    decision,
+  });
+
+  // Update run status back to running and resume workflow execution
+  await db.update(workflowRuns).set({ status: 'running' }).where(eq(workflowRuns.id, id));
+
+  // Re-enqueue the workflow to continue execution
+  // The workflow processor will pick up from where it left off
+  await enqueueWorkflow({
+    runId: id,
+    workflowId: run.workflowId,
+    triggerType: run.triggerType as 'manual' | 'schedule' | 'webhook' | 'api',
+    input: (run.input as Record<string, unknown>) || {},
+  });
 
   return c.json({ data: node });
 });
