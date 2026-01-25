@@ -391,7 +391,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/workflows/${created?.id}`, {
+      const res = await app.request(`/api/workflows/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
@@ -417,7 +417,7 @@ describe('Workflows API Integration', () => {
         },
       ];
 
-      const res = await app.request(`/api/workflows/${created?.id}`, {
+      const res = await app.request(`/api/workflows/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodes: newNodes }),
@@ -434,7 +434,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${created?.id}`, {
+      const res = await app.request(`/api/workflows/${created!.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -474,7 +474,7 @@ describe('Workflows API Integration', () => {
         .values(createTestWorkflowInput())
         .returning();
 
-      const res = await app.request(`/api/workflows/${created?.id}`, {
+      const res = await app.request(`/api/workflows/${created!.id}`, {
         method: 'DELETE',
       });
       const json = (await res.json()) as { success: boolean };
@@ -484,7 +484,7 @@ describe('Workflows API Integration', () => {
 
       // Verify deleted from database
       const dbWorkflow = await containers.db.query.workflows.findFirst({
-        where: eq(schema.workflows.id, created?.id ?? ''),
+        where: eq(schema.workflows.id, created!.id ?? ''),
       });
       expect(dbWorkflow).toBeUndefined();
     });
