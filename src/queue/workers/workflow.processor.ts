@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { workflowRuns, workflows } from '@/db/schema';
 import { logger } from '@/observability/logger';
-import { QUEUE_NAMES, type WorkflowJobData, enqueueNode } from '../client';
+import { QUEUE_NAMES, type WorkflowJobData, enqueueNode, getRedis } from '../client';
 import { analyzeDAG } from './dag';
 import type {
   ExecutionContext,
@@ -81,7 +81,7 @@ export class WorkflowProcessor {
   }
 
   /**
-   * Emit an event to all registered handlers.
+   * Emit an event to all registered handlers and publish to Redis pub/sub.
    */
   private async emitEvent(
     type: 'workflow:started' | 'workflow:completed' | 'workflow:failed',
@@ -89,14 +89,30 @@ export class WorkflowProcessor {
     workflowId: string,
     data?: Record<string, unknown>
   ): Promise<void> {
+    const timestamp = new Date();
     const event = {
       type,
-      timestamp: new Date(),
+      timestamp,
       runId,
       workflowId,
       data,
     };
 
+    // Publish to Redis pub/sub for SSE clients (convert timestamp to ISO string)
+    try {
+      const redis = getRedis();
+      const channel = `run:${runId}`;
+      const redisEvent = {
+        ...event,
+        timestamp: timestamp.toISOString(),
+      };
+      await redis.publish(channel, JSON.stringify(redisEvent));
+      log.debug('Published event to Redis', { type, runId, channel });
+    } catch (error) {
+      log.error('Failed to publish event to Redis', { error, type, runId });
+    }
+
+    // Emit to registered handlers
     for (const handler of this.eventHandlers) {
       try {
         await handler(event);

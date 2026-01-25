@@ -5,7 +5,7 @@ import { db } from '@/db/client';
 import { nodeExecutions, workflowRuns, workflows } from '@/db/schema';
 import type { WorkflowNode } from '@/db/schema';
 import { logger } from '@/observability/logger';
-import { type NodeJobData, QUEUE_NAMES, enqueueNode } from '../client';
+import { type NodeJobData, QUEUE_NAMES, enqueueNode, getRedis } from '../client';
 import { analyzeDAG, getReadyNodes } from './dag';
 import type {
   ExecutionContext,
@@ -92,7 +92,7 @@ export class NodeProcessor {
   }
 
   /**
-   * Emit an event to all registered handlers.
+   * Emit an event to all registered handlers and publish to Redis pub/sub.
    */
   private async emitEvent(
     type: 'node:started' | 'node:completed' | 'node:failed' | 'node:skipped',
@@ -101,15 +101,31 @@ export class NodeProcessor {
     nodeId: string,
     data?: Record<string, unknown>
   ): Promise<void> {
+    const timestamp = new Date();
     const event = {
       type,
-      timestamp: new Date(),
+      timestamp,
       runId,
       workflowId,
       nodeId,
       data,
     };
 
+    // Publish to Redis pub/sub for SSE clients (convert timestamp to ISO string)
+    try {
+      const redis = getRedis();
+      const channel = `run:${runId}`;
+      const redisEvent = {
+        ...event,
+        timestamp: timestamp.toISOString(),
+      };
+      await redis.publish(channel, JSON.stringify(redisEvent));
+      log.debug('Published event to Redis', { type, runId, nodeId, channel });
+    } catch (error) {
+      log.error('Failed to publish event to Redis', { error, type, runId, nodeId });
+    }
+
+    // Emit to registered handlers
     for (const handler of this.eventHandlers) {
       try {
         await handler(event);
@@ -324,9 +340,9 @@ export class NodeProcessor {
     const dag = analyzeDAG(workflow.nodes, workflow.edges);
 
     // Get all completed nodes
-    const completionStatuses = options.includeFailed
-      ? (['completed', 'failed', 'skipped'] as const)
-      : (['completed', 'skipped'] as const);
+    const completionStatuses: string[] = options.includeFailed
+      ? ['completed', 'failed', 'skipped']
+      : ['completed', 'skipped'];
 
     const completedExecutions = await db
       .select({ nodeId: nodeExecutions.nodeId })
@@ -379,6 +395,22 @@ export class NodeProcessor {
             completedAt: new Date(),
           })
           .where(eq(workflowRuns.id, runId));
+
+        // Emit workflow completed event
+        try {
+          const redis = getRedis();
+          const channel = `run:${runId}`;
+          const event = {
+            type: 'workflow:completed',
+            timestamp: new Date().toISOString(),
+            runId,
+            workflowId,
+          };
+          await redis.publish(channel, JSON.stringify(event));
+          log.debug('Published workflow:completed event to Redis', { runId, channel });
+        } catch (error) {
+          log.error('Failed to publish workflow:completed event', { error, runId });
+        }
 
         log.info('Workflow completed', { runId, workflowId });
       }
