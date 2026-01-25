@@ -55,12 +55,31 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
       ? `--max-old-space-size=${Math.floor(task.resourceLimits.maxMemoryMB * 0.9)}`
       : '';
 
-    const childProcess = spawn('node', [workerPath], {
+    // Use bun if available (primary runtime), fallback to node
+    const runtime = process.versions.bun ? 'bun' : 'node';
+    const runtimeArgs = runtime === 'bun' ? ['run', workerPath] : [workerPath];
+
+    const childProcess = spawn(runtime, runtimeArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NODE_OPTIONS: nodeOptions },
     });
 
     this.processes.set(task.id, { process: childProcess, tempDir });
+
+    // Capture stderr for debugging
+    let stderrData = '';
+    childProcess.stderr?.on('data', (data) => {
+      stderrData += data.toString();
+      this.log.debug('Worker stderr', { taskId: task.id, stderr: data.toString() });
+    });
+
+    // Handle spawn errors
+    childProcess.on('error', (error) => {
+      this.log.error('Child process spawn error', {
+        taskId: task.id,
+        error: error.message,
+      });
+    });
 
     // Setup timeout
     let timeoutId: NodeJS.Timeout | undefined;
@@ -107,8 +126,12 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
       // Wait for process exit
       await new Promise<void>((resolve, reject) => {
         childProcess.on('exit', (code, signal) => {
-          this.log.info('Process exited', { taskId: task.id, code, signal });
-          resolve();
+          this.log.info('Process exited', { taskId: task.id, code, signal, stderr: stderrData });
+          if (code !== 0 && code !== null) {
+            reject(new Error(`Process exited with code ${code}. stderr: ${stderrData}`));
+          } else {
+            resolve();
+          }
         });
         childProcess.on('error', reject);
       });
@@ -116,6 +139,7 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
       this.log.error('Process execution failed', {
         taskId: task.id,
         error: error instanceof Error ? error.message : String(error),
+        stderr: stderrData,
       });
       yield { type: 'error', error: error instanceof Error ? error : new Error(String(error)) };
     } finally {
