@@ -7,10 +7,23 @@ import { logger } from '@/observability/logger';
 import type { IsolationStrategy, RuntimeTask } from '@/runtime/types';
 
 const WORKER_SCRIPT = `
-const readline = require('node:readline');
+// Use try/catch to handle both Node and Bun readline
+let readline;
+try {
+  readline = require('node:readline');
+} catch {
+  readline = require('readline');
+}
+
 const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
-function send(event) { process.stdout.write(JSON.stringify(event) + '\\n'); }
+function send(event) {
+  try {
+    process.stdout.write(JSON.stringify(event) + '\\n');
+  } catch (e) {
+    process.stderr.write('Failed to send event: ' + e.message + '\\n');
+  }
+}
 
 rl.on('line', async (line) => {
   try {
@@ -20,12 +33,23 @@ rl.on('line', async (line) => {
     await new Promise(r => setTimeout(r, 100));
     send({ type: 'completed', result: { success: true, output: 'Execution completed' } });
   } catch (e) {
-    send({ type: 'error', error: { message: e.message } });
+    send({ type: 'error', error: { message: e.message, stack: e.stack } });
     process.exit(1);
   }
 });
 
+rl.on('error', (e) => {
+  process.stderr.write('Readline error: ' + e.message + '\\n');
+  send({ type: 'error', error: { message: 'Readline error: ' + e.message } });
+  process.exit(1);
+});
+
 process.on('SIGTERM', () => process.exit(0));
+process.on('uncaughtException', (e) => {
+  process.stderr.write('Uncaught exception: ' + e.message + '\\n' + e.stack + '\\n');
+  send({ type: 'error', error: { message: 'Uncaught exception: ' + e.message } });
+  process.exit(1);
+});
 `;
 
 interface ProcessState {
@@ -115,10 +139,22 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
           if ('timestamp' in event && typeof event.timestamp === 'string') {
             event.timestamp = new Date(event.timestamp);
           }
+          // Log error events for debugging
+          if (event.type === 'error') {
+            this.log.error('Worker emitted error event', {
+              taskId: task.id,
+              error: event.error,
+              stderr: stderrData,
+            });
+          }
           yield event;
           if (event.type === 'completed' || event.type === 'error') break;
-        } catch {
-          this.log.error('Failed to parse event from worker', { taskId: task.id, line });
+        } catch (parseError) {
+          this.log.error('Failed to parse event from worker', {
+            taskId: task.id,
+            line,
+            parseError: parseError instanceof Error ? parseError.message : String(parseError),
+          });
         }
       }
 
