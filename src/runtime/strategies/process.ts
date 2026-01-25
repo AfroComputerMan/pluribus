@@ -57,9 +57,8 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
 
     // Use bun if available (primary runtime), fallback to node
     const runtime = process.versions.bun ? 'bun' : 'node';
-    const runtimeArgs = runtime === 'bun' ? ['run', workerPath] : [workerPath];
 
-    const childProcess = spawn(runtime, runtimeArgs, {
+    const childProcess = spawn(runtime, [workerPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NODE_OPTIONS: nodeOptions },
     });
