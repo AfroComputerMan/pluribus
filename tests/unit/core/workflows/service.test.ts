@@ -4,6 +4,12 @@ import { WorkflowService } from '@/core/workflows/service';
 import type { CreateWorkflowInput } from '@/core/workflows/types';
 import { ValidationError } from '@/lib/errors';
 
+// Mock the queue client to prevent Redis connection attempts in unit tests
+mock.module('@/queue/client', () => ({
+  enqueueWorkflow: mock(() => Promise.resolve()),
+  enqueueNode: mock(() => Promise.resolve()),
+}));
+
 describe('WorkflowService', () => {
   // Create a mock repository
   const mockRepository = {
