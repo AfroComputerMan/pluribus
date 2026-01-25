@@ -1,5 +1,5 @@
 import { type Job, Worker } from 'bullmq';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { nodeExecutions, workflowRuns, workflows } from '@/db/schema';
@@ -228,16 +228,18 @@ export class NodeProcessor {
 
       await this.emitEvent('node:failed', runId, workflowId, nodeId, { error: errorMessage });
 
-      // Check if we should fail the entire workflow
-      await this.handleNodeFailure(runId, workflowId, nodeId, errorMessage);
-
-      return {
+      const failedResult: NodeProcessorResult = {
         nodeId,
         status: 'failed',
         error: errorMessage,
         startedAt,
         completedAt,
       };
+
+      // Check if we should fail the entire workflow
+      await this.handleNodeFailure(runId, workflowId, nodeId, errorMessage, failedResult, context);
+
+      return failedResult;
     }
   }
 
@@ -311,7 +313,8 @@ export class NodeProcessor {
     workflowId: string,
     completedNodeId: string,
     result: NodeProcessorResult,
-    context: Record<string, unknown>
+    context: Record<string, unknown>,
+    options: { includeFailed?: boolean } = {}
   ): Promise<void> {
     // Fetch workflow
     const [workflow] = await db.select().from(workflows).where(eq(workflows.id, workflowId));
@@ -321,10 +324,19 @@ export class NodeProcessor {
     const dag = analyzeDAG(workflow.nodes, workflow.edges);
 
     // Get all completed nodes
+    const completionStatuses = options.includeFailed
+      ? (['completed', 'failed', 'skipped'] as const)
+      : (['completed', 'skipped'] as const);
+
     const completedExecutions = await db
       .select({ nodeId: nodeExecutions.nodeId })
       .from(nodeExecutions)
-      .where(and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.status, 'completed')));
+      .where(
+        and(
+          eq(nodeExecutions.workflowRunId, runId),
+          inArray(nodeExecutions.status, completionStatuses)
+        )
+      );
 
     const completedNodes = new Set(completedExecutions.map((e) => e.nodeId));
     completedNodes.add(completedNodeId); // Include the one we just completed
@@ -380,7 +392,9 @@ export class NodeProcessor {
     runId: string,
     workflowId: string,
     nodeId: string,
-    error: string
+    error: string,
+    result: NodeProcessorResult,
+    context: Record<string, unknown>
   ): Promise<void> {
     // Fetch workflow to get error strategy
     const [workflow] = await db.select().from(workflows).where(eq(workflows.id, workflowId));
@@ -403,6 +417,9 @@ export class NodeProcessor {
     } else if (strategy.onFailure === 'continue') {
       // Continue with other nodes - don't mark workflow as failed yet
       log.info('Continuing workflow despite node failure', { runId, nodeId });
+      await this.enqueueNextNodes(runId, workflowId, nodeId, result, context, {
+        includeFailed: true,
+      });
     } else if (strategy.onFailure === 'human-review') {
       // Mark workflow as waiting for review
       await db.update(workflowRuns).set({ status: 'pending' }).where(eq(workflowRuns.id, runId));
