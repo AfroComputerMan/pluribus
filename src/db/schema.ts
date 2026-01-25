@@ -233,6 +233,55 @@ export const logs = pgTable(
 );
 
 // ===================
+// Scheduled Triggers
+// ===================
+export const scheduledTriggers = pgTable(
+  'scheduled_triggers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workflowId: uuid('workflow_id')
+      .references(() => workflows.id, { onDelete: 'cascade' })
+      .notNull(),
+    cron: varchar('cron', { length: 100 }).notNull(),
+    timezone: varchar('timezone', { length: 50 }).default('UTC').notNull(),
+    enabled: boolean('enabled').default(true).notNull(),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_scheduled_triggers_workflow').on(table.workflowId),
+    index('idx_scheduled_triggers_next_run').on(table.nextRunAt),
+    index('idx_scheduled_triggers_enabled').on(table.enabled),
+  ]
+);
+
+// ===================
+// Webhook Triggers
+// ===================
+export const webhookTriggers = pgTable(
+  'webhook_triggers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workflowId: uuid('workflow_id')
+      .references(() => workflows.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    secret: text('secret').notNull(),
+    enabled: boolean('enabled').default(true).notNull(),
+    lastTriggeredAt: timestamp('last_triggered_at', { withTimezone: true }),
+    triggerCount: integer('trigger_count').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_webhook_triggers_workflow').on(table.workflowId),
+    index('idx_webhook_triggers_enabled').on(table.enabled),
+  ]
+);
+
+// ===================
 // Usage Records (Cost Tracking)
 // ===================
 export const usageRecords = pgTable(

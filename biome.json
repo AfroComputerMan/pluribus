@@ -41,5 +41,17 @@
   },
   "files": {
     "ignore": ["node_modules", "dist", ".git", "*.json"]
-  }
+  },
+  "overrides": [
+    {
+      "include": ["tests/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    }
+  ]
 }
