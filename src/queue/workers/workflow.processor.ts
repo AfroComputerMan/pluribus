@@ -5,6 +5,7 @@ import { db } from '@/db/client';
 import { workflowRuns, workflows } from '@/db/schema';
 import { logger } from '@/observability/logger';
 import { QUEUE_NAMES, type WorkflowJobData, enqueueNode } from '../client';
+import { emitRunEvent } from '../events';
 import { analyzeDAG } from './dag';
 import type {
   ExecutionContext,
@@ -81,7 +82,7 @@ export class WorkflowProcessor {
   }
 
   /**
-   * Emit an event to all registered handlers.
+   * Emit an event to all registered handlers and publish to Redis pub/sub.
    */
   private async emitEvent(
     type: 'workflow:started' | 'workflow:completed' | 'workflow:failed',
@@ -89,21 +90,7 @@ export class WorkflowProcessor {
     workflowId: string,
     data?: Record<string, unknown>
   ): Promise<void> {
-    const event = {
-      type,
-      timestamp: new Date(),
-      runId,
-      workflowId,
-      data,
-    };
-
-    for (const handler of this.eventHandlers) {
-      try {
-        await handler(event);
-      } catch (error) {
-        log.error('Event handler error', { error });
-      }
-    }
+    await emitRunEvent(type, runId, workflowId, this.eventHandlers, undefined, data);
   }
 
   /**

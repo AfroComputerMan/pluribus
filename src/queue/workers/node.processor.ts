@@ -6,6 +6,7 @@ import { nodeExecutions, workflowRuns, workflows } from '@/db/schema';
 import type { WorkflowNode } from '@/db/schema';
 import { logger } from '@/observability/logger';
 import { type NodeJobData, QUEUE_NAMES, enqueueNode } from '../client';
+import { emitRunEvent, publishRunEvent } from '../events';
 import { analyzeDAG, getReadyNodes } from './dag';
 import type {
   ExecutionContext,
@@ -92,7 +93,7 @@ export class NodeProcessor {
   }
 
   /**
-   * Emit an event to all registered handlers.
+   * Emit an event to all registered handlers and publish to Redis pub/sub.
    */
   private async emitEvent(
     type: 'node:started' | 'node:completed' | 'node:failed' | 'node:skipped',
@@ -101,22 +102,7 @@ export class NodeProcessor {
     nodeId: string,
     data?: Record<string, unknown>
   ): Promise<void> {
-    const event = {
-      type,
-      timestamp: new Date(),
-      runId,
-      workflowId,
-      nodeId,
-      data,
-    };
-
-    for (const handler of this.eventHandlers) {
-      try {
-        await handler(event);
-      } catch (error) {
-        log.error('Event handler error', { error });
-      }
-    }
+    await emitRunEvent(type, runId, workflowId, this.eventHandlers, nodeId, data);
   }
 
   /**
@@ -324,9 +310,9 @@ export class NodeProcessor {
     const dag = analyzeDAG(workflow.nodes, workflow.edges);
 
     // Get all completed nodes
-    const completionStatuses = options.includeFailed
-      ? (['completed', 'failed', 'skipped'] as const)
-      : (['completed', 'skipped'] as const);
+    const completionStatuses: string[] = options.includeFailed
+      ? ['completed', 'failed', 'skipped']
+      : ['completed', 'skipped'];
 
     const completedExecutions = await db
       .select({ nodeId: nodeExecutions.nodeId })
@@ -380,6 +366,7 @@ export class NodeProcessor {
           })
           .where(eq(workflowRuns.id, runId));
 
+        await publishRunEvent('workflow:completed', runId, workflowId);
         log.info('Workflow completed', { runId, workflowId });
       }
     }
