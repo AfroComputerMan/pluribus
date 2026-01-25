@@ -52,7 +52,6 @@ export function getScheduleQueue(): Queue {
   return _scheduleQueue;
 }
 
-
 // Job data types
 export interface WorkflowJobData {
   runId: string;
