@@ -21,14 +21,11 @@ export class ConditionExecutor implements NodeExecutor<ConditionNode> {
   ): Promise<NodeProcessorResult> {
     const startedAt = new Date();
 
-    log.info(
-      {
-        nodeId: node.id,
-        expression: node.expression,
-        runId: context.runId,
-      },
-      'Evaluating condition'
-    );
+    log.info('Evaluating condition', {
+      nodeId: node.id,
+      expression: node.expression,
+      runId: context.runId,
+    });
 
     try {
       // Build evaluation context with workflow input and node results
@@ -44,15 +41,12 @@ export class ConditionExecutor implements NodeExecutor<ConditionNode> {
 
       const completedAt = new Date();
 
-      log.info(
-        {
-          nodeId: node.id,
-          result,
-          branch,
-          durationMs: completedAt.getTime() - startedAt.getTime(),
-        },
-        'Condition evaluated'
-      );
+      log.info('Condition evaluated', {
+        nodeId: node.id,
+        result,
+        branch,
+        durationMs: completedAt.getTime() - startedAt.getTime(),
+      });
 
       return {
         nodeId: node.id,
@@ -68,14 +62,11 @@ export class ConditionExecutor implements NodeExecutor<ConditionNode> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      log.error(
-        {
-          nodeId: node.id,
-          expression: node.expression,
-          error: errorMessage,
-        },
-        'Condition evaluation failed'
-      );
+      log.error('Condition evaluation failed', {
+        nodeId: node.id,
+        expression: node.expression,
+        error: errorMessage,
+      });
 
       return {
         nodeId: node.id,
@@ -124,7 +115,7 @@ export class ConditionExecutor implements NodeExecutor<ConditionNode> {
       // Simple expression parser for safe evaluation
       return this.safeEvaluate(evaluable);
     } catch (error) {
-      log.warn({ expression, error }, 'Expression evaluation fallback to false');
+      log.warn('Expression evaluation fallback to false', { expression, error });
       return false;
     }
   }
@@ -150,8 +141,10 @@ export class ConditionExecutor implements NodeExecutor<ConditionNode> {
       /^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/
     );
 
-    if (comparisonMatch) {
-      const [, leftStr, operator, rightStr] = comparisonMatch;
+    if (comparisonMatch && comparisonMatch[1] && comparisonMatch[2] && comparisonMatch[3]) {
+      const leftStr = comparisonMatch[1];
+      const operator = comparisonMatch[2];
+      const rightStr = comparisonMatch[3];
       const left = this.parseValue(leftStr.trim());
       const right = this.parseValue(rightStr.trim());
 

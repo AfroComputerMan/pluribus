@@ -269,7 +269,7 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
     const startTime = Date.now();
 
     while (Date.now() - startTime < maxWaitTime) {
-      // Find the most recent execution of the body node
+      // Find executions of the body node for this specific iteration
       const executions = await db
         .select()
         .from(nodeExecutions)
@@ -281,8 +281,11 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
         )
         .orderBy(nodeExecutions.createdAt);
 
-      // Get the execution for this iteration (most recent)
-      const execution = executions[executions.length - 1];
+      // Find the execution that matches this iteration number
+      const execution = executions.find((e) => {
+        const input = e.input as Record<string, unknown> | null;
+        return input?._loopIteration === iteration;
+      });
 
       if (execution) {
         if (execution.status === 'completed') {
