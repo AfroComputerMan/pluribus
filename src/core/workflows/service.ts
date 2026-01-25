@@ -223,7 +223,7 @@ export class WorkflowService {
   ): Promise<void> {
     const run = await this.repository.findRunById(runId);
 
-    // Verify the run is waiting for review
+    // Verify the run is waiting for review (status should be 'pending')
     if (run.status !== 'pending') {
       throw new ValidationError(`Run is not waiting for review (status: ${run.status})`);
     }
@@ -232,6 +232,11 @@ export class WorkflowService {
     const nodeExecution = await this.repository.findNodeExecution(runId, nodeId);
     if (!nodeExecution) {
       throw new ValidationError(`Node execution not found: ${nodeId}`);
+    }
+
+    // Verify the node is in pending status
+    if (nodeExecution.status !== 'pending') {
+      throw new ValidationError(`Node is not waiting for review (status: ${nodeExecution.status})`);
     }
 
     log.info('Human review submitted', {

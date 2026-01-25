@@ -18,18 +18,15 @@ export class AgentExecutor implements NodeExecutor<AgentNode> {
   async execute(
     node: AgentNode,
     context: ExecutionContext,
-    job: Job<NodeJobData>
+    _job: Job<NodeJobData>
   ): Promise<NodeProcessorResult> {
     const startedAt = new Date();
 
-    log.info(
-      {
-        nodeId: node.id,
-        agentId: node.agentId,
-        runId: context.runId,
-      },
-      'Executing agent node'
-    );
+    log.info('Executing agent node', {
+      nodeId: node.id,
+      agentId: node.agentId,
+      runId: context.runId,
+    });
 
     try {
       // TODO: This will be implemented in feature/05-claude-code-adapter
@@ -55,14 +52,11 @@ export class AgentExecutor implements NodeExecutor<AgentNode> {
 
       const completedAt = new Date();
 
-      log.info(
-        {
-          nodeId: node.id,
-          agentId: node.agentId,
-          durationMs: completedAt.getTime() - startedAt.getTime(),
-        },
-        'Agent node completed'
-      );
+      log.info('Agent node completed', {
+        nodeId: node.id,
+        agentId: node.agentId,
+        durationMs: completedAt.getTime() - startedAt.getTime(),
+      });
 
       return {
         nodeId: node.id,
@@ -74,14 +68,11 @@ export class AgentExecutor implements NodeExecutor<AgentNode> {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      log.error(
-        {
-          nodeId: node.id,
-          agentId: node.agentId,
-          error: errorMessage,
-        },
-        'Agent node failed'
-      );
+      log.error('Agent node failed', {
+        nodeId: node.id,
+        agentId: node.agentId,
+        error: errorMessage,
+      });
 
       return {
         nodeId: node.id,
