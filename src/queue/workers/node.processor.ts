@@ -200,10 +200,7 @@ export class NodeProcessor {
       // 6. Handle pending status (human review)
       if (result.status === 'pending') {
         // Update workflow run status to pending
-        await db
-          .update(workflowRuns)
-          .set({ status: 'pending' })
-          .where(eq(workflowRuns.id, runId));
+        await db.update(workflowRuns).set({ status: 'pending' }).where(eq(workflowRuns.id, runId));
 
         log.info({ runId, nodeId }, 'Workflow paused for human review');
         return result;

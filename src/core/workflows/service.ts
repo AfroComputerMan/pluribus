@@ -1,16 +1,16 @@
+import { ValidationError } from '@/lib/errors';
 import { logger } from '@/observability/logger';
 import { enqueueWorkflow } from '@/queue/client';
 import { analyzeDAG, validateDAG } from '@/queue/workers/dag';
-import { ValidationError } from '@/lib/errors';
-import { workflowRepository, WorkflowRepository } from './repository';
+import { type WorkflowRepository, workflowRepository } from './repository';
 import type {
   CreateWorkflowInput,
-  UpdateWorkflowInput,
-  WorkflowFilter,
-  WorkflowRunFilter,
   TriggerType,
+  UpdateWorkflowInput,
   Workflow,
+  WorkflowFilter,
   WorkflowRun,
+  WorkflowRunFilter,
 } from './types';
 
 const log = logger.child('workflows:service');
