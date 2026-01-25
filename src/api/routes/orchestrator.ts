@@ -1,16 +1,16 @@
-import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { Hono } from 'hono';
 
-import { OrchestratorService } from '@/core/orchestrator/service';
 import {
   createScheduleSchema,
-  updateScheduleSchema,
-  scheduleFilterSchema,
   createWebhookSchema,
+  scheduleFilterSchema,
+  updateScheduleSchema,
   updateWebhookSchema,
   webhookFilterSchema,
   webhookPayloadSchema,
 } from '@/core/orchestrator/schemas';
+import { OrchestratorService } from '@/core/orchestrator/service';
 import { NotFoundError, ValidationError } from '@/lib/errors';
 
 const orchestrator = new Hono();
@@ -47,21 +47,17 @@ orchestrator.get('/schedules/:id', async (c) => {
 });
 
 // PATCH /api/orchestrator/schedules/:id - Update schedule trigger
-orchestrator.patch(
-  '/schedules/:id',
-  zValidator('json', updateScheduleSchema),
-  async (c) => {
-    const id = c.req.param('id');
-    const input = c.req.valid('json');
-    const schedule = await service.updateSchedule(id, input);
+orchestrator.patch('/schedules/:id', zValidator('json', updateScheduleSchema), async (c) => {
+  const id = c.req.param('id');
+  const input = c.req.valid('json');
+  const schedule = await service.updateSchedule(id, input);
 
-    if (!schedule) {
-      throw new NotFoundError('Schedule', id);
-    }
-
-    return c.json({ data: schedule });
+  if (!schedule) {
+    throw new NotFoundError('Schedule', id);
   }
-);
+
+  return c.json({ data: schedule });
+});
 
 // DELETE /api/orchestrator/schedules/:id - Delete schedule trigger
 orchestrator.delete('/schedules/:id', async (c) => {
@@ -130,21 +126,17 @@ orchestrator.get('/webhooks/:id', async (c) => {
 });
 
 // PATCH /api/orchestrator/webhooks/:id - Update webhook trigger
-orchestrator.patch(
-  '/webhooks/:id',
-  zValidator('json', updateWebhookSchema),
-  async (c) => {
-    const id = c.req.param('id');
-    const input = c.req.valid('json');
-    const webhook = await service.updateWebhook(id, input);
+orchestrator.patch('/webhooks/:id', zValidator('json', updateWebhookSchema), async (c) => {
+  const id = c.req.param('id');
+  const input = c.req.valid('json');
+  const webhook = await service.updateWebhook(id, input);
 
-    if (!webhook) {
-      throw new NotFoundError('Webhook', id);
-    }
-
-    return c.json({ data: webhook });
+  if (!webhook) {
+    throw new NotFoundError('Webhook', id);
   }
-);
+
+  return c.json({ data: webhook });
+});
 
 // DELETE /api/orchestrator/webhooks/:id - Delete webhook trigger
 orchestrator.delete('/webhooks/:id', async (c) => {
@@ -209,12 +201,15 @@ orchestrator.post('/webhooks/:id/trigger', zValidator('json', webhookPayloadSche
     throw new ValidationError(result.error || 'Webhook trigger failed');
   }
 
-  return c.json({
-    data: {
-      runId: result.runId,
-      triggeredAt: result.triggeredAt
-    }
-  }, 202);
+  return c.json(
+    {
+      data: {
+        runId: result.runId,
+        triggeredAt: result.triggeredAt,
+      },
+    },
+    202
+  );
 });
 
 export { orchestrator };

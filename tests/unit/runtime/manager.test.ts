@@ -1,17 +1,17 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type {
-  ExecutionRuntime,
-  IsolationStrategy,
-  RuntimeTask,
-  RuntimeResult,
-  IsolationLevel,
-} from '@/runtime/types';
-import type {
-  AgentAdapter,
   AdapterConnection,
+  AgentAdapter,
   AgentTask,
   ExecutionEvent,
 } from '@/integrations/types';
+import type {
+  ExecutionRuntime,
+  IsolationLevel,
+  IsolationStrategy,
+  RuntimeResult,
+  RuntimeTask,
+} from '@/runtime/types';
 
 // Mock helpers
 const createMockAdapter = (): AgentAdapter => ({
@@ -57,9 +57,7 @@ const createMockTask = (): AgentTask => ({
   context: 'Test context',
 });
 
-const createRuntimeTask = (
-  overrides: Partial<RuntimeTask> = {}
-): RuntimeTask => ({
+const createRuntimeTask = (overrides: Partial<RuntimeTask> = {}): RuntimeTask => ({
   id: 'task-123',
   adapter: createMockAdapter(),
   connection: createMockConnection(),
@@ -111,10 +109,7 @@ class RuntimeManager implements ExecutionRuntime {
     return this.strategies.get(level);
   }
 
-  async execute(
-    task: RuntimeTask,
-    isolation: IsolationLevel
-  ): Promise<RuntimeResult> {
+  async execute(task: RuntimeTask, isolation: IsolationLevel): Promise<RuntimeResult> {
     const startedAt = new Date();
     const events: ExecutionEvent[] = [];
 
@@ -178,8 +173,8 @@ class RuntimeManager implements ExecutionRuntime {
 
   async cleanup(executionId: string): Promise<void> {
     // Delegate to all strategies that might have resources
-    const cleanupPromises = Array.from(this.strategies.values()).map(
-      (strategy) => strategy.cleanup(executionId)
+    const cleanupPromises = Array.from(this.strategies.values()).map((strategy) =>
+      strategy.cleanup(executionId)
     );
     await Promise.all(cleanupPromises);
   }
@@ -189,11 +184,7 @@ class RuntimeManager implements ExecutionRuntime {
   ): Promise<IsolationStrategy | undefined> {
     // Fallback order: container -> process -> shared
     const fallbackOrder: IsolationLevel[] =
-      preferred === 'container'
-        ? ['process', 'shared']
-        : preferred === 'process'
-          ? ['shared']
-          : [];
+      preferred === 'container' ? ['process', 'shared'] : preferred === 'process' ? ['shared'] : [];
 
     for (const level of fallbackOrder) {
       const strategy = this.strategies.get(level);
@@ -281,10 +272,7 @@ describe('RuntimeManager', () => {
 
   describe('fallback behavior', () => {
     it('should fallback when preferred strategy is unavailable', async () => {
-      const unavailableContainer = new MockIsolationStrategy(
-        'container',
-        false
-      );
+      const unavailableContainer = new MockIsolationStrategy('container', false);
       manager.registerStrategy(unavailableContainer);
       manager.registerStrategy(processStrategy);
       manager.registerStrategy(sharedStrategy);
@@ -346,9 +334,7 @@ describe('RuntimeManager', () => {
 
       expect(result.startedAt).toBeInstanceOf(Date);
       expect(result.completedAt).toBeInstanceOf(Date);
-      expect(result.completedAt.getTime()).toBeGreaterThanOrEqual(
-        result.startedAt.getTime()
-      );
+      expect(result.completedAt.getTime()).toBeGreaterThanOrEqual(result.startedAt.getTime());
     });
 
     it('should extract output from completed event', async () => {
@@ -369,6 +355,7 @@ describe('RuntimeManager', () => {
       const errorStrategy = new MockIsolationStrategy('shared', true);
       (errorStrategy.execute as ReturnType<typeof mock>) = mock(
         async function* (): AsyncGenerator<ExecutionEvent> {
+          yield { type: 'started', timestamp: new Date() };
           throw new Error('Execution failed');
         }
       );
@@ -479,6 +466,7 @@ describe('RuntimeManager', () => {
       const throwingStrategy = new MockIsolationStrategy('shared', true);
       (throwingStrategy.execute as ReturnType<typeof mock>) = mock(
         async function* (): AsyncGenerator<ExecutionEvent> {
+          yield { type: 'started', timestamp: new Date() };
           throw 'String error';
         }
       );
@@ -505,8 +493,7 @@ describe('RuntimeManager', () => {
 
       const result = await manager.execute(runtimeTask, 'shared');
 
-      const duration =
-        result.completedAt.getTime() - result.startedAt.getTime();
+      const duration = result.completedAt.getTime() - result.startedAt.getTime();
       expect(duration).toBeGreaterThanOrEqual(0);
     });
 
@@ -528,8 +515,7 @@ describe('RuntimeManager', () => {
       const result = await manager.execute(runtimeTask, 'shared');
 
       expect(result.success).toBe(true);
-      const duration =
-        result.completedAt.getTime() - result.startedAt.getTime();
+      const duration = result.completedAt.getTime() - result.startedAt.getTime();
       expect(duration).toBeGreaterThanOrEqual(50);
     });
   });
@@ -558,6 +544,7 @@ describe('RuntimeManager', () => {
       const errorStrategy = new MockIsolationStrategy('process', true);
       (errorStrategy.execute as ReturnType<typeof mock>) = mock(
         async function* (): AsyncGenerator<ExecutionEvent> {
+          yield { type: 'started', timestamp: new Date() };
           throw new Error('Failed');
         }
       );

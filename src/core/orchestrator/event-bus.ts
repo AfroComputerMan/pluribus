@@ -1,6 +1,6 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { logger } from '@/observability/logger';
-import type { EventType, EventHandler, EventSubscription, OrchestratorEvent } from './types';
+import type { EventHandler, EventSubscription, EventType, OrchestratorEvent } from './types';
 
 const log = logger.child('orchestrator:event-bus');
 
@@ -131,9 +131,7 @@ export class EventBus {
    * Get events for a specific workflow.
    */
   getWorkflowEvents(workflowId: string, limit = 100): OrchestratorEvent[] {
-    return this.eventHistory
-      .filter((e) => e.workflowId === workflowId)
-      .slice(-limit);
+    return this.eventHistory.filter((e) => e.workflowId === workflowId).slice(-limit);
   }
 
   /**

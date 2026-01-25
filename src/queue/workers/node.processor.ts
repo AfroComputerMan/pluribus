@@ -5,7 +5,7 @@ import { db } from '@/db/client';
 import { nodeExecutions, workflowRuns, workflows } from '@/db/schema';
 import type { WorkflowNode } from '@/db/schema';
 import { logger } from '@/observability/logger';
-import { type NodeJobData, enqueueNode, QUEUE_NAMES } from '../client';
+import { type NodeJobData, QUEUE_NAMES, enqueueNode } from '../client';
 import { analyzeDAG, getReadyNodes } from './dag';
 import type {
   ExecutionContext,
@@ -191,9 +191,7 @@ export class NodeProcessor {
           error: result.error,
           completedAt: result.completedAt,
         })
-        .where(
-          and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, nodeId))
-        );
+        .where(and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, nodeId)));
 
       await this.emitEvent('node:completed', runId, workflowId, nodeId, {
         output: result.output,
@@ -202,10 +200,7 @@ export class NodeProcessor {
       // 6. Handle pending status (human review)
       if (result.status === 'pending') {
         // Update workflow run status to pending
-        await db
-          .update(workflowRuns)
-          .set({ status: 'pending' })
-          .where(eq(workflowRuns.id, runId));
+        await db.update(workflowRuns).set({ status: 'pending' }).where(eq(workflowRuns.id, runId));
 
         log.info('Workflow paused for human review', { runId, nodeId });
         return result;
@@ -229,9 +224,7 @@ export class NodeProcessor {
           error: errorMessage,
           completedAt,
         })
-        .where(
-          and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, nodeId))
-        );
+        .where(and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, nodeId)));
 
       await this.emitEvent('node:failed', runId, workflowId, nodeId, { error: errorMessage });
 
@@ -272,20 +265,18 @@ export class NodeProcessor {
           .select()
           .from(nodeExecutions)
           .where(
-            and(
-              eq(nodeExecutions.workflowRunId, runId),
-              eq(nodeExecutions.nodeId, ref.fromNode)
-            )
+            and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, ref.fromNode))
           );
 
         if (nodeExec?.output) {
           // Navigate the path in the output
-          resolved[key] = this.getNestedValue(
-            nodeExec.output as Record<string, unknown>,
-            ref.path
-          );
+          resolved[key] = this.getNestedValue(nodeExec.output as Record<string, unknown>, ref.path);
         } else {
-          log.warn('Referenced node output not found', { runId, fromNode: ref.fromNode, path: ref.path });
+          log.warn('Referenced node output not found', {
+            runId,
+            fromNode: ref.fromNode,
+            path: ref.path,
+          });
           resolved[key] = null;
         }
       } else {
@@ -333,12 +324,7 @@ export class NodeProcessor {
     const completedExecutions = await db
       .select({ nodeId: nodeExecutions.nodeId })
       .from(nodeExecutions)
-      .where(
-        and(
-          eq(nodeExecutions.workflowRunId, runId),
-          eq(nodeExecutions.status, 'completed')
-        )
-      );
+      .where(and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.status, 'completed')));
 
     const completedNodes = new Set(completedExecutions.map((e) => e.nodeId));
     completedNodes.add(completedNodeId); // Include the one we just completed
@@ -419,10 +405,7 @@ export class NodeProcessor {
       log.info('Continuing workflow despite node failure', { runId, nodeId });
     } else if (strategy.onFailure === 'human-review') {
       // Mark workflow as waiting for review
-      await db
-        .update(workflowRuns)
-        .set({ status: 'pending' })
-        .where(eq(workflowRuns.id, runId));
+      await db.update(workflowRuns).set({ status: 'pending' }).where(eq(workflowRuns.id, runId));
 
       log.info('Workflow waiting for human review', { runId, nodeId });
     }

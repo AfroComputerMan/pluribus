@@ -11,7 +11,6 @@ describe('DAG Analysis', () => {
     input: {},
   });
 
-
   // Helper to create edges
   const createEdge = (from: string, to: string): WorkflowEdge => ({
     id: `${from}->${to}`,

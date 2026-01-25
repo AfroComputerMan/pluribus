@@ -58,7 +58,10 @@ export class RuntimeManager implements ExecutionRuntime {
       }
 
       const completedAt = new Date();
-      this.log.info('Task execution completed', { taskId: task.id, duration: completedAt.getTime() - startedAt.getTime() });
+      this.log.info('Task execution completed', {
+        taskId: task.id,
+        duration: completedAt.getTime() - startedAt.getTime(),
+      });
 
       return {
         success: true,
@@ -66,13 +69,17 @@ export class RuntimeManager implements ExecutionRuntime {
         events,
         startedAt,
         completedAt,
-        resourceUsage: { memoryPeakMB: 0, cpuTimeMs: 0, wallTimeMs: completedAt.getTime() - startedAt.getTime() },
+        resourceUsage: {
+          memoryPeakMB: 0,
+          cpuTimeMs: 0,
+          wallTimeMs: completedAt.getTime() - startedAt.getTime(),
+        },
       };
     } catch (error) {
       const completedAt = new Date();
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      if (!events.some(e => e.type === 'error') && error instanceof Error) {
+      if (!events.some((e) => e.type === 'error') && error instanceof Error) {
         events.push({ type: 'error', error });
       }
 
@@ -84,7 +91,11 @@ export class RuntimeManager implements ExecutionRuntime {
         events,
         startedAt,
         completedAt,
-        resourceUsage: { memoryPeakMB: 0, cpuTimeMs: 0, wallTimeMs: completedAt.getTime() - startedAt.getTime() },
+        resourceUsage: {
+          memoryPeakMB: 0,
+          cpuTimeMs: 0,
+          wallTimeMs: completedAt.getTime() - startedAt.getTime(),
+        },
       };
     }
   }
@@ -92,13 +103,17 @@ export class RuntimeManager implements ExecutionRuntime {
   async cleanup(executionId: string): Promise<void> {
     this.log.debug('Cleaning up execution', { executionId });
     await Promise.all(
-      Array.from(this.strategies.values()).map(s =>
-        s.cleanup(executionId).catch(e => this.log.warn('Strategy cleanup failed', { executionId, error: e }))
+      Array.from(this.strategies.values()).map((s) =>
+        s
+          .cleanup(executionId)
+          .catch((e) => this.log.warn('Strategy cleanup failed', { executionId, error: e }))
       )
     );
   }
 
-  private async findAvailableStrategy(preferredLevel: IsolationLevel): Promise<IsolationStrategy | null> {
+  private async findAvailableStrategy(
+    preferredLevel: IsolationLevel
+  ): Promise<IsolationStrategy | null> {
     const preferred = this.strategies.get(preferredLevel);
     if (preferred && (await preferred.isAvailable())) return preferred;
 

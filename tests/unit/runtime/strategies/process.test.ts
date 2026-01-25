@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
+import type { AdapterConnection, AgentAdapter, AgentTask } from '@/integrations';
 import { ProcessIsolationStrategy } from '@/runtime/strategies/process';
 import type { RuntimeTask } from '@/runtime/types';
-import type { AgentAdapter, AdapterConnection, AgentTask } from '@/integrations';
 
 describe('ProcessIsolationStrategy', () => {
   let strategy: ProcessIsolationStrategy;
@@ -83,7 +83,7 @@ function createMockTask(overrides?: Partial<RuntimeTask>): RuntimeTask {
     id: 'test-adapter',
     name: 'Test Adapter',
     type: 'custom',
-    connect: async () => ({} as AdapterConnection),
+    connect: async () => ({}) as AdapterConnection,
     disconnect: async () => {},
     validateCredentials: async () => true,
     execute: async function* () {

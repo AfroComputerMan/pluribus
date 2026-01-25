@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { EventBus } from '@/core/orchestrator/event-bus';
 import type { OrchestratorEvent } from '@/core/orchestrator/types';
 

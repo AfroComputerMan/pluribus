@@ -192,11 +192,11 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput({ name: 'Test Agent' }))
         .returning();
 
-      const res = await app.request(`/api/agents/${created!.id}`);
+      const res = await app.request(`/api/agents/${created?.id}`);
       const json = (await res.json()) as any;
 
       expect(res.status).toBe(200);
-      expect(json.data.id).toBe(created!.id);
+      expect(json.data.id).toBe(created?.id);
       expect(json.data.name).toBe('Test Agent');
     });
 
@@ -254,7 +254,7 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput({ name: 'Original Name' }))
         .returning();
 
-      const res = await app.request(`/api/agents/${created!.id}`, {
+      const res = await app.request(`/api/agents/${created?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'Updated Name' }),
@@ -285,7 +285,7 @@ describe('Agents API Integration', () => {
         .values(createTestAgentInput())
         .returning();
 
-      const res = await app.request(`/api/agents/${created!.id}`, {
+      const res = await app.request(`/api/agents/${created?.id}`, {
         method: 'DELETE',
       });
       const json = (await res.json()) as any;
@@ -295,7 +295,7 @@ describe('Agents API Integration', () => {
 
       // Verify deleted from database
       const dbAgent = await containers.db.query.agents.findFirst({
-        where: eq(schema.agents.id, created!.id),
+        where: eq(schema.agents.id, created?.id),
       });
       expect(dbAgent).toBeUndefined();
     });

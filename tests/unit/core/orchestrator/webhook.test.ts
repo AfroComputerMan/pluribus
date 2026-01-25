@@ -1,10 +1,10 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
-import { createHmac } from 'crypto';
-import { WebhookService } from '@/core/orchestrator/webhook';
-import type { OrchestratorRepository } from '@/core/orchestrator/repository';
-import type { WorkflowService } from '@/core/workflows/service';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createHmac } from 'node:crypto';
 import type { EventBus } from '@/core/orchestrator/event-bus';
+import type { OrchestratorRepository } from '@/core/orchestrator/repository';
 import type { WebhookTrigger } from '@/core/orchestrator/types';
+import { WebhookService } from '@/core/orchestrator/webhook';
+import type { WorkflowService } from '@/core/workflows/service';
 
 describe('WebhookService', () => {
   let webhookService: WebhookService;
@@ -38,18 +38,19 @@ describe('WebhookService', () => {
     };
 
     mockWorkflowService = {
-      triggerRun: mock((_workflowId: string, _triggerType?: string, _input?: Record<string, unknown>) =>
-        Promise.resolve({
-          id: 'run-123',
-          workflowId: 'workflow-123',
-          status: 'pending' as const,
-          triggerType: 'webhook' as const,
-          input: {},
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          completedAt: null,
-          error: null,
-        })
+      triggerRun: mock(
+        (_workflowId: string, _triggerType?: string, _input?: Record<string, unknown>) =>
+          Promise.resolve({
+            id: 'run-123',
+            workflowId: 'workflow-123',
+            status: 'pending' as const,
+            triggerType: 'webhook' as const,
+            input: {},
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            completedAt: null,
+            error: null,
+          })
       ),
     };
 
@@ -192,21 +193,13 @@ describe('WebhookService', () => {
     });
 
     it('should reject incorrect signature', () => {
-      const isValid = webhookService.validateSignature(
-        'secret',
-        '{"data":"test"}',
-        'sha256=wrong'
-      );
+      const isValid = webhookService.validateSignature('secret', '{"data":"test"}', 'sha256=wrong');
 
       expect(isValid).toBe(false);
     });
 
     it('should reject signature with wrong algorithm prefix', () => {
-      const isValid = webhookService.validateSignature(
-        'secret',
-        '{"data":"test"}',
-        'md5=somehash'
-      );
+      const isValid = webhookService.validateSignature('secret', '{"data":"test"}', 'md5=somehash');
 
       expect(isValid).toBe(false);
     });

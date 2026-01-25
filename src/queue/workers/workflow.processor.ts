@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { workflowRuns, workflows } from '@/db/schema';
 import { logger } from '@/observability/logger';
-import { type WorkflowJobData, enqueueNode, QUEUE_NAMES } from '../client';
+import { QUEUE_NAMES, type WorkflowJobData, enqueueNode } from '../client';
 import { analyzeDAG } from './dag';
 import type {
   ExecutionContext,
@@ -165,7 +165,11 @@ export class WorkflowProcessor {
           runId,
           workflowId,
           nodeId,
-          input: this.resolveInputMapping(node.node as { input?: Record<string, unknown> }, input, context),
+          input: this.resolveInputMapping(
+            node.node as { input?: Record<string, unknown> },
+            input,
+            context
+          ),
           context: {
             triggerType,
             workflowInput: input,

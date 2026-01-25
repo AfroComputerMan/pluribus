@@ -1,9 +1,18 @@
-import type { ContainerOptions, IsolationStrategy, RuntimeTask } from '@/runtime/types';
 import type { ExecutionEvent } from '@/integrations';
-import { logger } from '@/observability/logger';
 import { InternalError } from '@/lib/errors';
+import { logger } from '@/observability/logger';
+import type { ContainerOptions, IsolationStrategy, RuntimeTask } from '@/runtime/types';
 
-const VALID_EVENT_TYPES = ['started', 'thinking', 'tool-call', 'tool-result', 'output', 'completed', 'error', 'cost'];
+const VALID_EVENT_TYPES = [
+  'started',
+  'thinking',
+  'tool-call',
+  'tool-result',
+  'output',
+  'completed',
+  'error',
+  'cost',
+];
 
 /**
  * Container isolation strategy that executes tasks in Docker containers.
@@ -32,7 +41,10 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
     const image = this.defaultOptions.image;
     this.log.info('Preparing container', { executionId: task.id, image });
 
-    const inspectProc = Bun.spawn(['docker', 'image', 'inspect', image], { stdout: 'pipe', stderr: 'pipe' });
+    const inspectProc = Bun.spawn(['docker', 'image', 'inspect', image], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     if ((await inspectProc.exited) !== 0) {
       this.log.info('Pulling container image', { executionId: task.id, image });
       const pullProc = Bun.spawn(['docker', 'pull', image], { stdout: 'pipe', stderr: 'pipe' });
@@ -44,7 +56,10 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
   }
 
   async *execute(task: RuntimeTask): AsyncGenerator<ExecutionEvent> {
-    const options = { ...this.defaultOptions, resourceLimits: task.resourceLimits || this.defaultOptions.resourceLimits };
+    const options = {
+      ...this.defaultOptions,
+      resourceLimits: task.resourceLimits || this.defaultOptions.resourceLimits,
+    };
     const dockerArgs = this.buildDockerArgs(task, options);
 
     this.log.info('Starting container execution', { executionId: task.id, image: options.image });
@@ -70,7 +85,7 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
-        for (const line of lines.filter(l => l.trim())) {
+        for (const line of lines.filter((l) => l.trim())) {
           yield this.parseEvent(line) || { type: 'output', content: line };
         }
       }
@@ -84,10 +99,16 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
       if (exitCode !== 0) {
         const stderr = await new Response(proc.stderr).text();
         this.log.error('Container execution failed', { executionId: task.id, exitCode, stderr });
-        yield { type: 'error', error: new Error(`Container exited with code ${exitCode}: ${stderr}`) };
+        yield {
+          type: 'error',
+          error: new Error(`Container exited with code ${exitCode}: ${stderr}`),
+        };
       } else {
         this.log.info('Container execution completed', { executionId: task.id });
-        yield { type: 'completed', result: { success: true, output: 'Container execution completed' } };
+        yield {
+          type: 'completed',
+          result: { success: true, output: 'Container execution completed' },
+        };
       }
     } catch (error) {
       this.log.error('Container execution error', { executionId: task.id, error });
@@ -102,11 +123,15 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
     this.log.info('Cleaning up container', { executionId, containerId });
 
     try {
-      const stopProc = Bun.spawn(['docker', 'stop', '-t', '10', containerId], { stdout: 'pipe', stderr: 'pipe' });
+      const stopProc = Bun.spawn(['docker', 'stop', '-t', '10', containerId], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
       if ((await stopProc.exited) !== 0) {
         await Bun.spawn(['docker', 'kill', containerId], { stdout: 'pipe', stderr: 'pipe' }).exited;
       }
-      await Bun.spawn(['docker', 'rm', '-f', containerId], { stdout: 'pipe', stderr: 'pipe' }).exited;
+      await Bun.spawn(['docker', 'rm', '-f', containerId], { stdout: 'pipe', stderr: 'pipe' })
+        .exited;
     } catch (error) {
       this.log.error('Container cleanup error', { executionId, containerId, error });
     } finally {
@@ -117,7 +142,16 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
   private async trackContainerId(taskId: string): Promise<void> {
     try {
       const listProc = Bun.spawn(
-        ['docker', 'ps', '-a', '--filter', `label=execution-id=${taskId}`, '--format', '{{.ID}}', '--latest'],
+        [
+          'docker',
+          'ps',
+          '-a',
+          '--filter',
+          `label=execution-id=${taskId}`,
+          '--format',
+          '{{.ID}}',
+          '--latest',
+        ],
         { stdout: 'pipe', stderr: 'pipe' }
       );
       const id = (await new Response(listProc.stdout).text()).trim();
@@ -131,13 +165,21 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
     const args = ['--rm', '--label', `execution-id=${task.id}`];
 
     if (options.resourceLimits?.maxMemoryMB) {
-      args.push('--memory', `${options.resourceLimits.maxMemoryMB}m`, '--memory-swap', `${options.resourceLimits.maxMemoryMB}m`);
+      args.push(
+        '--memory',
+        `${options.resourceLimits.maxMemoryMB}m`,
+        '--memory-swap',
+        `${options.resourceLimits.maxMemoryMB}m`
+      );
     }
     if (options.resourceLimits?.maxCpuPercent) {
       args.push('--cpus', (options.resourceLimits.maxCpuPercent / 100).toString());
     }
     if (options.resourceLimits?.maxDurationMs) {
-      args.push('--stop-timeout', Math.ceil(options.resourceLimits.maxDurationMs / 1000).toString());
+      args.push(
+        '--stop-timeout',
+        Math.ceil(options.resourceLimits.maxDurationMs / 1000).toString()
+      );
     }
     if (options.networkMode) {
       args.push('--network', options.networkMode);
@@ -149,7 +191,10 @@ export class ContainerIsolationStrategy implements IsolationStrategy {
     }
     if (options.volumes) {
       for (const vol of options.volumes) {
-        args.push('-v', vol.readonly ? `${vol.host}:${vol.container}:ro` : `${vol.host}:${vol.container}`);
+        args.push(
+          '-v',
+          vol.readonly ? `${vol.host}:${vol.container}:ro` : `${vol.host}:${vol.container}`
+        );
       }
     }
 

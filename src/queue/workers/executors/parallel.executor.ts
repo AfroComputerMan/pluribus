@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { eq, and, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { nodeExecutions } from '@/db/schema';
@@ -56,11 +56,7 @@ export class ParallelExecutor implements NodeExecutor<ParallelNode> {
       }
 
       // 2. Wait for branches based on join strategy
-      const result = await this.waitForBranches(
-        context.runId,
-        node.branches,
-        node.joinStrategy
-      );
+      const result = await this.waitForBranches(context.runId, node.branches, node.joinStrategy);
 
       const completedAt = new Date();
 

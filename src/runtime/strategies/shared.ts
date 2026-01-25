@@ -39,8 +39,13 @@ export class SharedProcessStrategy implements IsolationStrategy {
       if (task.resourceLimits?.maxMemoryMB) {
         const currentMemoryMB = process.memoryUsage().heapUsed / 1024 / 1024;
         if (currentMemoryMB > task.resourceLimits.maxMemoryMB) {
-          log.warn('Memory limit exceeded', { taskId: task.id, currentMB: currentMemoryMB.toFixed(2) });
-          abortController.abort(new Error(`Memory limit exceeded (current: ${currentMemoryMB.toFixed(2)}MB)`));
+          log.warn('Memory limit exceeded', {
+            taskId: task.id,
+            currentMB: currentMemoryMB.toFixed(2),
+          });
+          abortController.abort(
+            new Error(`Memory limit exceeded (current: ${currentMemoryMB.toFixed(2)}MB)`)
+          );
         }
       }
     }, 1000);
@@ -61,7 +66,10 @@ export class SharedProcessStrategy implements IsolationStrategy {
         wallTimeMs: Date.now() - startTime,
       });
     } catch (error) {
-      log.error('Execution error', { taskId: task.id, error: error instanceof Error ? error.message : String(error) });
+      log.error('Execution error', {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
       yield { type: 'error', error: error instanceof Error ? error : new Error(String(error)) };
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);

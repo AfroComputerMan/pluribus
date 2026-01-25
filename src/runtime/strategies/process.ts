@@ -74,17 +74,22 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
 
     try {
       // Send task to worker
-      childProcess.stdin?.write(JSON.stringify({
-        id: task.id,
-        adapter: { id: task.adapter.id, name: task.adapter.name, type: task.adapter.type },
-        task: task.task,
-        timeout: task.timeout,
-      }) + '\n');
+      childProcess.stdin?.write(
+        `${JSON.stringify({
+          id: task.id,
+          adapter: { id: task.adapter.id, name: task.adapter.name, type: task.adapter.type },
+          task: task.task,
+          timeout: task.timeout,
+        })}\n`
+      );
       childProcess.stdin?.end();
 
       // Read events from stdout
       const readline = await import('node:readline');
-      const rl = readline.createInterface({ input: childProcess.stdout!, crlfDelay: Number.POSITIVE_INFINITY });
+      const rl = readline.createInterface({
+        input: childProcess.stdout!,
+        crlfDelay: Number.POSITIVE_INFINITY,
+      });
 
       for await (const line of rl) {
         try {
@@ -108,7 +113,10 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
         childProcess.on('error', reject);
       });
     } catch (error) {
-      this.log.error('Process execution failed', { taskId: task.id, error: error instanceof Error ? error.message : String(error) });
+      this.log.error('Process execution failed', {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
       yield { type: 'error', error: error instanceof Error ? error : new Error(String(error)) };
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
@@ -126,16 +134,21 @@ export class ProcessIsolationStrategy implements IsolationStrategy {
       if (!state.process.killed) {
         state.process.kill('SIGTERM');
         await Promise.race([
-          new Promise<void>(resolve => state.process.on('exit', resolve)),
-          new Promise<void>(resolve => setTimeout(() => {
-            if (!state.process.killed) state.process.kill('SIGKILL');
-            resolve();
-          }, 3000)),
+          new Promise<void>((resolve) => state.process.on('exit', resolve)),
+          new Promise<void>((resolve) =>
+            setTimeout(() => {
+              if (!state.process.killed) state.process.kill('SIGKILL');
+              resolve();
+            }, 3000)
+          ),
         ]);
       }
       await rm(state.tempDir, { recursive: true, force: true });
     } catch (error) {
-      this.log.error('Cleanup failed', { executionId, error: error instanceof Error ? error.message : String(error) });
+      this.log.error('Cleanup failed', {
+        executionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       this.processes.delete(executionId);
     }

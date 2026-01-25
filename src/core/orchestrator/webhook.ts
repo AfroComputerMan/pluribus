@@ -1,15 +1,15 @@
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { type WorkflowService, getWorkflowService } from '@/core/workflows/service';
 import { logger } from '@/observability/logger';
-import { WorkflowService, getWorkflowService } from '@/core/workflows/service';
-import { OrchestratorRepository, getOrchestratorRepository } from './repository';
-import { EventBus, getEventBus } from './event-bus';
+import { type EventBus, getEventBus } from './event-bus';
+import { type OrchestratorRepository, getOrchestratorRepository } from './repository';
 import type {
-  WebhookTrigger,
   CreateWebhookInput,
+  TriggerResult,
   UpdateWebhookInput,
   WebhookFilter,
   WebhookPayload,
-  TriggerResult,
+  WebhookTrigger,
 } from './types';
 
 const log = logger.child('orchestrator:webhook');
@@ -169,15 +169,11 @@ export class WebhookService {
 
     try {
       // Trigger the workflow
-      const run = await this.workflowService.triggerRun(
-        webhook.workflowId,
-        'webhook',
-        {
-          webhookId: webhook.id,
-          headers: payload.headers,
-          body: payload.body,
-        }
-      );
+      const run = await this.workflowService.triggerRun(webhook.workflowId, 'webhook', {
+        webhookId: webhook.id,
+        headers: payload.headers,
+        body: payload.body,
+      });
 
       // Record the trigger
       await this.repository.recordWebhookTrigger(webhook.id);
@@ -234,9 +230,7 @@ export class WebhookService {
         return false;
       }
 
-      const expectedHash = createHmac('sha256', secret)
-        .update(payload)
-        .digest('hex');
+      const expectedHash = createHmac('sha256', secret).update(payload).digest('hex');
 
       // Use timing-safe comparison to prevent timing attacks
       const expectedBuffer = Buffer.from(expectedHash, 'hex');
@@ -256,9 +250,7 @@ export class WebhookService {
    * Generate a signature for a payload (for testing or client use).
    */
   generateSignature(secret: string, payload: string): string {
-    const hash = createHmac('sha256', secret)
-      .update(payload)
-      .digest('hex');
+    const hash = createHmac('sha256', secret).update(payload).digest('hex');
 
     return `sha256=${hash}`;
   }

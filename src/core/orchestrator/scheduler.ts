@@ -1,13 +1,13 @@
+import { type WorkflowService, getWorkflowService } from '@/core/workflows/service';
 import { logger } from '@/observability/logger';
-import { WorkflowService, getWorkflowService } from '@/core/workflows/service';
-import { OrchestratorRepository, getOrchestratorRepository } from './repository';
-import { EventBus, getEventBus } from './event-bus';
+import { type EventBus, getEventBus } from './event-bus';
+import { type OrchestratorRepository, getOrchestratorRepository } from './repository';
 import type {
-  ScheduledTrigger,
   CreateScheduleInput,
-  UpdateScheduleInput,
   ScheduleFilter,
+  ScheduledTrigger,
   TriggerResult,
+  UpdateScheduleInput,
 } from './types';
 
 const log = logger.child('orchestrator:scheduler');
@@ -208,11 +208,10 @@ export class SchedulerService {
 
     try {
       // Trigger the workflow
-      const run = await this.workflowService.triggerRun(
-        schedule.workflowId,
-        'schedule',
-        { scheduleId: schedule.id, scheduledAt: schedule.nextRunAt }
-      );
+      const run = await this.workflowService.triggerRun(schedule.workflowId, 'schedule', {
+        scheduleId: schedule.id,
+        scheduledAt: schedule.nextRunAt,
+      });
 
       // Update schedule with new next run time
       await this.repository.markScheduleExecuted(schedule.id);

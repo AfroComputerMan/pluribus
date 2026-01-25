@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { eq, and } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { nodeExecutions } from '@/db/schema';
@@ -197,11 +197,9 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
    */
   private safeEvaluate(expression: string): boolean {
     // Handle comparison operators
-    const comparisonMatch = expression.match(
-      /^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/
-    );
+    const comparisonMatch = expression.match(/^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
 
-    if (comparisonMatch && comparisonMatch[1] && comparisonMatch[2] && comparisonMatch[3]) {
+    if (comparisonMatch?.[1] && comparisonMatch[2] && comparisonMatch[3]) {
       const leftStr = comparisonMatch[1];
       const operator = comparisonMatch[2];
       const rightStr = comparisonMatch[3];
@@ -266,12 +264,7 @@ export class LoopExecutor implements NodeExecutor<LoopNode> {
       const executions = await db
         .select()
         .from(nodeExecutions)
-        .where(
-          and(
-            eq(nodeExecutions.workflowRunId, runId),
-            eq(nodeExecutions.nodeId, bodyNodeId)
-          )
-        )
+        .where(and(eq(nodeExecutions.workflowRunId, runId), eq(nodeExecutions.nodeId, bodyNodeId)))
         .orderBy(nodeExecutions.createdAt);
 
       // Find the execution that matches this iteration number
