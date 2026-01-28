@@ -1,19 +1,21 @@
 /**
  * RunDetailPage
- * Displays detailed view of a workflow run with real-time node execution updates
+ * Displays detailed view of a workflow run with real-time node execution updates via SSE
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api, type WorkflowRun, type NodeRun } from '../api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, type WorkflowRun } from '../api/client';
 import { StatusBadge } from '../components/StatusBadge';
 import { JsonViewer } from '../components/JsonViewer';
 import { Button } from '../components/Button';
+import { useSSE } from '../hooks/useSSE';
 
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
   // Fetch run details
@@ -43,14 +45,36 @@ export function RunDetailPage() {
     queryKey: ['run-nodes', id],
     queryFn: () => api.nodeRuns.list(id!),
     enabled: !!id,
-    refetchInterval: (query) => {
-      const response = query.state.data as { data: WorkflowRun } | undefined;
-      const run = runData;
-      // Auto-refresh every 2 seconds if run is active
-      return run?.status === 'running' || run?.status === 'pending' ? 2000 : false;
-    },
+    // Note: SSE handles real-time updates, so we don't need aggressive refetching
+    refetchInterval: false,
   });
   const nodesData = nodesResponse?.data;
+
+  // SSE connection for real-time updates
+  const handleSSEMessage = useCallback((event: MessageEvent) => {
+    try {
+      const data = JSON.parse(event.data);
+      console.log('[SSE Event]', event.type, data);
+
+      // Invalidate queries to refetch updated data
+      if (event.type === 'node:started' || event.type === 'node:completed' || event.type === 'node:failed') {
+        queryClient.invalidateQueries({ queryKey: ['run-nodes', id] });
+      }
+
+      if (event.type === 'run:completed' || event.type === 'run:failed') {
+        queryClient.invalidateQueries({ queryKey: ['run', id] });
+        queryClient.invalidateQueries({ queryKey: ['run-nodes', id] });
+      }
+    } catch (error) {
+      console.error('[SSE] Failed to parse message', error);
+    }
+  }, [id, queryClient]);
+
+  const sseUrl = id ? `/api/runs/${id}/events` : null;
+  const { isConnected: sseConnected } = useSSE(sseUrl, {
+    onMessage: handleSSEMessage,
+    enabled: !!id && (runData?.status === 'running' || runData?.status === 'pending'),
+  });
 
   const toggleNodeExpansion = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -115,7 +139,15 @@ export function RunDetailPage() {
           <h1 className="text-3xl font-bold text-gray-900">
             {workflowData?.name || 'Workflow'} Run
           </h1>
-          <p className="text-gray-500 mt-1 font-mono text-sm">{run.id}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-gray-500 font-mono text-sm">{run.id}</p>
+            {sseConnected && (run.status === 'running' || run.status === 'pending') && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                Live Updates
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           <Button
