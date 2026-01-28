@@ -5,7 +5,12 @@ import { db } from '@/db/client';
 import { agents, usageRecords } from '@/db/schema';
 import type { AgentNode } from '@/db/schema';
 import { getAdapter } from '@/integrations/registry';
-import type { AdapterConnection, AgentTask, ExecutionEvent } from '@/integrations/types';
+import type {
+  AdapterConnection,
+  AdapterCredentials,
+  AgentTask,
+  ExecutionEvent,
+} from '@/integrations/types';
 import { IntegrationError } from '@/lib/errors';
 import { logger } from '@/observability/logger';
 import { vaultService } from '@/vault/service';
@@ -58,10 +63,25 @@ export class AgentExecutor implements NodeExecutor<AgentNode> {
       // 5. Connect to the adapter
       let connection: AdapterConnection;
       try {
-        connection = await adapter.connect({
-          type: credential.type,
-          data: credential.data as { key: string } | { accessToken: string; refreshToken: string },
-        });
+        // Build properly typed credentials
+        const adapterCredentials: AdapterCredentials =
+          credential.type === 'oauth'
+            ? {
+                type: 'oauth',
+                data: credential.data as {
+                  accessToken: string;
+                  refreshToken: string;
+                  tokenType: string;
+                  scope: string;
+                  expiresAt: Date;
+                },
+              }
+            : {
+                type: 'api-key',
+                data: credential.data as { key: string },
+              };
+
+        connection = await adapter.connect(adapterCredentials);
       } catch (error) {
         throw new IntegrationError(
           adapter.id,
@@ -76,7 +96,10 @@ export class AgentExecutor implements NodeExecutor<AgentNode> {
         constraints: {
           maxTokens: agent.modelConfig.parameters?.maxTokens as number | undefined,
           maxDuration: node.timeout,
-          allowedTools: agent.allowedMcpTools.length > 0 ? agent.allowedMcpTools : undefined,
+          allowedTools:
+            agent.allowedMcpTools && agent.allowedMcpTools.length > 0
+              ? agent.allowedMcpTools
+              : undefined,
         },
       };
 
@@ -193,7 +216,7 @@ export class AgentExecutor implements NodeExecutor<AgentNode> {
    * Build context information for the agent.
    */
   private buildContext(
-    agent: { name: string; description: string | null; skills: string[] },
+    agent: { name: string; description: string | null; skills: string[] | null },
     context: ExecutionContext
   ): string {
     const parts: string[] = [];
@@ -203,7 +226,7 @@ export class AgentExecutor implements NodeExecutor<AgentNode> {
       parts.push(`Description: ${agent.description}`);
     }
 
-    if (agent.skills.length > 0) {
+    if (agent.skills && agent.skills.length > 0) {
       parts.push(`Available skills: ${agent.skills.join(', ')}`);
     }
 
