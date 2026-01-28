@@ -10,10 +10,13 @@ Pluribus is an Agent Organization System - a backend for orchestrating AI agents
 
 ### Docker-based Development (Primary)
 ```bash
-make dev              # Start dev environment with hot reload
+make dev              # Start backend + frontend (ports 3000, 5173)
+make dev-backend      # Start backend only
+make dev-frontend     # Start frontend only
 make dev-all          # Include pgAdmin (8082) + redis-commander (8081)
 make stop             # Stop all containers
-make shell            # Enter app container
+make shell            # Enter backend container
+make shell-frontend   # Enter frontend container
 make health           # Check service health
 ```
 
@@ -36,10 +39,19 @@ make format           # Format code
 make typecheck        # TypeScript checking
 ```
 
+### Frontend Development
+```bash
+make frontend-dev     # Run frontend locally (http://localhost:5173)
+make frontend-build   # Build frontend for production
+make frontend-lint    # Run ESLint on frontend
+make logs-frontend    # Show frontend container logs
+```
+
 ### Local Development (without Docker)
 ```bash
-bun install           # Install dependencies
-bun run dev           # Start with hot reload (requires local postgres/redis)
+make install          # Install all dependencies (backend + frontend)
+bun run dev           # Start backend with hot reload (requires local postgres/redis)
+cd frontend && bun run dev  # Start frontend locally
 ```
 
 ## Architecture
@@ -50,11 +62,12 @@ bun run dev           # Start with hot reload (requires local postgres/redis)
 - **Database**: PostgreSQL 16 + Drizzle ORM
 - **Queue**: Redis 7 + BullMQ
 - **Validation**: Zod schemas throughout
-- **Linting**: Biome
+- **Linting**: Biome (backend), ESLint (frontend)
+- **Frontend**: React 19, Vite, TailwindCSS v4, React Query
 
 ### Directory Structure
 ```
-src/
+src/                  # Backend source
 ├── api/              # Hono routes and middleware
 │   ├── routes/       # Endpoint definitions
 │   └── middleware/   # Error handler, validation
@@ -71,6 +84,14 @@ src/
 ├── db/               # Schema, migrations, client
 ├── queue/            # BullMQ queues and workers
 └── lib/              # Config, errors, utilities
+
+frontend/             # React frontend
+├── src/
+│   ├── api/          # API client with type-safe fetch wrapper
+│   ├── components/   # Reusable UI components
+│   └── pages/        # Page components (Workflows, Runs, etc.)
+├── vite.config.ts    # Vite config with API proxy
+└── index.html        # Entry point
 ```
 
 ### Path Aliases

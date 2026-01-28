@@ -5,8 +5,8 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, WorkflowRun } from '../api/client';
-import { DataTable, Column } from '../components/DataTable';
+import { api, type WorkflowRun } from '../api/client';
+import { DataTable, type Column } from '../components/DataTable';
 import { StatusBadge } from '../components/StatusBadge';
 import { Button } from '../components/Button';
 

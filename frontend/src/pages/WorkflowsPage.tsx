@@ -6,8 +6,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { api, Workflow } from '../api/client';
-import { DataTable, Column } from '../components/DataTable';
+import { api, type Workflow } from '../api/client';
+import { DataTable, type Column } from '../components/DataTable';
 import { Button } from '../components/Button';
 
 export function WorkflowsPage() {

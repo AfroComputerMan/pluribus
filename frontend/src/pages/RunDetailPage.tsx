@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api, WorkflowRun, NodeRun } from '../api/client';
+import { api, type WorkflowRun, type NodeRun } from '../api/client';
 import { StatusBadge } from '../components/StatusBadge';
 import { JsonViewer } from '../components/JsonViewer';
 import { Button } from '../components/Button';
