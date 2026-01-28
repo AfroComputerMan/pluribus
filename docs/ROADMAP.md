@@ -3,9 +3,24 @@
 **Last Updated**: 2026-01-28
 **Status**: Active Development - Nearing MVP
 
+## ⚠️ Documentation Drift Warning
+
+This ROADMAP reflects planned work, but implementation may be ahead of or behind documentation.
+
+**Before starting any task**:
+1. ✅ Read the actual code first
+2. ✅ Run type checker: `bun run typecheck`
+3. ✅ Check for TODOs in relevant files
+4. ✅ Verify claimed "missing" features aren't implemented
+5. ⚠️ Trust code > documentation
+
+**Recent discoveries of "already implemented" features**:
+- Agent Executor (2026-01-28): Marked "stubbed", actually complete
+- SSE Endpoint (2026-01-28): Marked "not started", actually complete
+
 ---
 
-## 🎯 Current State: 98% to MVP!
+## 🎯 Current State: 99% to MVP!
 
 **What's Working** ✅:
 - Complete workflow engine with DAG execution
@@ -14,16 +29,17 @@
 - Claude Code integration adapter
 - All 5 node executors **fully implemented** (agent/condition/parallel/loop/human-review)
 - Complete REST API for all resources
-- Agent executor properly wired to adapter registry ✨ **NEW**
+- Agent executor properly wired to adapter registry
+- **SSE endpoint with Redis pub/sub** ✨ **COMPLETE**
 
 **What's Missing for MVP** ⚠️:
 1. ~~**Agent Executor → Adapter Wiring**~~ ✅ **COMPLETE** (was already done!)
-2. **MVP UI** (~1-2 days) - 3 pages, basic styling
-3. **SSE Endpoint** (~1 hour) - Real-time updates
+2. ~~**SSE Endpoint**~~ ✅ **COMPLETE** (already implemented!)
+3. **MVP UI** (~1-2 days) - 3 pages, basic styling
 
-**Timeline to MVP**: 2 days of focused work
+**Timeline to MVP**: 1-2 days of focused work (frontend only!)
 
-**Why This Matters**: Backend is **100% complete**. Only UI + SSE = working product with visual feedback.
+**Why This Matters**: Backend is **100% complete**. Only UI = working product with visual feedback.
 
 ---
 
