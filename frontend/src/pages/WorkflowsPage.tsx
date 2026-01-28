@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { api, type Workflow } from '../api/client';
 import { DataTable, type Column } from '../components/DataTable';
@@ -12,7 +12,6 @@ import { Button } from '../components/Button';
 
 export function WorkflowsPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
 
   // Fetch workflows
