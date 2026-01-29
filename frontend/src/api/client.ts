@@ -93,8 +93,21 @@ export interface Workflow {
   id: string;
   name: string;
   description: string | null;
+  definition: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CreateWorkflowInput {
+  name: string;
+  description?: string;
+  definition: Record<string, unknown>;
+}
+
+export interface UpdateWorkflowInput {
+  name?: string;
+  description?: string;
+  definition?: Record<string, unknown>;
 }
 
 export interface WorkflowRun {
@@ -145,6 +158,23 @@ export const api = {
 
     get: (id: string) =>
       apiFetch<DataResponse<Workflow>>(`/workflows/${id}`),
+
+    create: (input: CreateWorkflowInput) =>
+      apiFetch<DataResponse<Workflow>>('/workflows', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+
+    update: (id: string, input: UpdateWorkflowInput) =>
+      apiFetch<DataResponse<Workflow>>(`/workflows/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+
+    delete: (id: string) =>
+      apiFetch<void>(`/workflows/${id}`, {
+        method: 'DELETE',
+      }),
   },
 
   // Workflow Runs
@@ -170,6 +200,15 @@ export const api = {
       apiFetch<DataResponse<WorkflowRun>>(`/runs/${id}/cancel`, {
         method: 'POST',
       }),
+
+    /**
+     * Create EventSource connection for SSE workflow events
+     * Use with useWorkflowEvents hook for React integration
+     */
+    streamEvents: (runId: string): EventSource => {
+      const url = `${API_BASE_URL}/runs/${runId}/events`;
+      return new EventSource(url);
+    },
   },
 
   // Node Runs
