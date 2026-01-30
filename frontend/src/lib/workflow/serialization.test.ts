@@ -371,3 +371,24 @@ describe('serialization', () => {
     });
   });
 });
+
+// Auto-layout integration tests
+import { applyDagreLayout } from '../autoLayout';
+
+describe('fromBackendFormat with auto-layout', () => {
+  it('positions nodes using dagre when loading', () => {
+    const definition: BackendWorkflowDefinition = {
+      nodes: [
+        { id: 'node-1', type: 'agent', agentId: '123e4567-e89b-12d3-a456-426614174000', input: {} },
+        { id: 'node-2', type: 'agent', agentId: '123e4567-e89b-12d3-a456-426614174000', input: {} },
+      ],
+      edges: [{ id: 'edge-1', from: 'node-1', to: 'node-2' }],
+    };
+
+    const { nodes, edges } = fromBackendFormat(definition);
+    const layoutedNodes = applyDagreLayout(nodes, edges);
+
+    // Dagre should position node-2 below node-1 (top-to-bottom layout)
+    expect(layoutedNodes[1].position.y).toBeGreaterThan(layoutedNodes[0].position.y);
+  });
+});

@@ -10,6 +10,7 @@ import { Button } from '../components/Button';
 import { useWorkflowBuilderStore } from '../stores/workflowBuilderStore';
 import { useWorkflowMutations } from '../hooks/useWorkflowMutations';
 import { fromBackendFormat, type BackendWorkflowDefinition } from '../lib/workflow/serialization';
+import { applyDagreLayout } from '../lib/autoLayout';
 
 export function WorkflowBuilderPage() {
   const { id } = useParams<{ id: string }>();
@@ -41,11 +42,14 @@ export function WorkflowBuilderPage() {
       const definition = workflow.data.definition as BackendWorkflowDefinition;
       const { nodes, edges } = fromBackendFormat(definition);
 
+      // Apply auto-layout to position nodes
+      const layoutedNodes = applyDagreLayout(nodes, edges);
+
       loadWorkflow({
         id: workflow.data.id,
         name: workflow.data.name,
         description: workflow.data.description || '',
-        nodes,
+        nodes: layoutedNodes,
         edges,
       });
     }
