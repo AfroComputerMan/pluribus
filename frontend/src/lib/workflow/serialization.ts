@@ -90,9 +90,64 @@ export function toBackendFormat(
 }
 
 export function fromBackendFormat(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   definition: BackendWorkflowDefinition,
 ): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
-  // Will implement in next task
-  return { nodes: [], edges: [] };
+  const nodes: WorkflowNode[] = definition.nodes.map((node, index) => {
+    // Generate position in a grid layout (will be re-laid out by Dagre)
+    const position = { x: (index % 3) * 200, y: Math.floor(index / 3) * 150 };
+
+    const baseData: Record<string, unknown> = {};
+
+    switch (node.type) {
+      case 'agent':
+        Object.assign(baseData, {
+          agentId: node.agentId,
+          input: node.input,
+          timeout: node.timeout,
+        });
+        break;
+      case 'condition':
+        Object.assign(baseData, {
+          expression: node.expression,
+          trueBranch: node.trueBranch,
+          falseBranch: node.falseBranch,
+        });
+        break;
+      case 'parallel':
+        Object.assign(baseData, {
+          branches: node.branches,
+          joinStrategy: node.joinStrategy,
+        });
+        break;
+      case 'loop':
+        Object.assign(baseData, {
+          condition: node.condition,
+          maxIterations: node.maxIterations,
+          body: node.body,
+        });
+        break;
+      case 'human-review':
+        Object.assign(baseData, {
+          prompt: node.prompt,
+          timeout: node.timeout,
+          options: node.options,
+        });
+        break;
+    }
+
+    return {
+      id: node.id,
+      type: node.type,
+      position,
+      data: baseData,
+    };
+  });
+
+  const edges: WorkflowEdge[] = definition.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.from,
+    target: edge.to,
+  }));
+
+  return { nodes, edges };
 }
