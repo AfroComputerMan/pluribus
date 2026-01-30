@@ -73,7 +73,8 @@ export function useWorkflowMutations() {
         return { success: true, workflowId: result.data.id };
       }
     } catch (error) {
-      return { success: false, error: error as Error };
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      return { success: false, error: normalizedError };
     }
   };
 
