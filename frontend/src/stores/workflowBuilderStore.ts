@@ -230,7 +230,9 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
         workflowDescription: data.description,
         nodes: data.nodes,
         edges: data.edges,
-        history: [{ nodes: data.nodes, edges: data.edges }],
+        // Use spread to create a defensive copy for history to avoid mutation issues
+        // if the caller modifies the original arrays after calling loadWorkflow
+        history: [{ nodes: [...data.nodes], edges: [...data.edges] }],
         historyIndex: 0,
         isDirty: false,
         selectedNode: null,
