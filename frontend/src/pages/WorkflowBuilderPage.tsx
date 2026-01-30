@@ -1,5 +1,5 @@
 // frontend/src/pages/WorkflowBuilderPage.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
@@ -56,17 +56,23 @@ export function WorkflowBuilderPage() {
     return () => reset();
   }, [reset]);
 
+  // Use ref to track isDirty for beforeunload handler to avoid memory leak
+  const isDirtyRef = useRef(isDirty);
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
+
   // Warn before leaving with unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
+      if (isDirtyRef.current) {
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isDirty]);
+  }, []); // Empty deps - listener created once
 
   const handleSave = async () => {
     setValidationErrors([]);
