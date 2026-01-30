@@ -133,6 +133,9 @@ export function fromBackendFormat(
           options: node.options,
         });
         break;
+      default:
+        console.warn(`Unknown node type: ${node.type}`);
+        break;
     }
 
     return {
@@ -147,6 +150,7 @@ export function fromBackendFormat(
     id: edge.id,
     source: edge.from,
     target: edge.to,
+    label: edge.label,
   }));
 
   return { nodes, edges };

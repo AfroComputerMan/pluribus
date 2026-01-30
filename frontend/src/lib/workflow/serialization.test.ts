@@ -329,6 +329,24 @@ describe('serialization', () => {
         id: 'edge-1',
         source: 'node-1',
         target: 'node-2',
+        label: undefined,
+      });
+    });
+
+    it('converts backend edges with label to React Flow format', () => {
+      const definition: BackendWorkflowDefinition = {
+        nodes: [],
+        edges: [{ id: 'edge-1', from: 'node-1', to: 'node-2', label: 'on success' }],
+      };
+
+      const result = fromBackendFormat(definition);
+
+      expect(result.edges).toHaveLength(1);
+      expect(result.edges[0]).toEqual({
+        id: 'edge-1',
+        source: 'node-1',
+        target: 'node-2',
+        label: 'on success',
       });
     });
 
