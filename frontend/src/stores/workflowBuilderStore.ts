@@ -84,27 +84,27 @@ const initialState = {
   nodes: [] as WorkflowNode[],
   edges: [] as WorkflowEdge[],
   selectedNode: null as string | null,
-  history: [] as HistoryState[],
-  historyIndex: -1,
+  history: [{ nodes: [], edges: [] }] as HistoryState[],
+  historyIndex: 0,
   maxHistorySize: 50,
 };
 
-// Helper function to save state to history
-function saveToHistory(
-  nodes: WorkflowNode[],
-  edges: WorkflowEdge[],
+// Helper function to save NEW state to history after mutation
+function pushToHistory(
+  newNodes: WorkflowNode[],
+  newEdges: WorkflowEdge[],
   history: HistoryState[],
   historyIndex: number,
   maxHistorySize: number,
 ): { history: HistoryState[]; historyIndex: number } {
-  // Remove any future history if we're not at the end
+  // Remove any future history if we're not at the end (clears redo stack)
   const newHistory = history.slice(0, historyIndex + 1);
 
-  // Add current state
-  newHistory.push({ nodes: [...nodes], edges: [...edges] });
+  // Add new state after mutation
+  newHistory.push({ nodes: [...newNodes], edges: [...newEdges] });
 
-  // Limit history size
-  if (newHistory.length > maxHistorySize) {
+  // Limit history size (remove oldest entries)
+  while (newHistory.length > maxHistorySize) {
     newHistory.shift();
   }
 
@@ -120,32 +120,36 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
 
     addNode: (node) => {
       const { nodes, edges, history, historyIndex, maxHistorySize } = get();
-      const historyUpdate = saveToHistory(nodes, edges, history, historyIndex, maxHistorySize);
+      const newNodes = [...nodes, node];
+      const historyUpdate = pushToHistory(newNodes, edges, history, historyIndex, maxHistorySize);
       set({
-        nodes: [...nodes, node],
+        nodes: newNodes,
         ...historyUpdate,
       });
     },
 
     updateNode: (id, updates) => {
       const { nodes, edges, history, historyIndex, maxHistorySize } = get();
-      const historyUpdate = saveToHistory(nodes, edges, history, historyIndex, maxHistorySize);
+      const newNodes = nodes.map((node) =>
+        node.id === id ? { ...node, ...updates } : node,
+      );
+      const historyUpdate = pushToHistory(newNodes, edges, history, historyIndex, maxHistorySize);
       set({
-        nodes: nodes.map((node) =>
-          node.id === id ? { ...node, ...updates } : node,
-        ),
+        nodes: newNodes,
         ...historyUpdate,
       });
     },
 
     deleteNode: (id) => {
       const { nodes, edges, history, historyIndex, maxHistorySize, selectedNode } = get();
-      const historyUpdate = saveToHistory(nodes, edges, history, historyIndex, maxHistorySize);
+      const newNodes = nodes.filter((node) => node.id !== id);
+      const newEdges = edges.filter(
+        (edge) => edge.source !== id && edge.target !== id,
+      );
+      const historyUpdate = pushToHistory(newNodes, newEdges, history, historyIndex, maxHistorySize);
       set({
-        nodes: nodes.filter((node) => node.id !== id),
-        edges: edges.filter(
-          (edge) => edge.source !== id && edge.target !== id,
-        ),
+        nodes: newNodes,
+        edges: newEdges,
         selectedNode: selectedNode === id ? null : selectedNode,
         ...historyUpdate,
       });
@@ -157,18 +161,20 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
 
     addEdge: (edge) => {
       const { nodes, edges, history, historyIndex, maxHistorySize } = get();
-      const historyUpdate = saveToHistory(nodes, edges, history, historyIndex, maxHistorySize);
+      const newEdges = [...edges, edge];
+      const historyUpdate = pushToHistory(nodes, newEdges, history, historyIndex, maxHistorySize);
       set({
-        edges: [...edges, edge],
+        edges: newEdges,
         ...historyUpdate,
       });
     },
 
     deleteEdge: (id) => {
       const { nodes, edges, history, historyIndex, maxHistorySize } = get();
-      const historyUpdate = saveToHistory(nodes, edges, history, historyIndex, maxHistorySize);
+      const newEdges = edges.filter((edge) => edge.id !== id);
+      const historyUpdate = pushToHistory(nodes, newEdges, history, historyIndex, maxHistorySize);
       set({
-        edges: edges.filter((edge) => edge.id !== id),
+        edges: newEdges,
         ...historyUpdate,
       });
     },
@@ -218,7 +224,14 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
     },
 
     reset: () => {
-      set(initialState);
+      set({
+        nodes: [],
+        edges: [],
+        selectedNode: null,
+        history: [{ nodes: [], edges: [] }],
+        historyIndex: 0,
+        maxHistorySize: 50,
+      });
     },
   }),
 );

@@ -22,6 +22,25 @@ Build a visual workflow builder using React Flow that enables:
 
 ### Why This Approach?
 
+**Development Methodology: Test-Driven Development (TDD)**
+
+All implementation MUST follow TDD principles:
+1. **Red** - Write failing test first (defines expected behavior)
+2. **Green** - Write minimum code to pass the test
+3. **Refactor** - Clean up while keeping tests green
+
+**TDD Requirements**:
+- Tests written BEFORE implementation code
+- No feature code merged without corresponding tests
+- Test coverage target: 85% for validation logic, 70% overall
+- Use Vitest for unit tests, Playwright for E2E (if needed)
+
+**Why TDD for this feature?**
+- Complex validation logic (DAG cycles, edge targets) needs verified correctness
+- State management (Zustand) benefits from predictable test scenarios
+- Prevents regression as phases build on each other
+- Documents expected behavior through test specifications
+
 **Technology Choices**:
 - **React Flow**: Industry standard for node-based UIs, 20k+ GitHub stars, excellent TypeScript support, built-in touch gestures
 - **Zustand**: Lightweight state management (3KB), simpler than Redux, perfect for canvas state
@@ -175,7 +194,10 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Zustand store manages nodes/edges/history
 - ✅ Auto-layout utility positions nodes correctly
 
-**Quality Gate**: Run `bun run typecheck`, verify no errors
+**Quality Gate**:
+- Run `bun run typecheck`, verify no errors
+- Unit tests for SSE hook, Zustand store, and auto-layout utility
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -196,7 +218,11 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Auto-layout applies hierarchical layout on initial load
 - ✅ Zoom/pan controls functional
 
-**Quality Gate**: Create 5-node workflow visually, verify nodes render correctly
+**Quality Gate**:
+- Create 5-node workflow visually, verify nodes render correctly
+- Unit tests for custom node components and drag-drop behavior
+- Integration tests for canvas interactions
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -218,7 +244,11 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Validation errors display clearly
 - ✅ Save button updates Zustand store
 
-**Quality Gate**: Configure all 5 node types, verify validation catches invalid inputs
+**Quality Gate**:
+- Configure all 5 node types, verify validation catches invalid inputs
+- Unit tests for each config form component
+- Unit tests for Zod validation schemas
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -240,7 +270,12 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Publish enables triggers (schedule, webhook, API)
 - ✅ Redirects to workflow detail page on success
 
-**Quality Gate**: Create workflow with intentional cycle, verify validation blocks save
+**Quality Gate**:
+- Create workflow with intentional cycle, verify validation blocks save
+- Unit tests for cycle detection (Kahn's algorithm)
+- Unit tests for entry node validation
+- Unit tests for edge target validation
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -262,7 +297,11 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Can see error details for failed nodes
 - ✅ Shows execution duration per node
 
-**Quality Gate**: Trigger run, verify all nodes update in real-time without refresh
+**Quality Gate**:
+- Trigger run, verify all nodes update in real-time without refresh
+- Unit tests for SSE event handling and state updates
+- Unit tests for node status color mapping
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -284,7 +323,11 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Can view cost breakdown per run
 - ✅ Token usage and estimated cost displayed
 
-**Quality Gate**: Run workflow with coding task, verify logs stream and resources shown
+**Quality Gate**:
+- Run workflow with coding task, verify logs stream and resources shown
+- Unit tests for log parsing and filtering
+- Unit tests for resource usage display
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -306,7 +349,11 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Can list MCP servers with connection status
 - ✅ Can test MCP connection
 
-**Quality Gate**: Create agent, configure with MCP tools, verify saves correctly
+**Quality Gate**:
+- Create agent, configure with MCP tools, verify saves correctly
+- Unit tests for agent form validation
+- Unit tests for MCP tool selection logic
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -328,7 +375,11 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Forms usable with touch (no tiny inputs)
 - ✅ Navigation accessible via hamburger menu
 
-**Quality Gate**: Test on actual mobile device (or Chrome DevTools mobile view)
+**Quality Gate**:
+- Test on actual mobile device (or Chrome DevTools mobile view)
+- Unit tests for responsive breakpoint behavior
+- Unit tests for touch gesture handlers
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -353,7 +404,11 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ Loading states smooth (skeleton loaders)
 - ✅ Error boundaries catch React Flow errors
 
-**Quality Gate**: Use only keyboard to create workflow, verify all shortcuts work
+**Quality Gate**:
+- Use only keyboard to create workflow, verify all shortcuts work
+- Unit tests for keyboard shortcut hook
+- Unit tests for undo/redo functionality
+- Tests written BEFORE implementation (TDD)
 
 ---
 
@@ -397,7 +452,12 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ SSE reconnects gracefully
 - ✅ Works in all 3 browsers
 
-**Quality Gate**: Zero critical bugs, all acceptance criteria met
+**Quality Gate**:
+- Zero critical bugs, all acceptance criteria met
+- All unit tests passing (run `bun test`)
+- Test coverage ≥70% overall, ≥85% for validation logic
+- All E2E test scenarios pass
+- TDD compliance verified: tests exist for all features
 
 ---
 
@@ -424,6 +484,9 @@ Build a visual workflow builder using React Flow that enables:
 - ✅ TailwindCSS v4 styling
 - ✅ SSE with auto-reconnect
 - ✅ Error boundaries for fault tolerance
+- ✅ **TDD methodology**: Tests written before implementation
+- ✅ **Test coverage**: ≥70% overall, ≥85% for validation logic
+- ✅ **Testing tools**: Vitest for unit tests
 
 ### Quality Requirements
 - ✅ No console errors in production

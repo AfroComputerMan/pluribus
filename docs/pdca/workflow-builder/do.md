@@ -2,7 +2,44 @@
 
 **Feature**: Visual workflow builder implementation log
 **Started**: 2026-01-28
-**Status**: Not Started (Awaiting Phase 1 kickoff)
+**Status**: Phase 2 Complete, TDD Infrastructure Backfilled
+
+---
+
+## TDD Tracking
+
+### Test-First Development Log
+
+| Phase | Test File | Tests Written | Tests Passing | Coverage |
+|-------|-----------|---------------|---------------|----------|
+| Phase 1 | `useSSE.test.ts` | 13 | ✅ 13 | 100% |
+| Phase 1 | `useWorkflowEvents.test.ts` | 12 | ✅ 12 | 89% |
+| Phase 1 | `workflowBuilderStore.test.ts` | 20 | ✅ 20 | 100% |
+| Phase 1 | `autoLayout.test.ts` | 11 | ✅ 11 | 100% |
+| Phase 2 | `NodePalette.test.tsx` | 10 | ✅ 10 | 100% |
+| Phase 2 | `AgentNode.test.tsx` | 8 | ✅ 8 | 100% |
+| Phase 2 | `ConditionNode.test.tsx` | 8 | ✅ 8 | 100% |
+| Phase 2 | `ParallelNode.test.tsx` | 12 | ✅ 12 | 100% |
+| Phase 2 | `LoopNode.test.tsx` | 11 | ✅ 11 | 100% |
+| Phase 2 | `HumanReviewNode.test.tsx` | 11 | ✅ 11 | 100% |
+| Phase 2 | `WorkflowCanvas.test.tsx` | - | - | Deferred to E2E |
+| Phase 3 | `NodeConfigPanel.test.tsx` | TBD | TBD | TBD |
+| Phase 4 | `workflowValidation.test.ts` | TBD | TBD | TBD |
+| Phase 5 | `ExecutionOverlay.test.tsx` | TBD | TBD | TBD |
+| Phase 6 | `ContainerStatus.test.tsx` | TBD | TBD | TBD |
+| Phase 7 | `AgentForm.test.tsx` | TBD | TBD | TBD |
+| Phase 8 | Responsive tests | TBD | TBD | TBD |
+| Phase 9 | `useKeyboardShortcuts.test.ts` | TBD | TBD | TBD |
+
+**Total Tests (Phase 1-2)**: 116 tests, all passing
+
+### TDD Workflow Per Task
+
+1. **Write test first** - Define expected behavior
+2. **Run test** - Confirm it fails (Red)
+3. **Implement minimum code** - Make test pass (Green)
+4. **Refactor** - Clean up while tests stay green
+5. **Document** - Log test file and coverage in table above
 
 ---
 
@@ -187,7 +224,82 @@
 - Result: ✅ No type errors
 - All Phase 2 code compiles successfully
 
-**Current Status**: Phase 2 IN PROGRESS - Core components created, needs testing
+**Current Status**: Phase 2 COMPLETE ✅
+
+---
+
+## TDD Backfill: 2026-01-30
+
+**Context**: Phase 1 and Phase 2 were implemented without tests. TDD requirements added to plan.md. Backfilled test coverage before continuing to Phase 3.
+
+### Testing Infrastructure Setup
+
+**16:32** - Installed Testing Dependencies
+- `vitest@4.0.18` - Test runner
+- `@testing-library/react@16.3.2` - React component testing
+- `@testing-library/jest-dom@6.9.1` - DOM matchers
+- `@testing-library/user-event@14.6.1` - User interaction simulation
+- `jsdom@27.4.0` - Browser environment
+- `@vitest/coverage-v8@4.0.18` - Coverage reporting
+
+**16:33** - Created Test Configuration
+- `frontend/vitest.config.ts` - Vitest config with jsdom, coverage thresholds
+- `frontend/src/test/setup.ts` - Test setup with jest-dom, ResizeObserver mock
+- Added scripts: `test`, `test:run`, `test:coverage`
+
+### Bug Discovery and Fix
+
+**16:34** - Found Bug in workflowBuilderStore.ts
+- **Issue**: Undo/redo logic was off-by-one
+- **Root Cause**: History started empty with historyIndex=-1, but `canUndo()` checked `historyIndex > 0`
+- **Symptom**: First action couldn't be undone
+- **Fix**:
+  - Changed initial state to include empty state: `history: [{ nodes: [], edges: [] }]`, `historyIndex: 0`
+  - Renamed `saveToHistory` → `pushToHistory` for clarity
+  - Updated mutation functions to push NEW state after mutation
+- **Verification**: All 20 store tests now pass
+
+### Test Files Created
+
+| File | Tests | Purpose |
+|------|-------|---------|
+| `src/lib/autoLayout.test.ts` | 11 | Dagre layout utility |
+| `src/stores/workflowBuilderStore.test.ts` | 20 | Zustand store with undo/redo |
+| `src/hooks/useSSE.test.ts` | 13 | SSE connection hook |
+| `src/hooks/useWorkflowEvents.test.ts` | 12 | Workflow event parsing |
+| `src/components/workflow/NodePalette.test.tsx` | 10 | Drag-and-drop palette |
+| `src/components/workflow/nodes/AgentNode.test.tsx` | 8 | Agent node component |
+| `src/components/workflow/nodes/ConditionNode.test.tsx` | 8 | Condition node component |
+| `src/components/workflow/nodes/ParallelNode.test.tsx` | 12 | Parallel node component |
+| `src/components/workflow/nodes/LoopNode.test.tsx` | 11 | Loop node component |
+| `src/components/workflow/nodes/HumanReviewNode.test.tsx` | 11 | Human review component |
+
+### Coverage Results
+
+| Component | Statements | Branches | Functions | Lines |
+|-----------|------------|----------|-----------|-------|
+| src/hooks | 96% | 100% | 85% | 96% |
+| src/lib | 100% | 100% | 100% | 100% |
+| src/stores | 100% | 60% | 100% | 100% |
+| src/components/workflow/nodes | 100% | 100% | 100% | 100% |
+| NodePalette.tsx | 100% | 100% | 100% | 100% |
+
+### Decision: WorkflowCanvas.tsx Deferred
+
+`WorkflowCanvas.tsx` is a complex React Flow integration with:
+- ReactFlowProvider context
+- Drag-and-drop from external source
+- Position sync with Zustand store
+- Multiple event handlers
+
+**Decision**: Unit testing this component provides low value vs effort. Better suited for E2E tests (Phase 10) using Playwright.
+
+### Learnings
+
+1. **Mock EventSource with class**: `vi.stubGlobal('EventSource', MockClass)` works better than `vi.fn()`
+2. **React Flow mocking**: Mock `@xyflow/react` Handle component with simple div for unit tests
+3. **Zustand testing**: Call `store.getState()` after mutations; use `beforeEach` reset
+4. **History patterns**: Store state AFTER mutation, not before, for intuitive undo behavior
 
 ---
 
@@ -242,16 +354,38 @@
 ## Learnings During Implementation
 
 ### Successful Patterns
-- (To be documented as discovered)
+
+1. **Zustand for Canvas State**: Clean separation between local UI state (nodes, edges, selection) and server state (React Query). History tracking built into store.
+
+2. **React Flow Mock Strategy**: For unit tests, mock `@xyflow/react` exports with simple components. Reserve actual React Flow testing for E2E.
+
+3. **EventSource Mock Class**: Create a proper class with static instances array for test assertions, rather than using `vi.fn()` directly.
+
+4. **Test File Organization**: Co-locate tests with source files (e.g., `Component.tsx` and `Component.test.tsx` in same directory).
 
 ### Failed Approaches
-- (To be documented with root cause analysis)
+
+1. **Original Undo/Redo Implementation**
+   - **Approach**: Save state BEFORE mutation, historyIndex starts at -1
+   - **Problem**: Off-by-one error - first action couldn't be undone
+   - **Fix**: Start with initial state in history, save state AFTER mutation
+   - **Lesson**: Undo/redo is tricky - test edge cases (first action, redo after new action)
+
+2. **vi.fn() for EventSource**
+   - **Approach**: `vi.stubGlobal('EventSource', vi.fn().mockImplementation(...))`
+   - **Problem**: Vitest warning about mock not using 'function' or 'class'
+   - **Fix**: Create proper MockEventSource class with static instances tracking
 
 ### Technical Discoveries
-- (To be documented as learned)
+
+1. **React Flow v12 Typing**: Requires `Record<string, unknown>` for node data generics
+2. **Dagre Positioning**: Returns centered positions, need to adjust to top-left for React Flow
+3. **ResizeObserver Mock**: Required for React Flow in jsdom environment
+4. **Vitest + React 19**: Works well with `@testing-library/react@16.3.2`
 
 ### Dependencies Issues
-- (To be documented if encountered)
+
+- None encountered. All dependencies installed without conflicts.
 
 ---
 

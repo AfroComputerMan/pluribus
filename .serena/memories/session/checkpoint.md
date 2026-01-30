@@ -1,52 +1,70 @@
-# Session Checkpoint - 2026-01-28
+# Session Checkpoint: 2026-01-30
 
-## Work Completed
+## Latest Update: TDD Backfill COMPLETE ✅
 
-### Task #1: Wire Agent Executor ✅ COMPLETE
+**Time**: Current
+**Completed**: TDD Infrastructure + Test Backfill for Phase 1 & 2
+**Branch**: `feat-workflow-improvement-fe`
 
-**Discovery**: Agent executor was already fully implemented!
+### TDD Backfill Summary
 
-**Work Done**:
-1. Investigated current state - found complete implementation
-2. Discovered 3 TypeScript type errors preventing compilation
-3. Fixed all type errors:
-   - AdapterCredentials discriminated union construction
-   - Null checks for allowedMcpTools
-   - Null checks for skills array
-4. Verified all dependencies properly wired
-5. Committed fixes to branch `feature/agent-executor-wiring`
+**Testing Infrastructure Added**:
+- Vitest 4.0.18 configured with jsdom environment
+- React Testing Library + jest-dom matchers
+- Coverage reporting with v8 provider
+- Scripts: `test`, `test:run`, `test:coverage`
 
-**Time**: ~30 minutes (vs 2 hours estimated - saved by verifying first!)
+**Tests Written**: 116 tests across 10 files
 
-**Files Modified**:
-- `src/queue/workers/executors/agent.executor.ts` - Fixed 3 type errors
-- `docs/pdca/agent-executor-wiring/` - Complete PDCA cycle
+| Category | Files | Tests | Coverage |
+|----------|-------|-------|----------|
+| Phase 1 Utilities | 4 | 56 | 96-100% |
+| Phase 2 Components | 6 | 60 | 100% |
 
-### Task #2: Test Integration - IN PROGRESS
+**Bug Fixed**: workflowBuilderStore.ts undo/redo off-by-one error
+- History now starts with initial empty state
+- First action can now be undone correctly
 
-**Status**: Ready to test but Docker services not running
+**Decision Made**: WorkflowCanvas.tsx deferred to E2E testing (Phase 10)
+- Complex React Flow integration
+- Low unit test value vs effort
+- Better suited for Playwright E2E
 
-**Blockers**:
-- Need Docker services started (`make dev`)
-- Need ANTHROPIC_API_KEY configured
-- Need to create test agent and workflow
+### Files Created (Test Infrastructure)
+1. `frontend/vitest.config.ts`
+2. `frontend/src/test/setup.ts`
+3. `frontend/src/lib/autoLayout.test.ts`
+4. `frontend/src/stores/workflowBuilderStore.test.ts`
+5. `frontend/src/hooks/useSSE.test.ts`
+6. `frontend/src/hooks/useWorkflowEvents.test.ts`
+7. `frontend/src/components/workflow/NodePalette.test.tsx`
+8. `frontend/src/components/workflow/nodes/AgentNode.test.tsx`
+9. `frontend/src/components/workflow/nodes/ConditionNode.test.tsx`
+10. `frontend/src/components/workflow/nodes/ParallelNode.test.tsx`
+11. `frontend/src/components/workflow/nodes/LoopNode.test.tsx`
+12. `frontend/src/components/workflow/nodes/HumanReviewNode.test.tsx`
 
-## Key Learnings
+### Files Modified
+1. `frontend/package.json` - Added test scripts and dependencies
+2. `frontend/src/stores/workflowBuilderStore.ts` - Fixed undo/redo bug
 
-1. **Always verify before implementing** - Saved significant time
-2. **Documentation can be outdated** - ROADMAP.md was wrong
-3. **Type errors ≠ broken code** - Implementation was complete
+## Current Status
+**Phase**: TDD Backfill Complete, Ready for Phase 3
+**Next**: Phase 3 - Node Configuration (following TDD - tests first)
+**Blockers**: None
 
-## Next Steps
+## Phase Progress
+- ✅ Phase 1: Foundation (committed: 55c8807)
+- ✅ Phase 2: Core Canvas (committed: 967ef9f)
+- ✅ TDD Backfill: Testing infrastructure + 116 tests
+- ⏳ Phase 3-10: Remaining phases
 
-1. Start Docker services
-2. Create test agent via API
-3. Create test workflow
-4. Verify end-to-end execution
-5. Move to SSE endpoint (Phase 0 Task 0.2)
+## Git Status
+Branch: feat-workflow-improvement-fe
+Working directory: Modified (TDD backfill + PDCA docs ready to commit)
 
-## Branch
-
-Current: `feature/agent-executor-wiring`
-Commits: 2 (type fixes + PDCA docs)
-Status: Ready for testing
+## Ready for Phase 3
+All Phase 1 & 2 code now has test coverage. Phase 3 will follow proper TDD:
+1. Write tests for NodeConfigPanel first
+2. Implement to make tests pass
+3. Refactor while keeping tests green

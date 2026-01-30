@@ -25,6 +25,65 @@
 
 ---
 
+## TDD Learnings
+
+### What Worked with TDD
+
+1. **Bug Discovery**: Backfilling tests for workflowBuilderStore revealed an off-by-one error in undo/redo that manual testing missed. The first action couldn't be undone.
+
+2. **Mock Strategy Clarity**: Deciding upfront which components to unit test vs E2E test prevented wasted effort on WorkflowCanvas mocking.
+
+3. **Co-located Tests**: Keeping `*.test.tsx` files next to source files makes navigation easy and ensures tests are updated with code.
+
+4. **Coverage Thresholds**: Setting 70% threshold (configurable in vitest.config.ts) creates healthy pressure without blocking progress.
+
+### What Was Challenging with TDD
+
+1. **Backfilling is harder**: Writing tests after implementation requires understanding existing behavior, not defining new behavior. TDD would have been easier.
+
+2. **React Flow Mocking**: The `@xyflow/react` library has complex internals. Mocking `Handle` component was straightforward, but full canvas testing isn't practical at unit level.
+
+3. **EventSource in jsdom**: Browser APIs need custom mocks. Class-based mock with static instance tracking was the solution.
+
+### TDD Patterns to Reuse
+
+```typescript
+// Pattern 1: EventSource mock class
+class MockEventSource {
+  static instances: MockEventSource[] = []
+  constructor(url: string) {
+    this.url = url
+    MockEventSource.instances.push(this)
+  }
+  simulateOpen() { this.onopen?.({} as Event) }
+  simulateMessage(data: string) { this.onmessage?.({ data } as MessageEvent) }
+  simulateError() { this.onerror?.({} as Event) }
+}
+
+// Pattern 2: React Flow component mock
+vi.mock('@xyflow/react', () => ({
+  Handle: ({ type, position, id }) => (
+    <div data-testid={`handle-${type}-${position}${id ? `-${id}` : ''}`} />
+  ),
+  Position: { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' },
+}))
+
+// Pattern 3: Zustand store testing
+beforeEach(() => {
+  useStore.getState().reset()
+})
+```
+
+### TDD Anti-Patterns Discovered
+
+1. **Testing implementation details**: Early tests checked internal history array structure. Better to test through public API (canUndo, undo, redo).
+
+2. **Regex matching in getByText**: `/all/` matched "Parallel" and "all". Use more specific patterns like `/branches \| all/`.
+
+3. **Skipping E2E decision**: Initially tried to unit test everything. Better to recognize integration-heavy components early and plan for E2E.
+
+---
+
 ## Learnings → Global Rules
 
 ### CLAUDE.md Updates
