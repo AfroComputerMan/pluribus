@@ -51,6 +51,40 @@ describe('validateWorkflow', () => {
     );
   });
 
+  it('detects self-loops as cycles', () => {
+    const nodes: WorkflowNode[] = [
+      { id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: { agentId: '123e4567-e89b-12d3-a456-426614174000' } },
+    ];
+    const edges: WorkflowEdge[] = [
+      { id: 'edge-1', source: 'node-1', target: 'node-1' }, // self-loop
+    ];
+
+    const result = validateWorkflow(nodes, edges);
+
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('cycle'),
+      }),
+    );
+  });
+
+  it('returns valid for properly connected workflow', () => {
+    const nodes: WorkflowNode[] = [
+      { id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: { agentId: '123e4567-e89b-12d3-a456-426614174000' } },
+      { id: 'node-2', type: 'agent', position: { x: 0, y: 100 }, data: { agentId: '123e4567-e89b-12d3-a456-426614174000' } },
+    ];
+    const edges: WorkflowEdge[] = [
+      { id: 'edge-1', source: 'node-1', target: 'node-2' },
+    ];
+
+    const result = validateWorkflow(nodes, edges);
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+  });
+
   it('detects orphaned nodes', () => {
     const nodes: WorkflowNode[] = [
       { id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: { agentId: '123e4567-e89b-12d3-a456-426614174000' } },

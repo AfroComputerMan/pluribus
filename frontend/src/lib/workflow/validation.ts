@@ -76,6 +76,13 @@ function detectCycles(
   nodes: WorkflowNode[],
   edges: WorkflowEdge[],
 ): { hasCycle: boolean } {
+  // Check for self-loops first (edge case Kahn's doesn't catch)
+  for (const edge of edges) {
+    if (edge.source === edge.target) {
+      return { hasCycle: true };
+    }
+  }
+
   // Kahn's algorithm for topological sort
   const inDegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
