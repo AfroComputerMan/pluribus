@@ -1,105 +1,206 @@
 # Project Index: Pluribus
 
-Generated: 2026-01-24
+Generated: 2026-01-30
 
 ## Overview
 
-Agent Organization System - Backend for orchestrating AI agents, workflows, and MCP (Model Context Protocol) tools. Built with Bun/TypeScript, provides REST APIs, WebSocket support, and job queuing.
+**Pluribus** is an Agent Organization System - a backend for orchestrating AI agents, workflows, and MCP (Model Context Protocol) tools. Built with Bun/TypeScript, it provides REST APIs, WebSocket support, and job queuing for managing complex agent interactions.
+
+**Status**: Active Development - MVP complete (backend 100%, frontend MVP done)
+
+---
 
 ## Project Structure
 
 ```
-src/
-├── api/                  # Hono REST API
-│   ├── middleware/       # Error handler, validation
-│   └── routes/           # Endpoint definitions
-├── core/                 # Domain logic
-│   ├── agents/           # Agent registry/management
-│   └── workflows/        # DAG-based workflow engine
-├── db/                   # Drizzle ORM schema/migrations
-├── integrations/         # External adapters (Claude, OpenAI, etc.)
-├── lib/                  # Config, errors, utilities
-├── mcp/                  # MCP server/tool management
-├── observability/        # Logging, tracing, cost tracking
-├── queue/                # BullMQ job queues
-├── runtime/              # Execution isolation
-├── skills/               # Reusable prompt templates
-└── vault/                # AES-256-GCM credential encryption
+pluribus/
+├── src/                    # Backend source (Bun/TypeScript)
+│   ├── api/                # Hono routes and middleware
+│   │   ├── routes/         # REST endpoints (8 route files)
+│   │   └── middleware/     # Error handler, validation
+│   ├── core/               # Domain logic
+│   │   ├── agents/         # Agent registry (CRUD, tags)
+│   │   ├── workflows/      # DAG workflow engine
+│   │   └── orchestrator/   # Scheduling, webhooks, events
+│   ├── db/                 # PostgreSQL + Drizzle ORM
+│   ├── queue/              # BullMQ workers
+│   │   └── workers/        # Workflow/node processors
+│   │       └── executors/  # 5 node type executors
+│   ├── integrations/       # Claude Code adapter
+│   ├── mcp/                # MCP server/tool management
+│   ├── skills/             # Skill/prompt templates
+│   ├── runtime/            # Execution isolation (stub)
+│   ├── vault/              # AES-256-GCM encryption
+│   ├── observability/      # Logging, cost tracking
+│   └── lib/                # Config, errors, utilities
+├── frontend/               # React 19 + Vite + TailwindCSS v4
+│   └── src/
+│       ├── api/            # Type-safe API client
+│       ├── components/     # UI components + workflow nodes
+│       ├── pages/          # 4 page components
+│       ├── hooks/          # SSE hooks
+│       └── stores/         # Zustand state
+├── docs/                   # Architecture, specs, PDCA cycles
+└── docker-compose.yml      # Dev environment
 ```
+
+---
 
 ## Entry Points
 
-- **CLI/Server**: `src/index.ts` - Bun.serve() on PORT (default 3000)
-- **Database**: `src/db/migrate.ts` - Run migrations
-- **Seed**: `src/db/seed.ts` - Populate sample data
+| Entry Point | Path | Description |
+|-------------|------|-------------|
+| Backend Server | `src/index.ts` | Bun HTTP server on port 3000 |
+| Frontend App | `frontend/src/main.tsx` | React app entry |
+| DB Migrations | `src/db/migrate.ts` | Drizzle migration runner |
+| DB Seed | `src/db/seed.ts` | Sample data seeder |
 
-## Tech Stack
+---
 
-| Component | Technology |
-|-----------|------------|
-| Runtime | Bun |
-| API | Hono |
-| Database | PostgreSQL 16 + Drizzle ORM |
-| Queue | Redis 7 + BullMQ |
-| Validation | Zod |
-| Linting | Biome |
+## Core Modules
 
-## API Routes
+### Backend API Routes (`src/api/routes/`)
+- **agents.ts** - CRUD + tag filtering, search
+- **workflows.ts** - Workflow CRUD + run trigger
+- **runs.ts** - Run management + SSE events endpoint
+- **orchestrator.ts** - Scheduler, webhooks
+- **mcp.ts** - MCP server/tool management
+- **skills.ts** - Skill templates CRUD
+- **vault.ts** - Credential storage
+- **observability.ts** - Logs, metrics, dashboard
 
-| Route | Purpose |
-|-------|---------|
-| `/health` | Service health check |
-| `/api/agents` | Agent CRUD |
-| `/api/workflows` | Workflow definitions |
-| `/api/runs` | Workflow executions |
-| `/api/mcp` | MCP servers/tools |
-| `/api/skills` | Skill templates |
-| `/api/logs` | Log queries |
-| `/api/costs` | Usage/cost tracking |
-| `/api/metrics` | Observability metrics |
+### Workflow Engine (`src/core/workflows/` + `src/queue/`)
+- **DAG execution** with topological sorting
+- **5 node types**: Agent, Condition, Parallel, Loop, HumanReview
+- **BullMQ queues**: workflow, node, schedule
+- **Error strategies**: retry, fallback, human-review
 
-## Database Schema (11 tables)
+### Node Executors (`src/queue/workers/executors/`)
+- **agent.executor.ts** - Claude Code adapter integration
+- **condition.executor.ts** - Expression evaluation
+- **parallel.executor.ts** - Branch coordination
+- **loop.executor.ts** - Iteration logic
+- **human-review.executor.ts** - Approval wait
+
+### Integrations (`src/integrations/`)
+- **Claude Code Adapter** - Process spawning, session management
+- **AdapterRegistry** - Plugin system for AI providers
+
+### Frontend Pages (`frontend/src/pages/`)
+- **WorkflowsPage** - List all workflows, trigger runs
+- **WorkflowRunsPage** - Runs for a workflow
+- **RunDetailPage** - Real-time execution view with SSE
+- **WorkflowBuilderPage** - Visual DAG editor (React Flow)
+
+### Frontend Components (`frontend/src/components/`)
+- **Layout.tsx** - App shell with navigation
+- **DataTable.tsx** - Sortable/filterable tables
+- **StatusBadge.tsx** - Colored status pills
+- **JsonViewer.tsx** - Collapsible JSON display
+- **workflow/WorkflowCanvas.tsx** - React Flow canvas
+- **workflow/NodePalette.tsx** - Drag-and-drop node palette
+- **workflow/nodes/** - 5 custom node components
+
+---
+
+## Database Schema
+
+11 tables with UUID PKs, timezone-aware timestamps:
 
 | Table | Purpose |
 |-------|---------|
-| `agents` | AI agent definitions with model config |
-| `workflows` | DAG workflow definitions |
-| `workflow_runs` | Workflow execution instances |
-| `node_executions` | Individual node runs |
+| `agents` | AI agent configurations |
+| `workflows` | DAG definitions (nodes, edges, triggers) |
+| `workflow_runs` | Execution instances |
+| `node_executions` | Per-node execution records |
 | `mcp_servers` | MCP server connections |
 | `mcp_tools` | Discovered MCP tools |
 | `skills` | Prompt/behavior templates |
 | `credentials` | Encrypted secrets (AES-256-GCM) |
-| `logs` | Structured log storage |
+| `logs` | Structured logs |
+| `scheduled_triggers` | Cron schedules |
+| `webhook_triggers` | Webhook endpoints |
 | `usage_records` | Token/cost tracking |
 
-## Queues (BullMQ)
+---
 
-| Queue | Purpose |
-|-------|---------|
-| `workflow` | Workflow execution jobs |
-| `node` | Individual node jobs |
-| `schedule` | Cron-triggered workflows |
+## Key Dependencies
 
-## Key Modules
+### Backend
+| Package | Version | Purpose |
+|---------|---------|---------|
+| hono | ^4.6.0 | Web framework |
+| drizzle-orm | ^0.38.0 | Type-safe ORM |
+| bullmq | ^5.20.0 | Job queue |
+| ioredis | ^5.4.0 | Redis client |
+| @anthropic-ai/sdk | ^0.30.0 | Claude API |
+| zod | ^3.23.0 | Runtime validation |
 
-### `src/core/agents/`
-- **types.ts** - Agent type definitions
-- **schemas.ts** - Zod validation schemas
-- **service.ts** - Business logic
-- **repository.ts** - Database operations
+### Frontend
+| Package | Version | Purpose |
+|---------|---------|---------|
+| react | ^19.2.0 | UI framework |
+| @xyflow/react | ^12.10.0 | Workflow canvas |
+| @tanstack/react-query | ^5.90.20 | Data fetching |
+| zustand | ^5.0.10 | State management |
+| tailwindcss | ^4.1.18 | Styling |
+| react-router-dom | ^7.13.0 | Routing |
 
-### `src/vault/crypto.ts`
-- AES-256-GCM encryption for credentials
-- Per-credential key derivation from master key
+---
 
-### `src/integrations/registry.ts`
-- Adapter registry for agent backends
-- Supports: claude-code, codex, openai, local-bridge
+## Development Commands
 
-### `src/lib/config.ts`
-- Zod-validated environment variables
-- Feature flags for OAuth, container isolation
+```bash
+# Docker-based (recommended)
+make dev              # Backend + frontend (ports 3000, 5173)
+make dev-all          # + pgAdmin (8082) + redis-commander (8081)
+make stop             # Stop all containers
+
+# Database
+make db-migrate       # Run migrations
+make db-push          # Push schema (dev only)
+make db-studio        # Drizzle Studio UI
+make db-seed          # Seed sample data
+
+# Testing
+make test             # Run all tests
+make test-watch       # Watch mode
+bun test path/to/file # Single file
+
+# Quality
+make lint             # Biome linter
+make format           # Code formatting
+make typecheck        # TypeScript checking
+
+# Frontend
+make frontend-dev     # Local frontend
+make frontend-build   # Production build
+make frontend-lint    # ESLint
+```
+
+---
+
+## API Endpoints Summary
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/health` | Service health check |
+| GET/POST | `/api/agents` | List/create agents |
+| GET/PUT/DELETE | `/api/agents/:id` | Agent CRUD |
+| GET/POST | `/api/workflows` | List/create workflows |
+| GET/PUT/DELETE | `/api/workflows/:id` | Workflow CRUD |
+| POST | `/api/workflows/:id/run` | Trigger workflow |
+| GET | `/api/runs/:id` | Run details |
+| GET | `/api/runs/:id/nodes` | Node executions |
+| GET | `/api/runs/:id/events` | SSE real-time stream |
+| GET/POST | `/api/mcp/servers` | MCP server management |
+| GET/POST | `/api/skills` | Skill templates |
+| POST | `/api/orchestrator/webhooks/:id` | Webhook trigger |
+| GET | `/api/observability/logs` | Log queries |
+| GET | `/api/observability/costs` | Usage/cost tracking |
+| GET | `/api/observability/dashboard` | Metrics dashboard |
+
+---
 
 ## Environment Variables
 
@@ -113,63 +214,81 @@ src/
 | `ANTHROPIC_API_KEY` | No | Anthropic API access |
 | `OPENAI_API_KEY` | No | OpenAI API access |
 
-## Quick Commands
+---
 
-```bash
-# Docker development
-make dev              # Start with hot reload
-make stop             # Stop containers
-make health           # Check services
+## Configuration Files
 
-# Database
-make db-migrate       # Run migrations
-make db-push          # Push schema (dev)
-make db-seed          # Seed data
-make db-studio        # Drizzle Studio UI
+| File | Purpose |
+|------|---------|
+| `bunfig.toml` | Bun configuration |
+| `docker-compose.yml` | Development environment |
+| `docker-compose.prod.yml` | Production setup |
+| `Makefile` | Development commands |
+| `biome.json` | Backend linter/formatter |
+| `frontend/vite.config.ts` | Vite + API proxy |
+| `frontend/eslint.config.js` | Frontend linting |
+| `.serena/project.yml` | Serena MCP config |
 
-# Testing
-make test             # Run tests
-make lint             # Biome linter
-make typecheck        # TypeScript check
-```
+---
 
 ## Code Patterns
 
-- **Imports**: Use `@/` path alias (e.g., `@/core/agents`)
-- **Service pattern**: types.ts → schemas.ts → service.ts → repository.ts
-- **Logging**: `logger.child('module:name')` with correlation IDs
-- **Style**: Single quotes, semicolons, 2-space indent
+- **Path Aliases**: Backend uses `@/` prefix (`@/core/agents`, `@/db/schema`)
+- **Service Pattern**: `types.ts` → `schemas.ts` → `service.ts` → `repository.ts`
+- **API Validation**: Zod schemas for all inputs
+- **Logging**: Structured JSON with correlation IDs via `logger.child('module:name')`
+- **Style**: Single quotes, semicolons, 2-space indent, 100-char width
+
+---
 
 ## Implementation Status
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for detailed implementation status.
+| Module | Status | Completeness |
+|--------|--------|--------------|
+| Agents | **Complete** | 100% |
+| Workflows | **Complete** | 100% |
+| Orchestrator | **Complete** | 100% |
+| Queue Workers | **Complete** | 100% |
+| Integrations | **Complete** | 100% |
+| MVP UI | **Complete** | 100% |
+| Workflow Builder | **Complete** | 100% |
+| Runtime Execution | **Stub Only** | 10% |
+| MCP | **Partial** | 60% |
+| Observability | **Partial** | 70% |
+| Skills | **Partial** | 60% |
+| Vault | **Partial** | 65% |
 
-| Module | Status |
-|--------|--------|
-| Agents | **Complete** - Full CRUD, filtering, tests |
-| Workflows | **Partial** - Types/schemas/CRUD, no execution engine |
-| Orchestrator | **Not Started** - Module doesn't exist |
-| Queue Workers | **Not Started** - Queues exist, no processors |
-| Runtime | **Stub** - Types only, no implementations |
-| Integrations | **Framework** - Registry works, no adapters |
-| MCP | **Partial** - CRUD works, no discovery/client |
-| Skills | **Partial** - CRUD works, no template rendering |
-| Observability | **Partial** - Logger works, no DB persistence |
-| Vault | **Partial** - Crypto works, no service/API |
+**Backend**: 100% complete for MVP - all node executors, Claude Code integration, SSE streaming
 
-## File Stats
+**Frontend**: MVP complete - workflows, runs, detail pages, visual workflow builder
 
-- Source files: ~50 TypeScript files
-- Test files: 15+ (unit + integration)
+**Next Priority**: P2 features (runtime execution, MCP client, vault service)
 
-## Dependencies
+---
 
-| Package | Purpose |
-|---------|---------|
-| hono | Web framework |
-| drizzle-orm | Database ORM |
-| bullmq | Job queue |
-| ioredis | Redis client |
-| zod | Schema validation |
-| @anthropic-ai/sdk | Claude API |
-| openai | OpenAI API |
+## Test Files
+
+| Test | Path |
+|------|------|
+| Agent Executor | `src/queue/workers/executors/__tests__/agent.executor.test.ts` |
+
+---
+
+## Documentation
+
+| Document | Path |
+|----------|------|
+| Architecture | `docs/architecture.md` |
+| Roadmap | `docs/ROADMAP.md` |
+| UI Specification | `docs/ui-specification.md` |
+| Requirements | `docs/agent-organization-system-requirements.md` |
+| Frontend Plan | `docs/frontend-workflow-builder-plan.md` |
+| PDCA Cycles | `docs/pdca/` (agent-executor, sse-endpoint, workflow-builder) |
+
+---
+
+## File Statistics
+
+- Backend source files: ~90 TypeScript files
+- Frontend source files: ~23 TypeScript/TSX files
+- Documentation: ~20 Markdown files

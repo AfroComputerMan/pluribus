@@ -2,11 +2,13 @@
   "name": "pluribus",
   "version": "0.1.0",
   "description": "Agent Organization System - Orchestrate AI agents, workflows, and MCP tools",
-  "generated": "2026-01-24",
+  "generated": "2026-01-30",
+  "status": "MVP Complete",
   "runtime": "bun",
   "language": "typescript",
   "entryPoints": {
-    "main": "src/index.ts",
+    "backend": "src/index.ts",
+    "frontend": "frontend/src/main.tsx",
     "migrate": "src/db/migrate.ts",
     "seed": "src/db/seed.ts"
   },
@@ -19,58 +21,104 @@
         "/api/agents",
         "/api/workflows",
         "/api/runs",
+        "/api/runs/:id/events",
         "/api/mcp",
         "/api/skills",
-        "/api/logs",
-        "/api/costs",
-        "/api/metrics"
+        "/api/orchestrator",
+        "/api/observability"
       ]
     },
     "src/core/agents": {
       "purpose": "Agent registry and management",
-      "exports": ["AgentService", "agentRepository", "AgentSchemas"]
+      "exports": ["AgentService", "agentRepository", "AgentSchemas"],
+      "status": "complete"
     },
     "src/core/workflows": {
       "purpose": "DAG-based workflow engine",
-      "exports": ["WorkflowSchemas", "WorkflowTypes"]
+      "exports": ["WorkflowSchemas", "WorkflowTypes", "WorkflowService"],
+      "status": "complete"
+    },
+    "src/core/orchestrator": {
+      "purpose": "Scheduling, webhooks, events",
+      "exports": ["SchedulerService", "WebhookService", "EventBus"],
+      "status": "complete"
     },
     "src/db": {
       "purpose": "Drizzle ORM schema and client",
-      "exports": ["db", "schema", "closeDatabase", "checkDatabaseHealth"]
+      "exports": ["db", "schema", "closeDatabase", "checkDatabaseHealth"],
+      "status": "complete"
     },
     "src/integrations": {
       "purpose": "External agent adapters",
-      "exports": ["adapterRegistry", "getAdapter"],
-      "types": ["claude-code", "codex", "openai", "local-bridge"]
+      "exports": ["adapterRegistry", "getAdapter", "claudeCodeAdapter"],
+      "types": ["claude-code", "codex", "openai", "local-bridge"],
+      "status": "complete"
     },
     "src/lib": {
       "purpose": "Config, errors, utilities",
-      "exports": ["config", "features", "AppError"]
+      "exports": ["config", "features", "AppError"],
+      "status": "complete"
     },
     "src/mcp": {
       "purpose": "MCP server/tool management",
-      "exports": ["McpSchemas", "McpTypes"]
+      "exports": ["McpSchemas", "McpTypes"],
+      "status": "partial"
     },
     "src/observability": {
       "purpose": "Logging, tracing, cost tracking",
-      "exports": ["logger"]
+      "exports": ["logger"],
+      "status": "partial"
     },
     "src/queue": {
-      "purpose": "BullMQ job queues",
-      "exports": ["workflowQueue", "nodeQueue", "scheduleQueue", "enqueueWorkflow", "enqueueNode", "closeQueues", "checkQueueHealth"],
-      "queues": ["workflow", "node", "schedule"]
+      "purpose": "BullMQ job queues and workers",
+      "exports": ["workflowQueue", "nodeQueue", "scheduleQueue", "enqueueWorkflow", "enqueueNode", "closeQueues"],
+      "queues": ["workflow", "node", "schedule"],
+      "status": "complete"
+    },
+    "src/queue/workers": {
+      "purpose": "Queue job processors",
+      "exports": ["workflowProcessor", "nodeProcessor"],
+      "status": "complete"
+    },
+    "src/queue/workers/executors": {
+      "purpose": "Node type executors",
+      "exports": ["agentExecutor", "conditionExecutor", "parallelExecutor", "loopExecutor", "humanReviewExecutor"],
+      "status": "complete"
     },
     "src/runtime": {
       "purpose": "Execution isolation strategies",
-      "exports": ["RuntimeTypes"]
+      "exports": ["RuntimeTypes"],
+      "status": "stub"
     },
     "src/skills": {
       "purpose": "Reusable prompt templates",
-      "exports": ["SkillSchemas", "SkillTypes"]
+      "exports": ["SkillSchemas", "SkillTypes"],
+      "status": "partial"
     },
     "src/vault": {
       "purpose": "AES-256-GCM credential encryption",
-      "exports": ["encrypt", "decrypt", "generateMasterKey"]
+      "exports": ["encrypt", "decrypt", "generateMasterKey"],
+      "status": "partial"
+    },
+    "frontend/src": {
+      "purpose": "React 19 frontend application",
+      "exports": ["App"],
+      "status": "complete"
+    },
+    "frontend/src/pages": {
+      "purpose": "Page components",
+      "exports": ["WorkflowsPage", "WorkflowRunsPage", "RunDetailPage", "WorkflowBuilderPage"],
+      "status": "complete"
+    },
+    "frontend/src/components": {
+      "purpose": "UI components",
+      "exports": ["Layout", "DataTable", "StatusBadge", "JsonViewer", "Button"],
+      "status": "complete"
+    },
+    "frontend/src/components/workflow": {
+      "purpose": "Workflow builder components",
+      "exports": ["WorkflowCanvas", "NodePalette", "AgentNode", "ConditionNode", "ParallelNode", "LoopNode", "HumanReviewNode"],
+      "status": "complete"
     }
   },
   "database": {
@@ -87,6 +135,8 @@
       { "name": "skills", "purpose": "Prompt templates" },
       { "name": "credentials", "purpose": "Encrypted secrets" },
       { "name": "logs", "purpose": "Structured logs" },
+      { "name": "scheduled_triggers", "purpose": "Cron schedules" },
+      { "name": "webhook_triggers", "purpose": "Webhook endpoints" },
       { "name": "usage_records", "purpose": "Token/cost tracking" }
     ]
   },
@@ -102,30 +152,56 @@
   },
   "environment": {
     "required": ["DATABASE_URL", "REDIS_URL", "VAULT_MASTER_KEY"],
-    "optional": ["PORT", "LOG_LEVEL", "NODE_ENV", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_CLIENT_ID", "ANTHROPIC_CLIENT_SECRET"]
+    "optional": ["PORT", "LOG_LEVEL", "NODE_ENV", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
   },
   "commands": {
     "dev": "make dev",
+    "dev-all": "make dev-all",
+    "stop": "make stop",
     "test": "make test",
     "lint": "make lint",
     "typecheck": "make typecheck",
     "db:migrate": "make db-migrate",
-    "db:seed": "make db-seed"
+    "db:seed": "make db-seed",
+    "db:studio": "make db-studio",
+    "frontend-dev": "make frontend-dev",
+    "frontend-build": "make frontend-build"
   },
   "dependencies": {
-    "runtime": ["hono", "drizzle-orm", "bullmq", "ioredis", "zod", "pg", "uuid"],
-    "ai": ["@anthropic-ai/sdk", "openai"],
-    "dev": ["@biomejs/biome", "drizzle-kit", "typescript"]
+    "backend": {
+      "runtime": ["hono", "drizzle-orm", "bullmq", "ioredis", "zod", "pg", "uuid"],
+      "ai": ["@anthropic-ai/sdk", "openai"],
+      "dev": ["@biomejs/biome", "drizzle-kit", "typescript", "testcontainers"]
+    },
+    "frontend": {
+      "runtime": ["react", "react-dom", "react-router-dom", "@tanstack/react-query", "@xyflow/react", "zustand"],
+      "dev": ["vite", "tailwindcss", "typescript", "eslint"]
+    }
   },
   "stats": {
-    "files": 47,
-    "linesOfCode": 2050,
-    "testFiles": 0
+    "backendFiles": 90,
+    "frontendFiles": 23,
+    "documentationFiles": 20,
+    "testFiles": 1
   },
   "patterns": {
     "pathAlias": "@/",
     "servicePattern": ["types.ts", "schemas.ts", "service.ts", "repository.ts"],
     "logging": "Structured JSON with correlation IDs",
-    "style": "Single quotes, semicolons, 2-space indent"
+    "style": "Single quotes, semicolons, 2-space indent, 100-char width"
+  },
+  "implementationStatus": {
+    "agents": { "status": "complete", "completeness": 100 },
+    "workflows": { "status": "complete", "completeness": 100 },
+    "orchestrator": { "status": "complete", "completeness": 100 },
+    "queueWorkers": { "status": "complete", "completeness": 100 },
+    "integrations": { "status": "complete", "completeness": 100 },
+    "mvpUI": { "status": "complete", "completeness": 100 },
+    "workflowBuilder": { "status": "complete", "completeness": 100 },
+    "runtimeExecution": { "status": "stub", "completeness": 10 },
+    "mcp": { "status": "partial", "completeness": 60 },
+    "observability": { "status": "partial", "completeness": 70 },
+    "skills": { "status": "partial", "completeness": 60 },
+    "vault": { "status": "partial", "completeness": 65 }
   }
 }
