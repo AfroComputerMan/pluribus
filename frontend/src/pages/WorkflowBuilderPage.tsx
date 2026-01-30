@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { WorkflowCanvas } from '../components/workflow/WorkflowCanvas';
 import { NodePalette } from '../components/workflow/NodePalette';
+import { NodeConfigPanel } from '../components/workflow/NodeConfigPanel';
 import { Button } from '../components/Button';
 import { useWorkflowBuilderStore } from '../stores/workflowBuilderStore';
 
@@ -19,7 +20,7 @@ export function WorkflowBuilderPage() {
   const [workflowName, setWorkflowName] = useState('Untitled Workflow');
   const [workflowDescription, setWorkflowDescription] = useState('');
 
-  const { reset, nodes, edges } = useWorkflowBuilderStore();
+  const { reset, nodes, edges, selectedNode } = useWorkflowBuilderStore();
 
   // Load existing workflow in edit mode
   const { data: workflow } = useQuery({
@@ -115,6 +116,13 @@ export function WorkflowBuilderPage() {
         <main className="flex-1 relative">
           <WorkflowCanvas />
         </main>
+
+        {/* Node Config Panel - shows when node is selected */}
+        {selectedNode && (
+          <aside className="w-80 bg-white border-l border-gray-200 overflow-y-auto">
+            <NodeConfigPanel />
+          </aside>
+        )}
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 **Feature**: Visual workflow builder implementation log
 **Started**: 2026-01-28
-**Status**: Phase 2 Complete, TDD Infrastructure Backfilled
+**Status**: Phase 3 Complete, Ready for Phase 4
 
 ---
 
@@ -23,7 +23,10 @@
 | Phase 2 | `LoopNode.test.tsx` | 11 | ✅ 11 | 100% |
 | Phase 2 | `HumanReviewNode.test.tsx` | 11 | ✅ 11 | 100% |
 | Phase 2 | `WorkflowCanvas.test.tsx` | - | - | Deferred to E2E |
-| Phase 3 | `NodeConfigPanel.test.tsx` | TBD | TBD | TBD |
+| Phase 3 | `nodeSchemas.test.ts` | 49 | ✅ 49 | 100% |
+| Phase 3 | `InputMappingEditor.test.tsx` | 11 | ✅ 11 | 100% |
+| Phase 3 | `ResourceLimitsEditor.test.tsx` | 13 | ✅ 13 | 100% |
+| Phase 3 | `NodeConfigPanel.test.tsx` | 23 | ✅ 23 | 100% |
 | Phase 4 | `workflowValidation.test.ts` | TBD | TBD | TBD |
 | Phase 5 | `ExecutionOverlay.test.tsx` | TBD | TBD | TBD |
 | Phase 6 | `ContainerStatus.test.tsx` | TBD | TBD | TBD |
@@ -31,7 +34,7 @@
 | Phase 8 | Responsive tests | TBD | TBD | TBD |
 | Phase 9 | `useKeyboardShortcuts.test.ts` | TBD | TBD | TBD |
 
-**Total Tests (Phase 1-2)**: 116 tests, all passing
+**Total Tests (Phase 1-3)**: 212 tests, all passing
 
 ### TDD Workflow Per Task
 
@@ -305,7 +308,78 @@
 
 ## Phase 3: Node Configuration
 
-*Will be updated during Phase 3*
+**Timeline**: Started 2026-01-30
+
+### Implementation Log
+
+**17:00** - Created Node Configuration Components (TDD)
+- Created `frontend/src/lib/validation/nodeSchemas.ts` - Zod validation schemas for all 5 node types
+- Created `frontend/src/lib/validation/nodeSchemas.test.ts` - 49 tests for validation logic
+- Created `frontend/src/components/workflow/config/InputMappingEditor.tsx` - Editor for node input references
+- Created `frontend/src/components/workflow/config/InputMappingEditor.test.tsx` - 11 tests
+- Created `frontend/src/components/workflow/config/ResourceLimitsEditor.tsx` - Docker resource limits editor
+- Created `frontend/src/components/workflow/config/ResourceLimitsEditor.test.tsx` - 13 tests
+- ✅ All validation schemas aligned with backend schemas
+
+**17:05** - Created NodeConfigPanel Component (TDD)
+- Created `frontend/src/components/workflow/NodeConfigPanel.tsx` - Dynamic config form
+- Created `frontend/src/components/workflow/NodeConfigPanel.test.tsx` - 23 tests
+- Implemented type-specific field components: AgentFields, ConditionFields, ParallelFields, LoopFields, HumanReviewFields
+- Validation errors display with red borders and messages
+- Save/Cancel buttons with proper state management
+- ✅ Tests written first, then implementation
+
+**17:06** - Integrated Config Panel into Workflow Builder
+- Updated `WorkflowCanvas.tsx` to handle node clicks and set selection
+- Updated `WorkflowBuilderPage.tsx` to show NodeConfigPanel when node selected
+- Panel appears as right sidebar (w-80) on node selection
+- Pane click deselects node and hides panel
+- ✅ Integration complete
+
+**17:07** - Integrated Advanced Editors into AgentFields (TDD)
+- Added tests for InputMappingEditor and ResourceLimitsEditor integration
+- Tests failed initially (Red phase) ✅
+- Integrated both editors into AgentFields component
+- Passed availableNodes to InputMappingEditor for node references
+- All 212 tests now pass (Green phase) ✅
+- TypeScript compiles cleanly
+- Production build succeeds (582KB bundle)
+
+**Current Status**: Phase 3 COMPLETE ✅
+
+### Phase 3 Summary
+
+**Created Files** (8):
+- `frontend/src/lib/validation/nodeSchemas.ts` - Zod schemas for node configs
+- `frontend/src/lib/validation/nodeSchemas.test.ts` - Validation tests (49)
+- `frontend/src/components/workflow/config/InputMappingEditor.tsx` - Input mapping UI
+- `frontend/src/components/workflow/config/InputMappingEditor.test.tsx` - Tests (11)
+- `frontend/src/components/workflow/config/ResourceLimitsEditor.tsx` - Resource limits UI
+- `frontend/src/components/workflow/config/ResourceLimitsEditor.test.tsx` - Tests (13)
+- `frontend/src/components/workflow/NodeConfigPanel.tsx` - Main config panel
+- `frontend/src/components/workflow/NodeConfigPanel.test.tsx` - Tests (23)
+
+**Modified Files** (2):
+- `frontend/src/components/workflow/WorkflowCanvas.tsx` - Added node click handlers
+- `frontend/src/pages/WorkflowBuilderPage.tsx` - Added config panel sidebar
+
+**Tests Added**: 96 new tests (Total: 212)
+
+**Quality Gates Passed**:
+- ✅ Clicking node shows config panel
+- ✅ Can edit node properties (name, timeout, inputs)
+- ✅ Input mapping allows node references (fromNode + path)
+- ✅ Resource limits configurable (memory, CPU, timeout)
+- ✅ Validation errors display clearly with red borders
+- ✅ Save button updates Zustand store
+- ✅ `bunx tsc --noEmit` passes
+- ✅ `bunx vite build` succeeds
+- ✅ TDD workflow followed: Red → Green → Refactor
+
+**Learnings**:
+- Zod enum errorMap has different API in newer versions - use `error` instead of `errorMap`
+- InputMappingEditor needs filtered node list (exclude current node) in future iteration
+- Resource limits defaults align with backend Docker integration
 
 ---
 

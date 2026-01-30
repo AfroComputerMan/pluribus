@@ -83,7 +83,7 @@
 |-------|---------------------|---------------|-------|
 | Phase 1 | ❌ Backfilled | ✅ 100% | TDD requirement added after implementation |
 | Phase 2 | ❌ Backfilled | ✅ 100% (nodes) | WorkflowCanvas deferred to E2E |
-| Phase 3 | ⏳ | ⏳ | Will follow TDD going forward |
+| Phase 3 | ✅ TDD followed | ✅ 100% | 96 new tests, Red→Green→Refactor verified |
 | Phase 4 | ⏳ | ⏳ | Validation logic - target 85% |
 | Phase 5 | ⏳ | ⏳ | |
 | Phase 6 | ⏳ | ⏳ | |
@@ -127,11 +127,12 @@
 - ✅ All 5 custom node types have 100% test coverage
 
 ### Phase 3: Node Configuration
-- ⏳ Clicking node shows config panel
-- ⏳ Can edit node properties
-- ⏳ Input mapping allows node references
-- ⏳ Resource limits configurable
-- ⏳ Validation errors display clearly
+- ✅ Clicking node shows config panel
+- ✅ Can edit node properties (name, timeout, inputs)
+- ✅ Input mapping allows node references (fromNode + path)
+- ✅ Resource limits configurable (memory, CPU, timeout)
+- ✅ Validation errors display clearly (red borders + messages)
+- ✅ Save button updates Zustand store
 
 ### Phase 4: Workflow Save & Validation
 - ⏳ Can save workflow draft

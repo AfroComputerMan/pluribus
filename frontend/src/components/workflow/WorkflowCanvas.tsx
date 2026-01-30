@@ -54,6 +54,7 @@ function WorkflowCanvasInner() {
     edges: storeEdges,
     setNodes: setStoreNodes,
     addEdge: addStoreEdge,
+    setSelectedNode,
   } = useWorkflowBuilderStore();
 
   // Use React Flow hooks for local state
@@ -131,6 +132,19 @@ function WorkflowCanvasInner() {
     [setEdges, addStoreEdge],
   );
 
+  // Handle node click for selection
+  const handleNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node<WorkflowNodeData>) => {
+      setSelectedNode(node.id);
+    },
+    [setSelectedNode],
+  );
+
+  // Handle pane click to deselect
+  const handlePaneClick = useCallback(() => {
+    setSelectedNode(null);
+  }, [setSelectedNode]);
+
   // Handle drop event from node palette
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -180,6 +194,8 @@ function WorkflowCanvasInner() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
         onDragOver={onDragOver}
         onDrop={onDrop}
         nodeTypes={nodeTypes}
