@@ -51,6 +51,12 @@ interface WorkflowBuilderState {
   edges: WorkflowEdge[];
   selectedNode: string | null;
 
+  // Workflow metadata
+  workflowId: string | null;
+  workflowName: string;
+  workflowDescription: string;
+  isDirty: boolean;
+
   // History for undo/redo
   history: HistoryState[];
   historyIndex: number;
@@ -70,6 +76,19 @@ interface WorkflowBuilderState {
   setNodes: (nodes: WorkflowNode[]) => void;
   setEdges: (edges: WorkflowEdge[]) => void;
 
+  // Workflow metadata operations
+  setWorkflowId: (id: string | null) => void;
+  setWorkflowName: (name: string) => void;
+  setWorkflowDescription: (description: string) => void;
+  markClean: () => void;
+  loadWorkflow: (data: {
+    id: string;
+    name: string;
+    description: string;
+    nodes: WorkflowNode[];
+    edges: WorkflowEdge[];
+  }) => void;
+
   // History operations
   undo: () => void;
   redo: () => void;
@@ -84,6 +103,10 @@ const initialState = {
   nodes: [] as WorkflowNode[],
   edges: [] as WorkflowEdge[],
   selectedNode: null as string | null,
+  workflowId: null as string | null,
+  workflowName: 'Untitled Workflow',
+  workflowDescription: '',
+  isDirty: false,
   history: [{ nodes: [], edges: [] }] as HistoryState[],
   historyIndex: 0,
   maxHistorySize: 50,
@@ -124,6 +147,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
       const historyUpdate = pushToHistory(newNodes, edges, history, historyIndex, maxHistorySize);
       set({
         nodes: newNodes,
+        isDirty: true,
         ...historyUpdate,
       });
     },
@@ -136,6 +160,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
       const historyUpdate = pushToHistory(newNodes, edges, history, historyIndex, maxHistorySize);
       set({
         nodes: newNodes,
+        isDirty: true,
         ...historyUpdate,
       });
     },
@@ -151,6 +176,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
         nodes: newNodes,
         edges: newEdges,
         selectedNode: selectedNode === id ? null : selectedNode,
+        isDirty: true,
         ...historyUpdate,
       });
     },
@@ -165,6 +191,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
       const historyUpdate = pushToHistory(nodes, newEdges, history, historyIndex, maxHistorySize);
       set({
         edges: newEdges,
+        isDirty: true,
         ...historyUpdate,
       });
     },
@@ -175,6 +202,7 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
       const historyUpdate = pushToHistory(nodes, newEdges, history, historyIndex, maxHistorySize);
       set({
         edges: newEdges,
+        isDirty: true,
         ...historyUpdate,
       });
     },
@@ -186,6 +214,27 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
     setEdges: (edges) => {
       set({ edges });
     },
+
+    setWorkflowId: (id) => set({ workflowId: id }),
+
+    setWorkflowName: (name) => set({ workflowName: name, isDirty: true }),
+
+    setWorkflowDescription: (description) => set({ workflowDescription: description, isDirty: true }),
+
+    markClean: () => set({ isDirty: false }),
+
+    loadWorkflow: (data) =>
+      set({
+        workflowId: data.id,
+        workflowName: data.name,
+        workflowDescription: data.description,
+        nodes: data.nodes,
+        edges: data.edges,
+        history: [{ nodes: data.nodes, edges: data.edges }],
+        historyIndex: 0,
+        isDirty: false,
+        selectedNode: null,
+      }),
 
     undo: () => {
       const { history, historyIndex } = get();
@@ -228,6 +277,10 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
         nodes: [],
         edges: [],
         selectedNode: null,
+        workflowId: null,
+        workflowName: 'Untitled Workflow',
+        workflowDescription: '',
+        isDirty: false,
         history: [{ nodes: [], edges: [] }],
         historyIndex: 0,
         maxHistorySize: 50,

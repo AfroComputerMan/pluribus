@@ -249,5 +249,183 @@ describe('workflowBuilderStore', () => {
       expect(state.history[0]).toEqual({ nodes: [], edges: [] })
       expect(state.historyIndex).toBe(0)
     })
+
+    it('resets workflow metadata', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setWorkflowId('workflow-123')
+      store.setWorkflowName('My Workflow')
+      store.setWorkflowDescription('A test workflow')
+
+      store.reset()
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.workflowId).toBeNull()
+      expect(state.workflowName).toBe('Untitled Workflow')
+      expect(state.workflowDescription).toBe('')
+      expect(state.isDirty).toBe(false)
+    })
+  })
+
+  describe('workflow metadata', () => {
+    it('tracks workflow id', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setWorkflowId('workflow-123')
+
+      expect(useWorkflowBuilderStore.getState().workflowId).toBe('workflow-123')
+    })
+
+    it('tracks workflow name', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setWorkflowName('My Workflow')
+
+      expect(useWorkflowBuilderStore.getState().workflowName).toBe('My Workflow')
+    })
+
+    it('tracks workflow description', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setWorkflowDescription('A test workflow')
+
+      expect(useWorkflowBuilderStore.getState().workflowDescription).toBe('A test workflow')
+    })
+  })
+
+  describe('dirty state tracking', () => {
+    it('starts clean', () => {
+      const store = useWorkflowBuilderStore.getState()
+      expect(store.isDirty).toBe(false)
+    })
+
+    it('becomes dirty when node added', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({ id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: {} })
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('becomes dirty when node updated', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({ id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: {} })
+      store.markClean()
+
+      store.updateNode('node-1', { data: { label: 'Updated' } })
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('becomes dirty when node deleted', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({ id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: {} })
+      store.markClean()
+
+      store.deleteNode('node-1')
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('becomes dirty when edge added', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.markClean()
+
+      store.addEdge({ id: 'edge-1', source: 'node-1', target: 'node-2' })
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('becomes dirty when edge deleted', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addEdge({ id: 'edge-1', source: 'node-1', target: 'node-2' })
+      store.markClean()
+
+      store.deleteEdge('edge-1')
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('becomes dirty when name changes', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setWorkflowName('New Name')
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('becomes dirty when description changes', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setWorkflowDescription('New description')
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('can mark as clean', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({ id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: {} })
+      store.markClean()
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(false)
+    })
+  })
+
+  describe('loadWorkflow', () => {
+    it('loads workflow data and marks clean', () => {
+      const store = useWorkflowBuilderStore.getState()
+      const nodes: WorkflowNode[] = [
+        { id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: {} },
+      ]
+      const edges: WorkflowEdge[] = []
+
+      store.loadWorkflow({
+        id: 'wf-123',
+        name: 'Test Workflow',
+        description: 'A test',
+        nodes,
+        edges,
+      })
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.workflowId).toBe('wf-123')
+      expect(state.workflowName).toBe('Test Workflow')
+      expect(state.workflowDescription).toBe('A test')
+      expect(state.nodes).toEqual(nodes)
+      expect(state.edges).toEqual(edges)
+      expect(state.isDirty).toBe(false)
+    })
+
+    it('resets history when loading workflow', () => {
+      const store = useWorkflowBuilderStore.getState()
+      // Add some history first
+      store.addNode({ id: 'old-node', type: 'agent', position: { x: 0, y: 0 }, data: {} })
+
+      const nodes: WorkflowNode[] = [
+        { id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: {} },
+      ]
+      store.loadWorkflow({
+        id: 'wf-123',
+        name: 'Test Workflow',
+        description: 'A test',
+        nodes,
+        edges: [],
+      })
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.history).toHaveLength(1)
+      expect(state.history[0]).toEqual({ nodes, edges: [] })
+      expect(state.historyIndex).toBe(0)
+      expect(state.canUndo()).toBe(false)
+    })
+
+    it('clears selected node when loading workflow', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({ id: 'node-1', type: 'agent', position: { x: 0, y: 0 }, data: {} })
+      store.setSelectedNode('node-1')
+
+      store.loadWorkflow({
+        id: 'wf-123',
+        name: 'Test Workflow',
+        description: '',
+        nodes: [],
+        edges: [],
+      })
+
+      expect(useWorkflowBuilderStore.getState().selectedNode).toBeNull()
+    })
   })
 })
