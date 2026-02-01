@@ -429,7 +429,8 @@ describe('validateNodeConfig', () => {
   });
 
   it('returns error for unknown node type', () => {
-    const result = validateNodeConfig('unknown' as any, {});
+    // @ts-expect-error Testing invalid node type
+    const result = validateNodeConfig('unknown', {});
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });

@@ -3,7 +3,7 @@
  * Displays configuration form for the selected workflow node
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useWorkflowBuilderStore, type WorkflowNodeData, type WorkflowNode } from '../../stores/workflowBuilderStore';
 import {
   validateNodeConfig,
@@ -19,31 +19,49 @@ interface FormErrors {
   [field: string]: string;
 }
 
+/**
+ * Wrapper component that handles empty state and provides key-based remount
+ * when selection changes, avoiding setState-in-effect antipattern
+ */
 export function NodeConfigPanel() {
   const selectedNodeId = useWorkflowBuilderStore((state) => state.selectedNode);
   const nodes = useWorkflowBuilderStore((state) => state.nodes);
-  const updateNode = useWorkflowBuilderStore((state) => state.updateNode);
-  const setSelectedNode = useWorkflowBuilderStore((state) => state.setSelectedNode);
 
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId),
     [nodes, selectedNodeId],
   );
 
-  // Form state - cloned from node data
-  const [formData, setFormData] = useState<WorkflowNodeData>({});
+  // Empty state
+  if (!selectedNode) {
+    return (
+      <div className="p-4 text-center text-gray-500">
+        <p>Select a node to configure</p>
+      </div>
+    );
+  }
+
+  // Key prop ensures form remounts with fresh state when selection changes
+  return <NodeConfigForm key={selectedNode.id} node={selectedNode} nodes={nodes} />;
+}
+
+interface NodeConfigFormProps {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+}
+
+/**
+ * Inner form component that initializes state from props on mount
+ */
+function NodeConfigForm({ node, nodes }: NodeConfigFormProps) {
+  const updateNode = useWorkflowBuilderStore((state) => state.updateNode);
+  const setSelectedNode = useWorkflowBuilderStore((state) => state.setSelectedNode);
+
+  // Form state - initialized from node data (no useEffect needed due to key remount)
+  const [formData, setFormData] = useState<WorkflowNodeData>(() => ({ ...node.data }));
   const [errors, setErrors] = useState<FormErrors>({});
 
-  // Reset form when selected node changes
-  useEffect(() => {
-    if (selectedNode) {
-      setFormData({ ...selectedNode.data });
-      setErrors({});
-    } else {
-      setFormData({});
-      setErrors({});
-    }
-  }, [selectedNode]);
+  const nodeType = node.type as WorkflowNodeType;
 
   // Handle input changes
   const handleChange = (field: string, value: unknown) => {
@@ -60,9 +78,6 @@ export function NodeConfigPanel() {
 
   // Handle save
   const handleSave = () => {
-    if (!selectedNode) return;
-
-    const nodeType = selectedNode.type as WorkflowNodeType;
     const result = validateNodeConfig(nodeType, formData);
 
     if (!result.success) {
@@ -75,7 +90,7 @@ export function NodeConfigPanel() {
       return;
     }
 
-    updateNode(selectedNode.id, { data: formData });
+    updateNode(node.id, { data: formData });
     setSelectedNode(null);
   };
 
@@ -83,17 +98,6 @@ export function NodeConfigPanel() {
   const handleCancel = () => {
     setSelectedNode(null);
   };
-
-  // Empty state
-  if (!selectedNode) {
-    return (
-      <div className="p-4 text-center text-gray-500">
-        <p>Select a node to configure</p>
-      </div>
-    );
-  }
-
-  const nodeType = selectedNode.type as WorkflowNodeType;
 
   return (
     <div className="p-4 flex flex-col h-full">

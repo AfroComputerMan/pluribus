@@ -150,7 +150,6 @@ describe('InputMappingEditor', () => {
     });
 
     it('shows available nodes in dropdown', async () => {
-      const user = userEvent.setup();
       render(
         <InputMappingEditor
           value={value}
