@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import type { Node, Edge } from '@xyflow/react';
+import type { WorkflowTrigger, ErrorStrategy } from '@/api/client';
 
 export interface WorkflowNodeData extends Record<string, unknown> {
   label?: string;
@@ -55,6 +56,8 @@ interface WorkflowBuilderState {
   workflowId: string | null;
   workflowName: string;
   workflowDescription: string;
+  triggers: WorkflowTrigger[];
+  errorStrategy: ErrorStrategy;
   isDirty: boolean;
 
   // History for undo/redo
@@ -80,6 +83,8 @@ interface WorkflowBuilderState {
   setWorkflowId: (id: string | null) => void;
   setWorkflowName: (name: string) => void;
   setWorkflowDescription: (description: string) => void;
+  setTriggers: (triggers: WorkflowTrigger[]) => void;
+  setErrorStrategy: (strategy: Partial<ErrorStrategy>) => void;
   markClean: () => void;
   loadWorkflow: (data: {
     id: string;
@@ -87,6 +92,8 @@ interface WorkflowBuilderState {
     description: string;
     nodes: WorkflowNode[];
     edges: WorkflowEdge[];
+    triggers?: WorkflowTrigger[];
+    errorStrategy?: ErrorStrategy;
   }) => void;
 
   // History operations
@@ -99,6 +106,13 @@ interface WorkflowBuilderState {
   reset: () => void;
 }
 
+const defaultTriggers: WorkflowTrigger[] = [{ type: 'manual' }];
+const defaultErrorStrategy: ErrorStrategy = {
+  retries: 0,
+  retryDelay: 5000,
+  onFailure: 'stop',
+};
+
 const initialState = {
   nodes: [] as WorkflowNode[],
   edges: [] as WorkflowEdge[],
@@ -106,6 +120,8 @@ const initialState = {
   workflowId: null as string | null,
   workflowName: 'Untitled Workflow',
   workflowDescription: '',
+  triggers: defaultTriggers,
+  errorStrategy: defaultErrorStrategy,
   isDirty: false,
   history: [{ nodes: [], edges: [] }] as HistoryState[],
   historyIndex: 0,
@@ -221,6 +237,14 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
 
     setWorkflowDescription: (description) => set({ workflowDescription: description, isDirty: true }),
 
+    setTriggers: (triggers) => set({ triggers, isDirty: true }),
+
+    setErrorStrategy: (strategy) =>
+      set((state) => ({
+        errorStrategy: { ...state.errorStrategy, ...strategy },
+        isDirty: true,
+      })),
+
     markClean: () => set({ isDirty: false }),
 
     loadWorkflow: (data) =>
@@ -230,6 +254,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
         workflowDescription: data.description,
         nodes: data.nodes,
         edges: data.edges,
+        triggers: data.triggers ?? defaultTriggers,
+        errorStrategy: data.errorStrategy ?? defaultErrorStrategy,
         // Use spread to create a defensive copy for history to avoid mutation issues
         // if the caller modifies the original arrays after calling loadWorkflow
         history: [{ nodes: [...data.nodes], edges: [...data.edges] }],
@@ -282,6 +308,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
         workflowId: null,
         workflowName: 'Untitled Workflow',
         workflowDescription: '',
+        triggers: defaultTriggers,
+        errorStrategy: defaultErrorStrategy,
         isDirty: false,
         history: [{ nodes: [], edges: [] }],
         historyIndex: 0,

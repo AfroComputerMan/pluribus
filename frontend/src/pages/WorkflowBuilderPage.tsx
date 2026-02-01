@@ -6,6 +6,7 @@ import { api } from '../api/client';
 import { WorkflowCanvas } from '../components/workflow/WorkflowCanvas';
 import { NodePalette } from '../components/workflow/NodePalette';
 import { NodeConfigPanel } from '../components/workflow/NodeConfigPanel';
+import { WorkflowMetadataForm } from '../components/workflow/WorkflowMetadataForm';
 import { Button } from '../components/Button';
 import { useWorkflowBuilderStore } from '../stores/workflowBuilderStore';
 import { useWorkflowMutations } from '../hooks/useWorkflowMutations';
@@ -52,6 +53,8 @@ export function WorkflowBuilderPage() {
         description: workflow.data.description || '',
         nodes: layoutedNodes,
         edges,
+        triggers: workflow.data.triggers,
+        errorStrategy: workflow.data.errorStrategy,
       });
     }
   }, [workflow, loadWorkflow]);
@@ -147,9 +150,12 @@ export function WorkflowBuilderPage() {
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Node Palette Sidebar */}
-        <aside className="w-64 bg-white border-r border-gray-200 overflow-y-auto">
+        {/* Left Sidebar: Node Palette + Metadata */}
+        <aside className="w-72 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
           <NodePalette />
+          <div className="border-t border-gray-200">
+            <WorkflowMetadataForm />
+          </div>
         </aside>
 
         {/* Canvas */}

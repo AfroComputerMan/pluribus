@@ -21,6 +21,8 @@ export function useWorkflowMutations() {
     workflowDescription,
     nodes,
     edges,
+    triggers,
+    errorStrategy,
     setWorkflowId,
     markClean,
   } = useWorkflowBuilderStore();
@@ -62,21 +64,19 @@ export function useWorkflowMutations() {
           description: workflowDescription || undefined,
           nodes: backendNodes,
           edges: backendEdges,
+          triggers,
+          errorStrategy,
         });
         return { success: true, workflowId };
       } else {
-        // Create new workflow with default triggers and error strategy
+        // Create new workflow with triggers and error strategy from store
         const result = await createMutation.mutateAsync({
           name: workflowName,
           description: workflowDescription || undefined,
           nodes: backendNodes,
           edges: backendEdges,
-          triggers: [{ type: 'manual' }],
-          errorStrategy: {
-            retries: 0,
-            retryDelay: 5000,
-            onFailure: 'stop',
-          },
+          triggers,
+          errorStrategy,
         });
         return { success: true, workflowId: result.data.id };
       }

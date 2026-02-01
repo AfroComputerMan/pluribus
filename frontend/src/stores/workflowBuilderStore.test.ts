@@ -428,4 +428,120 @@ describe('workflowBuilderStore', () => {
       expect(useWorkflowBuilderStore.getState().selectedNode).toBeNull()
     })
   })
+
+  describe('triggers', () => {
+    it('starts with default manual trigger', () => {
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.triggers).toEqual([{ type: 'manual' }])
+    })
+
+    it('sets triggers', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setTriggers([
+        { type: 'manual' },
+        { type: 'schedule', cron: '0 9 * * *' },
+      ])
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.triggers).toHaveLength(2)
+      expect(state.triggers[1]).toEqual({ type: 'schedule', cron: '0 9 * * *' })
+    })
+
+    it('marks dirty when triggers change', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.markClean()
+
+      store.setTriggers([{ type: 'manual' }, { type: 'api' }])
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('resets triggers on reset', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setTriggers([{ type: 'manual' }, { type: 'webhook', secret: 'abc123' }])
+
+      store.reset()
+
+      expect(useWorkflowBuilderStore.getState().triggers).toEqual([{ type: 'manual' }])
+    })
+
+    it('loads triggers from loadWorkflow', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.loadWorkflow({
+        id: 'wf-123',
+        name: 'Test',
+        description: '',
+        nodes: [],
+        edges: [],
+        triggers: [{ type: 'schedule', cron: '0 0 * * *' }],
+      })
+
+      expect(useWorkflowBuilderStore.getState().triggers).toEqual([
+        { type: 'schedule', cron: '0 0 * * *' },
+      ])
+    })
+  })
+
+  describe('errorStrategy', () => {
+    it('starts with default error strategy', () => {
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.errorStrategy).toEqual({
+        retries: 0,
+        retryDelay: 5000,
+        onFailure: 'stop',
+      })
+    })
+
+    it('sets error strategy', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setErrorStrategy({
+        retries: 3,
+        retryDelay: 10000,
+        onFailure: 'continue',
+      })
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.errorStrategy.retries).toBe(3)
+      expect(state.errorStrategy.onFailure).toBe('continue')
+    })
+
+    it('marks dirty when error strategy changes', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.markClean()
+
+      store.setErrorStrategy({ retries: 5 })
+
+      expect(useWorkflowBuilderStore.getState().isDirty).toBe(true)
+    })
+
+    it('resets error strategy on reset', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setErrorStrategy({ retries: 10, onFailure: 'human-review' })
+
+      store.reset()
+
+      expect(useWorkflowBuilderStore.getState().errorStrategy).toEqual({
+        retries: 0,
+        retryDelay: 5000,
+        onFailure: 'stop',
+      })
+    })
+
+    it('loads error strategy from loadWorkflow', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.loadWorkflow({
+        id: 'wf-123',
+        name: 'Test',
+        description: '',
+        nodes: [],
+        edges: [],
+        errorStrategy: { retries: 2, onFailure: 'continue' },
+      })
+
+      expect(useWorkflowBuilderStore.getState().errorStrategy).toEqual({
+        retries: 2,
+        onFailure: 'continue',
+      })
+    })
+  })
 })
