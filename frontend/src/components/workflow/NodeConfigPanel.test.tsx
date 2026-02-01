@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NodeConfigPanel } from './NodeConfigPanel';
 import type { WorkflowNode } from '../../stores/workflowBuilderStore';
@@ -148,6 +148,68 @@ describe('NodeConfigPanel', () => {
     it('populates form with current node data', () => {
       render(<NodeConfigPanel />);
       expect(screen.getByLabelText(/expression/i)).toHaveValue('output.success === true');
+      expect(screen.getByLabelText(/true branch/i)).toHaveValue('success_node');
+      expect(screen.getByLabelText(/false branch/i)).toHaveValue('failure_node');
+    });
+
+    it('updates expression on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const expressionInput = screen.getByLabelText(/expression/i);
+      await user.clear(expressionInput);
+      await user.type(expressionInput, 'status === 200');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'condition_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            expression: 'status === 200',
+          }),
+        }),
+      );
+    });
+
+    it('updates trueBranch on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const trueBranchInput = screen.getByLabelText(/true branch/i);
+      await user.clear(trueBranchInput);
+      await user.type(trueBranchInput, 'new_success');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'condition_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            trueBranch: 'new_success',
+          }),
+        }),
+      );
+    });
+
+    it('updates falseBranch on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const falseBranchInput = screen.getByLabelText(/false branch/i);
+      await user.clear(falseBranchInput);
+      await user.type(falseBranchInput, 'new_failure');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'condition_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            falseBranch: 'new_failure',
+          }),
+        }),
+      );
     });
   });
 
@@ -170,6 +232,7 @@ describe('NodeConfigPanel', () => {
 
     it('displays parallel configuration form', () => {
       render(<NodeConfigPanel />);
+      expect(screen.getByLabelText(/branches/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/join strategy/i)).toBeInTheDocument();
     });
 
@@ -177,6 +240,49 @@ describe('NodeConfigPanel', () => {
       render(<NodeConfigPanel />);
       const select = screen.getByLabelText(/join strategy/i) as HTMLSelectElement;
       expect(select.value).toBe('all');
+    });
+
+    it('populates branches from node data', () => {
+      render(<NodeConfigPanel />);
+      expect(screen.getByLabelText(/branches/i)).toHaveValue('task_1, task_2');
+    });
+
+    it('updates branches on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const branchesInput = screen.getByLabelText(/branches/i);
+      fireEvent.change(branchesInput, { target: { value: 'a, b, c' } });
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'parallel_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            branches: ['a', 'b', 'c'],
+          }),
+        }),
+      );
+    });
+
+    it('updates joinStrategy on select change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const select = screen.getByLabelText(/join strategy/i);
+      await user.selectOptions(select, 'race');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'parallel_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            joinStrategy: 'race',
+          }),
+        }),
+      );
     });
   });
 
@@ -204,6 +310,73 @@ describe('NodeConfigPanel', () => {
       expect(screen.getByLabelText(/max iterations/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/body/i)).toBeInTheDocument();
     });
+
+    it('populates form with current node data', () => {
+      render(<NodeConfigPanel />);
+      expect(screen.getByLabelText(/condition/i)).toHaveValue('count < 10');
+      expect(screen.getByLabelText(/max iterations/i)).toHaveValue(100);
+      expect(screen.getByLabelText(/body/i)).toHaveValue('task_node');
+    });
+
+    it('updates condition on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const conditionInput = screen.getByLabelText(/condition/i);
+      await user.clear(conditionInput);
+      await user.type(conditionInput, 'items.length > 0');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'loop_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            condition: 'items.length > 0',
+          }),
+        }),
+      );
+    });
+
+    it('updates maxIterations on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const maxIterationsInput = screen.getByLabelText(/max iterations/i);
+      await user.clear(maxIterationsInput);
+      await user.type(maxIterationsInput, '50');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'loop_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            maxIterations: 50,
+          }),
+        }),
+      );
+    });
+
+    it('updates body on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const bodyInput = screen.getByLabelText(/body/i);
+      await user.clear(bodyInput);
+      await user.type(bodyInput, 'new_body_node');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'loop_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            body: 'new_body_node',
+          }),
+        }),
+      );
+    });
   });
 
   describe('when human-review node is selected', () => {
@@ -215,6 +388,7 @@ describe('NodeConfigPanel', () => {
         label: 'Approve Release',
         prompt: 'Do you approve this deployment?',
         timeout: 3600,
+        options: ['Approve', 'Reject'],
       },
     };
 
@@ -226,11 +400,93 @@ describe('NodeConfigPanel', () => {
     it('displays human review configuration form', () => {
       render(<NodeConfigPanel />);
       expect(screen.getByLabelText(/prompt/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/timeout/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/options/i)).toBeInTheDocument();
     });
 
     it('populates form with current node data', () => {
       render(<NodeConfigPanel />);
       expect(screen.getByLabelText(/prompt/i)).toHaveValue('Do you approve this deployment?');
+      expect(screen.getByLabelText(/options/i)).toHaveValue('Approve, Reject');
+    });
+
+    it('updates prompt on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const promptInput = screen.getByLabelText(/prompt/i);
+      await user.clear(promptInput);
+      await user.type(promptInput, 'Review this code change');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'review_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            prompt: 'Review this code change',
+          }),
+        }),
+      );
+    });
+
+    it('updates timeout on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const timeoutInput = screen.getByLabelText(/timeout/i);
+      await user.clear(timeoutInput);
+      await user.type(timeoutInput, '7200');
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'review_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            timeout: 7200,
+          }),
+        }),
+      );
+    });
+
+    it('updates options on input change', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const optionsInput = screen.getByLabelText(/options/i);
+      // Use fireEvent.change for comma-separated fields to avoid keystroke parsing issues
+      fireEvent.change(optionsInput, { target: { value: 'Yes, No, Maybe' } });
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'review_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            options: ['Yes', 'No', 'Maybe'],
+          }),
+        }),
+      );
+    });
+
+    it('clears options when input is empty', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      const optionsInput = screen.getByLabelText(/options/i);
+      await user.clear(optionsInput);
+
+      await user.click(screen.getByRole('button', { name: /save/i }));
+
+      expect(mockUpdateNode).toHaveBeenCalledWith(
+        'review_1',
+        expect.objectContaining({
+          data: expect.objectContaining({
+            options: undefined,
+          }),
+        }),
+      );
     });
   });
 
@@ -258,6 +514,22 @@ describe('NodeConfigPanel', () => {
 
       expect(screen.getByText(/agent id must be a valid uuid/i)).toBeInTheDocument();
       expect(mockUpdateNode).not.toHaveBeenCalled();
+    });
+
+    it('clears field error when user edits that field', async () => {
+      const user = userEvent.setup();
+      render(<NodeConfigPanel />);
+
+      // First trigger validation error
+      await user.click(screen.getByRole('button', { name: /save/i }));
+      expect(screen.getByText(/agent id must be a valid uuid/i)).toBeInTheDocument();
+
+      // Now edit the field
+      const agentIdInput = screen.getByLabelText(/agent id/i);
+      await user.type(agentIdInput, '123e4567-e89b-12d3-a456-426614174000');
+
+      // Error should be cleared
+      expect(screen.queryByText(/agent id must be a valid uuid/i)).not.toBeInTheDocument();
     });
   });
 
