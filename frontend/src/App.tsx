@@ -5,6 +5,7 @@ import { WorkflowsPage } from './pages/WorkflowsPage';
 import { WorkflowRunsPage } from './pages/WorkflowRunsPage';
 import { RunDetailPage } from './pages/RunDetailPage';
 import { WorkflowBuilderPage } from './pages/WorkflowBuilderPage';
+import { ExecutionPage } from './pages/ExecutionPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,8 @@ function App() {
           {/* Workflow Builder - Full screen layout */}
           <Route path="workflows/new" element={<WorkflowBuilderPage />} />
           <Route path="workflows/:id/edit" element={<WorkflowBuilderPage />} />
+          {/* Execution Visualization - Full screen layout */}
+          <Route path="runs/:id/visualize" element={<ExecutionPage />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

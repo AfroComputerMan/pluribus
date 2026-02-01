@@ -151,6 +151,12 @@ export function RunDetailPage() {
         </div>
         <div className="flex gap-2">
           <Button
+            variant="primary"
+            onClick={() => navigate(`/runs/${run.id}/visualize`)}
+          >
+            Visualize
+          </Button>
+          <Button
             variant="secondary"
             onClick={() => navigate(`/workflows/${run.workflowId}/runs`)}
           >

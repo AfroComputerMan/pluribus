@@ -25,28 +25,21 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 - ✅ Phase 1: Foundation (committed, tested)
 - ✅ Phase 2: Core Canvas (committed, tested)
 - ✅ Phase 3: Configuration (implemented, 88%+ coverage)
-  - NodeConfigPanel: 88.23% line coverage
-  - All 5 node types: 100% coverage
-  - InputMappingEditor: 94.59% coverage
-  - ResourceLimitsEditor: 100% coverage
-  - nodeSchemas.ts: 94.73% coverage
-  - 275 total tests passing
 - ✅ Phase 4: Save/Publish workflows (committed)
-  - Serialization utils (toBackendFormat, fromBackendFormat)
-  - Workflow validation (cycle detection, orphan detection)
-  - Zustand store with dirty tracking and workflow metadata
-  - useWorkflowMutations hook for React Query integration
-  - Auto-layout on workflow load
-  - Backend schema compatibility (nodes/edges at top level, triggers, errorStrategy)
-- ⏳ Phase 5-10: Remaining phases
+- ✅ Phase 5: Execution Visualization (committed, 39 new tests)
+  - ExecutionOverlay: Read-only React Flow canvas with status visualization
+  - NodeExecutionModal: Detailed node execution view
+  - ExecutionPage: Full SSE integration with real-time updates
+  - Navigation: "Visualize" button on RunDetailPage
+  - Fixed: vite.config.ts path aliases
+  - 314 total tests passing
+- ⏳ Phase 6-10: Remaining phases
 
-## Phase 4 Components Completed
-- Serialization: toBackendFormat, fromBackendFormat
-- Validation: validateWorkflow with Kahn's algorithm for cycle detection
-- Store extensions: workflowId, workflowName, workflowDescription, isDirty, loadWorkflow, markClean
-- useWorkflowMutations: create/update with validation and React Query
-- WorkflowBuilderPage: integrated save/load with dirty tracking and unsaved changes warning
-- API client types: Updated to match backend schema (nodes/edges top-level, triggers, errorStrategy)
+## Phase 5 Components Completed
+- ExecutionOverlay.tsx - Visual workflow execution canvas
+- NodeExecutionModal.tsx - Node execution detail modal
+- ExecutionPage.tsx - Full execution visualization page
+- Route: /runs/:id/visualize
 
 ## Expected Outcomes
 - **User Experience**: Drag-and-drop workflow creation (80% faster than API/JSON)
@@ -54,7 +47,7 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 - **Mobile Support**: Responsive design works on tablets/phones
 - **Quality**: Validation prevents invalid workflows, undo/redo prevents mistakes
 - **Extensibility**: Agent/MCP management enables advanced configurations
-- **Reliability**: 275+ tests ensure correctness
+- **Reliability**: 314+ tests ensure correctness
 
 ## Success Criteria (MVP Must-Haves)
 ✅ Visual builder with drag-and-drop
@@ -75,8 +68,8 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 2. Core canvas ✅ (tested)
 3. Configuration ✅ (tested - 88%+ coverage)
 4. Save/publish ✅ (tested - 275 tests passing)
-5. Execution visualization (next)
-6. Docker monitoring
+5. Execution visualization ✅ (tested - 314 tests passing)
+6. Docker monitoring (next)
 7. Agent/MCP management
 8. Responsive design
 9. UX enhancements
