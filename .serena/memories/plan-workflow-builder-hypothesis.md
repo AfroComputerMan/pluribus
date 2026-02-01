@@ -31,17 +31,22 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
   - ResourceLimitsEditor: 100% coverage
   - nodeSchemas.ts: 94.73% coverage
   - 275 total tests passing
-- ⏳ Phase 4-10: Remaining phases
+- ✅ Phase 4: Save/Publish workflows (committed)
+  - Serialization utils (toBackendFormat, fromBackendFormat)
+  - Workflow validation (cycle detection, orphan detection)
+  - Zustand store with dirty tracking and workflow metadata
+  - useWorkflowMutations hook for React Query integration
+  - Auto-layout on workflow load
+  - Backend schema compatibility (nodes/edges at top level, triggers, errorStrategy)
+- ⏳ Phase 5-10: Remaining phases
 
-## Phase 3 Components Completed
-- NodeConfigPanel with type-specific field components
-- AgentFields: agentId, timeout, InputMappingEditor, ResourceLimitsEditor
-- ConditionFields: expression, trueBranch, falseBranch
-- ParallelFields: branches (comma-separated), joinStrategy (all/any/race)
-- LoopFields: condition, maxIterations, body
-- HumanReviewFields: prompt, timeout, options
-- Zod validation with field-level error display
-- Error clearing on field edit
+## Phase 4 Components Completed
+- Serialization: toBackendFormat, fromBackendFormat
+- Validation: validateWorkflow with Kahn's algorithm for cycle detection
+- Store extensions: workflowId, workflowName, workflowDescription, isDirty, loadWorkflow, markClean
+- useWorkflowMutations: create/update with validation and React Query
+- WorkflowBuilderPage: integrated save/load with dirty tracking and unsaved changes warning
+- API client types: Updated to match backend schema (nodes/edges top-level, triggers, errorStrategy)
 
 ## Expected Outcomes
 - **User Experience**: Drag-and-drop workflow creation (80% faster than API/JSON)
@@ -69,8 +74,8 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 1. Foundation ✅ (tested)
 2. Core canvas ✅ (tested)
 3. Configuration ✅ (tested - 88%+ coverage)
-4. Save/publish (next)
-5. Execution visualization
+4. Save/publish ✅ (tested - 275 tests passing)
+5. Execution visualization (next)
 6. Docker monitoring
 7. Agent/MCP management
 8. Responsive design
