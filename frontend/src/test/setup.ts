@@ -8,11 +8,12 @@ afterEach(() => {
 })
 
 // Mock ResizeObserver (needed for React Flow)
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
+// Use globalThis for browser/Node compatibility
+globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
   unobserve: vi.fn(),
   disconnect: vi.fn(),
-}))
+})) as unknown as typeof ResizeObserver
 
 // Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {

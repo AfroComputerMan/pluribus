@@ -1,30 +1,6 @@
 // frontend/src/lib/workflow/serialization.ts
 import type { WorkflowNode, WorkflowEdge } from '@/stores/workflowBuilderStore';
-
-interface BackendNode {
-  id: string;
-  type: string;
-  agentId?: string;
-  input?: Record<string, unknown>;
-  timeout?: number;
-  expression?: string;
-  trueBranch?: string;
-  falseBranch?: string;
-  branches?: string[];
-  joinStrategy?: 'all' | 'any' | 'race';
-  condition?: string;
-  maxIterations?: number;
-  body?: string;
-  prompt?: string;
-  options?: string[];
-}
-
-interface BackendEdge {
-  id: string;
-  from: string;
-  to: string;
-  label?: string;
-}
+import type { BackendNode, BackendEdge } from '@/api/client';
 
 export interface BackendWorkflowDefinition {
   nodes: BackendNode[];
@@ -35,8 +11,8 @@ export function toBackendFormat(
   nodes: WorkflowNode[],
   edges: WorkflowEdge[],
 ): BackendWorkflowDefinition {
-  const backendNodes: BackendNode[] = nodes.map((node) => {
-    const base = { id: node.id, type: node.type ?? 'agent' };
+  const backendNodes: BackendNode[] = nodes.map((node): BackendNode => {
+    const base: BackendNode = { id: node.id, type: node.type ?? 'agent' };
     const data = node.data;
 
     switch (node.type) {
@@ -79,11 +55,11 @@ export function toBackendFormat(
     }
   });
 
-  const backendEdges: BackendEdge[] = edges.map((edge) => ({
+  const backendEdges: BackendEdge[] = edges.map((edge): BackendEdge => ({
     id: edge.id,
     from: edge.source,
     to: edge.target,
-    label: edge.label,
+    label: typeof edge.label === 'string' ? edge.label : undefined,
   }));
 
   return { nodes: backendNodes, edges: backendEdges };

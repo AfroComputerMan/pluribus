@@ -4,10 +4,21 @@ import { ExecutionOverlay } from './ExecutionOverlay';
 import type { NodeRun } from '../../api/client';
 
 // Mock React Flow
+interface MockNodeData {
+  label?: string;
+  executionStatus?: string;
+  duration?: string;
+}
+
+interface MockNode {
+  id: string;
+  data: MockNodeData;
+}
+
 vi.mock('@xyflow/react', () => ({
   ReactFlow: ({ children, nodes, onNodeClick }: {
     children: React.ReactNode;
-    nodes: Array<{ id: string; data: Record<string, unknown> }>;
+    nodes: MockNode[];
     onNodeClick?: (event: unknown, node: { id: string }) => void;
   }) => (
     <div data-testid="react-flow">
@@ -18,12 +29,12 @@ vi.mock('@xyflow/react', () => ({
           data-status={node.data.executionStatus}
           onClick={(e) => onNodeClick?.(e, node)}
         >
-          {String(node.data.label || node.id)}
+          {node.data.label || node.id}
           {node.data.executionStatus && (
-            <span data-testid={`status-${node.id}`}>{String(node.data.executionStatus)}</span>
+            <span data-testid={`status-${node.id}`}>{node.data.executionStatus}</span>
           )}
           {node.data.duration && (
-            <span data-testid={`duration-${node.id}`}>{String(node.data.duration)}</span>
+            <span data-testid={`duration-${node.id}`}>{node.data.duration}</span>
           )}
         </div>
       ))}

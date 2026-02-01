@@ -4,7 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useWorkflowMutations } from './useWorkflowMutations';
-import { api } from '@/api/client';
+import { api, type Workflow } from '@/api/client';
 import { useWorkflowBuilderStore } from '@/stores/workflowBuilderStore';
 
 vi.mock('@/api/client', () => ({
@@ -25,6 +25,22 @@ function createWrapper() {
   );
 }
 
+/** Helper to create a complete mock Workflow for tests */
+function createMockWorkflow(overrides: Partial<Workflow> = {}): Workflow {
+  return {
+    id: 'test-id',
+    name: 'Test Workflow',
+    description: null,
+    nodes: [],
+    edges: [],
+    triggers: [{ type: 'manual' }],
+    errorStrategy: { retries: 0, onFailure: 'stop' },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 describe('useWorkflowMutations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -32,7 +48,7 @@ describe('useWorkflowMutations', () => {
   });
 
   it('creates new workflow when no workflowId', async () => {
-    const mockWorkflow = { id: 'new-id', name: 'Test', definition: {} };
+    const mockWorkflow = createMockWorkflow({ id: 'new-id', name: 'Test' });
     vi.mocked(api.workflows.create).mockResolvedValue({ data: mockWorkflow });
 
     const store = useWorkflowBuilderStore.getState();
@@ -48,7 +64,7 @@ describe('useWorkflowMutations', () => {
   });
 
   it('updates existing workflow when workflowId exists', async () => {
-    const mockWorkflow = { id: 'existing-id', name: 'Test', definition: {} };
+    const mockWorkflow = createMockWorkflow({ id: 'existing-id', name: 'Test' });
     vi.mocked(api.workflows.update).mockResolvedValue({ data: mockWorkflow });
 
     const store = useWorkflowBuilderStore.getState();
@@ -77,7 +93,7 @@ describe('useWorkflowMutations', () => {
   });
 
   it('sets workflowId in store after creating new workflow', async () => {
-    const mockWorkflow = { id: 'new-workflow-id', name: 'Test', definition: {} };
+    const mockWorkflow = createMockWorkflow({ id: 'new-workflow-id', name: 'Test' });
     vi.mocked(api.workflows.create).mockResolvedValue({ data: mockWorkflow });
 
     const store = useWorkflowBuilderStore.getState();
@@ -91,7 +107,7 @@ describe('useWorkflowMutations', () => {
   });
 
   it('marks store as clean after successful save', async () => {
-    const mockWorkflow = { id: 'new-id', name: 'Test', definition: {} };
+    const mockWorkflow = createMockWorkflow({ id: 'new-id', name: 'Test' });
     vi.mocked(api.workflows.create).mockResolvedValue({ data: mockWorkflow });
 
     const store = useWorkflowBuilderStore.getState();
@@ -141,7 +157,7 @@ describe('useWorkflowMutations', () => {
       expect(result.current.isSaving).toBe(true);
     });
 
-    resolveCreate!({ data: { id: 'new-id', name: 'Test', definition: {} } });
+    resolveCreate!({ data: createMockWorkflow({ id: 'new-id', name: 'Test' }) });
     await savePromise;
 
     await waitFor(() => {
@@ -150,7 +166,7 @@ describe('useWorkflowMutations', () => {
   });
 
   it('includes workflow description in create payload', async () => {
-    const mockWorkflow = { id: 'new-id', name: 'Test', definition: {} };
+    const mockWorkflow = createMockWorkflow({ id: 'new-id', name: 'Test' });
     vi.mocked(api.workflows.create).mockResolvedValue({ data: mockWorkflow });
 
     const store = useWorkflowBuilderStore.getState();
@@ -168,7 +184,7 @@ describe('useWorkflowMutations', () => {
   });
 
   it('serializes nodes and edges to backend format', async () => {
-    const mockWorkflow = { id: 'new-id', name: 'Test', definition: {} };
+    const mockWorkflow = createMockWorkflow({ id: 'new-id', name: 'Test' });
     vi.mocked(api.workflows.create).mockResolvedValue({ data: mockWorkflow });
 
     const store = useWorkflowBuilderStore.getState();

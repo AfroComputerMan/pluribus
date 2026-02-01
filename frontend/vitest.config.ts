@@ -13,6 +13,12 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Ensure DOM is fully initialized before tests run
+    environmentOptions: {
+      jsdom: {
+        resources: 'usable',
+      },
+    },
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       provider: 'v8',

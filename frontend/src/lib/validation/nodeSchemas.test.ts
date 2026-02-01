@@ -432,7 +432,9 @@ describe('validateNodeConfig', () => {
     // @ts-expect-error Testing invalid node type
     const result = validateNodeConfig('unknown', {});
     expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
+    if (!result.success) {
+      expect(result.error).toBeDefined();
+    }
   });
 
   it('returns validation errors with field paths', () => {

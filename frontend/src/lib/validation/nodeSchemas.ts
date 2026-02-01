@@ -112,7 +112,7 @@ export const parallelNodeConfigSchema = baseNodeConfigSchema.extend({
   branches: z.array(z.string()).min(1, 'At least one branch is required'),
   /** Strategy for joining parallel results */
   joinStrategy: z.enum(['all', 'any', 'race'], {
-    errorMap: () => ({ message: 'Join strategy must be "all", "any", or "race"' }),
+    message: 'Join strategy must be "all", "any", or "race"',
   }),
 });
 
