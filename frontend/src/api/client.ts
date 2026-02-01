@@ -93,21 +93,60 @@ export interface Workflow {
   id: string;
   name: string;
   description: string | null;
-  definition: Record<string, unknown>;
+  nodes: BackendNode[];
+  edges: BackendEdge[];
+  triggers: WorkflowTrigger[];
+  errorStrategy: ErrorStrategy;
   createdAt: string;
   updatedAt: string;
+}
+
+// Trigger type definitions
+export type WorkflowTrigger =
+  | { type: 'manual' }
+  | { type: 'schedule'; cron: string }
+  | { type: 'webhook'; secret: string }
+  | { type: 'api' };
+
+// Error strategy definition
+export interface ErrorStrategy {
+  retries?: number;
+  retryDelay?: number;
+  fallbackNodeId?: string;
+  onFailure?: 'stop' | 'continue' | 'human-review';
+}
+
+// Backend node format (without React Flow position data)
+export interface BackendNode {
+  id: string;
+  type: string;
+  [key: string]: unknown;
+}
+
+// Backend edge format
+export interface BackendEdge {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
 }
 
 export interface CreateWorkflowInput {
   name: string;
   description?: string;
-  definition: Record<string, unknown>;
+  nodes: BackendNode[];
+  edges: BackendEdge[];
+  triggers?: WorkflowTrigger[];
+  errorStrategy?: ErrorStrategy;
 }
 
 export interface UpdateWorkflowInput {
   name?: string;
   description?: string;
-  definition?: Record<string, unknown>;
+  nodes?: BackendNode[];
+  edges?: BackendEdge[];
+  triggers?: WorkflowTrigger[];
+  errorStrategy?: ErrorStrategy;
 }
 
 export interface WorkflowRun {

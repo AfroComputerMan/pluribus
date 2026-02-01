@@ -9,7 +9,7 @@ import { NodeConfigPanel } from '../components/workflow/NodeConfigPanel';
 import { Button } from '../components/Button';
 import { useWorkflowBuilderStore } from '../stores/workflowBuilderStore';
 import { useWorkflowMutations } from '../hooks/useWorkflowMutations';
-import { fromBackendFormat, type BackendWorkflowDefinition } from '../lib/workflow/serialization';
+import { fromBackendFormat } from '../lib/workflow/serialization';
 import { applyDagreLayout } from '../lib/autoLayout';
 
 export function WorkflowBuilderPage() {
@@ -39,8 +39,9 @@ export function WorkflowBuilderPage() {
   // Initialize workflow data when loaded
   useEffect(() => {
     if (workflow?.data) {
-      const definition = workflow.data.definition as BackendWorkflowDefinition;
-      const { nodes, edges } = fromBackendFormat(definition);
+      // Backend now returns nodes/edges directly on the workflow object
+      const { nodes: backendNodes, edges: backendEdges } = workflow.data;
+      const { nodes, edges } = fromBackendFormat({ nodes: backendNodes, edges: backendEdges });
 
       // Apply auto-layout to position nodes
       const layoutedNodes = applyDagreLayout(nodes, edges);

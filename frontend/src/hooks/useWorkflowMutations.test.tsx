@@ -194,17 +194,21 @@ describe('useWorkflowMutations', () => {
     expect(api.workflows.create).toHaveBeenCalled();
     const callArgs = vi.mocked(api.workflows.create).mock.calls[0][0];
 
-    // Check nodes are serialized correctly
-    expect(callArgs.definition.nodes).toHaveLength(2);
-    expect(callArgs.definition.nodes).toContainEqual(
+    // Check nodes are serialized correctly (now top-level, not nested in definition)
+    expect(callArgs.nodes).toHaveLength(2);
+    expect(callArgs.nodes).toContainEqual(
       expect.objectContaining({ id: 'agent-1', type: 'agent', agentId: '123e4567-e89b-12d3-a456-426614174000' })
     );
-    expect(callArgs.definition.nodes).toContainEqual(
+    expect(callArgs.nodes).toContainEqual(
       expect.objectContaining({ id: 'agent-2', type: 'agent', agentId: '223e4567-e89b-12d3-a456-426614174000' })
     );
 
     // Check edges are serialized correctly (source/target become from/to)
-    expect(callArgs.definition.edges).toHaveLength(1);
-    expect(callArgs.definition.edges[0]).toMatchObject({ id: 'e1', from: 'agent-1', to: 'agent-2' });
+    expect(callArgs.edges).toHaveLength(1);
+    expect(callArgs.edges[0]).toMatchObject({ id: 'e1', from: 'agent-1', to: 'agent-2' });
+
+    // Check default triggers and errorStrategy are included
+    expect(callArgs.triggers).toEqual([{ type: 'manual' }]);
+    expect(callArgs.errorStrategy).toMatchObject({ retries: 0, onFailure: 'stop' });
   });
 });

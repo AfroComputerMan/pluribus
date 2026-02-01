@@ -51,7 +51,7 @@ export function useWorkflowMutations() {
       return { success: false, validationResult };
     }
 
-    const definition = toBackendFormat(nodes, edges);
+    const { nodes: backendNodes, edges: backendEdges } = toBackendFormat(nodes, edges);
 
     try {
       if (workflowId) {
@@ -60,15 +60,23 @@ export function useWorkflowMutations() {
           id: workflowId,
           name: workflowName,
           description: workflowDescription || undefined,
-          definition,
+          nodes: backendNodes,
+          edges: backendEdges,
         });
         return { success: true, workflowId };
       } else {
-        // Create new
+        // Create new workflow with default triggers and error strategy
         const result = await createMutation.mutateAsync({
           name: workflowName,
           description: workflowDescription || undefined,
-          definition,
+          nodes: backendNodes,
+          edges: backendEdges,
+          triggers: [{ type: 'manual' }],
+          errorStrategy: {
+            retries: 0,
+            retryDelay: 5000,
+            onFailure: 'stop',
+          },
         });
         return { success: true, workflowId: result.data.id };
       }
