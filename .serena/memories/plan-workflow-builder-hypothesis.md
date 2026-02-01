@@ -21,17 +21,27 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 5. **Undo/Redo**: History stack in Zustand store with index tracking (bug fixed: now starts with initial state)
 6. **Testing**: TDD mandatory, 85% coverage for validation, E2E for WorkflowCanvas
 
-## Current Status (2026-01-30)
-- ✅ Phase 1: Foundation (committed)
-- ✅ Phase 2: Core Canvas (committed)
-- ✅ TDD Backfill: 116 tests, 100% coverage on Phase 1/2 code
-- ⏳ Phase 3-10: Remaining phases
+## Current Status (2026-02-01)
+- ✅ Phase 1: Foundation (committed, tested)
+- ✅ Phase 2: Core Canvas (committed, tested)
+- ✅ Phase 3: Configuration (implemented, 88%+ coverage)
+  - NodeConfigPanel: 88.23% line coverage
+  - All 5 node types: 100% coverage
+  - InputMappingEditor: 94.59% coverage
+  - ResourceLimitsEditor: 100% coverage
+  - nodeSchemas.ts: 94.73% coverage
+  - 275 total tests passing
+- ⏳ Phase 4-10: Remaining phases
 
-## Bug Fixed During TDD
-workflowBuilderStore.ts undo/redo was off-by-one:
-- History now starts with initial empty state: `[{ nodes: [], edges: [] }]`
-- historyIndex starts at 0 (not -1)
-- First action can now be properly undone
+## Phase 3 Components Completed
+- NodeConfigPanel with type-specific field components
+- AgentFields: agentId, timeout, InputMappingEditor, ResourceLimitsEditor
+- ConditionFields: expression, trueBranch, falseBranch
+- ParallelFields: branches (comma-separated), joinStrategy (all/any/race)
+- LoopFields: condition, maxIterations, body
+- HumanReviewFields: prompt, timeout, options
+- Zod validation with field-level error display
+- Error clearing on field edit
 
 ## Expected Outcomes
 - **User Experience**: Drag-and-drop workflow creation (80% faster than API/JSON)
@@ -39,7 +49,7 @@ workflowBuilderStore.ts undo/redo was off-by-one:
 - **Mobile Support**: Responsive design works on tablets/phones
 - **Quality**: Validation prevents invalid workflows, undo/redo prevents mistakes
 - **Extensibility**: Agent/MCP management enables advanced configurations
-- **Reliability**: 116+ tests ensure correctness
+- **Reliability**: 275+ tests ensure correctness
 
 ## Success Criteria (MVP Must-Haves)
 ✅ Visual builder with drag-and-drop
@@ -50,16 +60,16 @@ workflowBuilderStore.ts undo/redo was off-by-one:
 ✅ SSE integration (100% test coverage)
 ✅ Auto-layout + manual override (100% test coverage)
 ✅ Undo/redo (100% test coverage, bug fixed)
-✅ Agent/MCP management
-✅ Mobile responsive
-✅ Docker resource controls per node
+⏳ Agent/MCP management
+⏳ Mobile responsive
+⏳ Docker resource controls per node
 
 ## Implementation Strategy
 **Wave Pattern** - 10 sequential phases with quality gates + TDD:
 1. Foundation ✅ (tested)
 2. Core canvas ✅ (tested)
-3. Configuration (next - TDD first)
-4. Save/publish
+3. Configuration ✅ (tested - 88%+ coverage)
+4. Save/publish (next)
 5. Execution visualization
 6. Docker monitoring
 7. Agent/MCP management
