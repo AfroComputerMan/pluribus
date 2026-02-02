@@ -89,8 +89,17 @@ frontend/             # React frontend
 ├── src/
 │   ├── api/          # API client with type-safe fetch wrapper
 │   ├── components/   # Reusable UI components
-│   └── pages/        # Page components (Workflows, Runs, etc.)
-├── vite.config.ts    # Vite config with API proxy
+│   │   ├── workflow/ # Workflow builder (canvas, nodes, config panels)
+│   │   └── agents/   # Agent management (AgentForm)
+│   ├── pages/        # Page components
+│   │   ├── WorkflowsPage.tsx      # Workflows list
+│   │   ├── WorkflowBuilderPage.tsx # Visual workflow editor
+│   │   ├── AgentsPage.tsx         # Agents list + CRUD
+│   │   └── ExecutionPage.tsx      # Real-time run visualization
+│   ├── stores/       # Zustand state management
+│   ├── hooks/        # Custom hooks (SSE, mutations)
+│   └── lib/          # Utilities (validation, serialization, auto-layout)
+├── vite.config.ts    # Vite config with API proxy + test config
 └── index.html        # Entry point
 ```
 
@@ -116,3 +125,43 @@ Use `@/` prefix for imports: `@/core/agents`, `@/db/schema`, `@/lib/config`, etc
 - Single quotes, semicolons required, 2-space indent, 100-char line width
 - `useConst` enforced, `noExplicitAny` warned
 - Biome handles formatting and linting
+
+## Frontend Testing
+
+**Test runner**: Vitest with jsdom environment (configured in `vite.config.ts`)
+
+**Running tests**:
+```bash
+cd frontend
+bun run test              # Run all tests via vitest
+bun run test -- --run     # Single run (no watch)
+bun run test -- --run src/pages/AgentsPage.test.tsx  # Single file
+```
+
+**Key patterns**:
+- Use `bun run test` (vitest) not `bun test` for DOM tests
+- Mock API with `vi.mock('../api/client', ...)`
+- Use `MemoryRouter` with actual routes for navigation tests
+- Wait for async operations with `waitFor(() => expect(...))`
+- Use `globalThis.fetch` not `global.fetch` for TypeScript compatibility
+
+**Test structure** (follows TDD):
+```typescript
+vi.mock('../api/client', () => ({
+  api: { agents: { list: vi.fn(), ... } }
+}));
+const mockApi = api as any;
+
+function createWrapper() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return ({ children }) => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/path']}>
+        <Routes>
+          <Route path="/path" element={children} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+```
