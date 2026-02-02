@@ -20,7 +20,7 @@ This ROADMAP reflects planned work, but implementation may be ahead of or behind
 
 ---
 
-## 🎯 Current State: 99% to MVP!
+## 🎯 Current State: MVP Complete! 🎉
 
 **What's Working** ✅:
 - Complete workflow engine with DAG execution
@@ -31,15 +31,22 @@ This ROADMAP reflects planned work, but implementation may be ahead of or behind
 - Complete REST API for all resources
 - Agent executor properly wired to adapter registry
 - **SSE endpoint with Redis pub/sub** ✨ **COMPLETE**
+- **Visual Workflow Builder** with drag-and-drop, 5 node types
+- **Real-time execution visualization** with SSE updates
+- **Agent Management UI** - Create, edit, delete agents
 
-**What's Missing for MVP** ⚠️:
-1. ~~**Agent Executor → Adapter Wiring**~~ ✅ **COMPLETE** (was already done!)
-2. ~~**SSE Endpoint**~~ ✅ **COMPLETE** (already implemented!)
-3. **MVP UI** (~1-2 days) - 3 pages, basic styling
+**Recently Completed** (2026-02-02):
+1. ~~**Agent Executor → Adapter Wiring**~~ ✅ **COMPLETE**
+2. ~~**SSE Endpoint**~~ ✅ **COMPLETE**
+3. ~~**MVP UI**~~ ✅ **COMPLETE** - Workflow builder, execution viz, agent management
+4. ~~**Agent Management UI**~~ ✅ **COMPLETE** - Full CRUD for agents
 
-**Timeline to MVP**: 1-2 days of focused work (frontend only!)
+**What's Next** (P1 Features):
+- MCP Tools Management UI
+- Docker execution monitoring (container status, log streaming)
+- Cost tracking display
 
-**Why This Matters**: Backend is **100% complete**. Only UI = working product with visual feedback.
+**Why This Matters**: Full stack is functional! Can create workflows, configure agents, and watch them execute.
 
 ---
 
@@ -52,13 +59,14 @@ This ROADMAP reflects planned work, but implementation may be ahead of or behind
 | [Orchestrator](#orchestrator-module) | **Complete** | 100% | ✅ |
 | [Queue Workers](#queue-workers) | **Complete** | 100% | ✅ |
 | [Integrations](#integrations) | **Complete** | 100% | ✅ |
-| [MVP UI](#mvp-ui) | **Not Started** | 0% | P0 |
+| [MVP UI](#mvp-ui) | **Complete** | 95% | ✅ |
+| [Agent Management UI](#agent-management-ui) | **Complete** | 100% | ✅ |
 | [Runtime Execution](#runtime-execution) | **Stub Only** | 10% | P1 |
 | [MCP](#mcp-module) | **Partial** | 60% | P1 |
 | [Observability](#observability-module) | **Partial** | 70% | P2 |
 | [Skills](#skills-module) | **Partial** | 60% | P2 |
 | [Vault](#vault-module) | **Partial** | 65% | P2 |
-| [Full Frontend UI](#frontend-ui-full) | **Design Only** | 0% | P3 |
+| [Full Frontend UI](#frontend-ui-full) | **In Progress** | 70% | P3 |
 | [WebSocket](#websocket-real-time) | **Not Started** | 0% | P3 |
 | [Database Configuration](#database-configuration) | **Not Started** | 0% | P3 |
 
@@ -427,73 +435,125 @@ This ROADMAP reflects planned work, but implementation may be ahead of or behind
 ---
 
 ### MVP UI
-**Status: Not Started** | **Location**: `frontend/` (to be created) | **Priority: P0**
+**Status: ✅ COMPLETE** | **Location**: `frontend/` | **Priority: P0**
 
 Minimal viable interface to see workflows running and get visual feedback. Focus on functionality over design.
 
 #### Philosophy
-- **Fast to build**: Vite + React + Tailwind (no complex setup)
-- **Functional over pretty**: Basic styling, focus on working features
-- **Server-Sent Events**: Simpler than WebSocket for MVP (upgrade later)
-- **3 core pages**: Just enough to trigger and monitor workflows
+- **Fast to build**: Vite + React + Tailwind (no complex setup) ✅
+- **Functional over pretty**: Basic styling, focus on working features ✅
+- **Server-Sent Events**: Simpler than WebSocket for MVP ✅
+- **Extended scope**: Visual workflow builder + agent management ✅
 
 #### Project Setup
-- [ ] Initialize Vite React TypeScript project
-- [ ] Add Tailwind CSS with minimal config
-- [ ] Create basic routing (React Router)
-- [ ] Setup API client (fetch wrapper)
-- [ ] Add environment config for backend URL
+- [x] Initialize Vite React TypeScript project
+- [x] Add Tailwind CSS with minimal config
+- [x] Create basic routing (React Router)
+- [x] Setup API client (fetch wrapper)
+- [x] Add environment config for backend URL
 
 #### Core Pages
 
-**1. Workflows List (`/`)**
-- [ ] Table showing all workflows (name, description, status)
-- [ ] "Run" button for each workflow
-- [ ] Click row to navigate to runs list
-- [ ] Simple search/filter by name
+**1. Workflows List (`/`)** ✅
+- [x] Table showing all workflows (name, description, status)
+- [x] "Run" button for each workflow
+- [x] Click row to navigate to runs list
+- [x] Simple search/filter by name
 
-**2. Workflow Runs (`/workflows/:id/runs`)**
-- [ ] Table of runs for selected workflow
-- [ ] Status badge (pending/running/completed/failed)
-- [ ] Timestamp, duration, trigger type
-- [ ] Click run to see details
-- [ ] "New Run" button at top
+**2. Workflow Runs (`/workflows/:id/runs`)** ✅
+- [x] Table of runs for selected workflow
+- [x] Status badge (pending/running/completed/failed)
+- [x] Timestamp, duration, trigger type
+- [x] Click run to see details
+- [x] "New Run" button at top
 
-**3. Run Detail (`/runs/:id`)**
-- [ ] Run metadata (workflow name, status, timestamps)
-- [ ] Node execution timeline (vertical list)
-- [ ] Each node shows: name, status, started/completed time
-- [ ] Click node to see input/output JSON
-- [ ] Auto-refresh with SSE for live updates
+**3. Run Detail (`/runs/:id`)** ✅
+- [x] Run metadata (workflow name, status, timestamps)
+- [x] Node execution timeline (vertical list)
+- [x] Each node shows: name, status, started/completed time
+- [x] Click node to see input/output JSON
+- [x] Auto-refresh with SSE for live updates
 
-#### Real-time Updates (Server-Sent Events)
-- [ ] Backend SSE endpoint `/api/runs/:id/events`
-- [ ] Frontend EventSource connection
-- [ ] Listen for `node:started`, `node:completed`, `run:completed`
-- [ ] Update UI in real-time without polling
+**4. Visual Workflow Builder (`/workflows/new`, `/workflows/:id/edit`)** ✅ BONUS
+- [x] React Flow canvas with drag-and-drop
+- [x] 5 node types (Agent, Condition, Parallel, Loop, Human Review)
+- [x] Node configuration panel
+- [x] Undo/redo functionality
+- [x] Auto-layout with Dagre
+- [x] Save/load workflows
 
-#### Basic Components
-- [ ] StatusBadge (colored pill: pending=gray, running=blue, completed=green, failed=red)
-- [ ] DataTable (reusable table with sort/filter)
-- [ ] JsonViewer (collapsible JSON display)
-- [ ] Button (primary/secondary variants)
-- [ ] Layout with simple header
+**5. Execution Visualization (`/runs/:id/visualize`)** ✅ BONUS
+- [x] Visual DAG with node status colors
+- [x] Real-time SSE updates
+- [x] Click node for execution details modal
 
-#### What's NOT in MVP
-- ❌ No workflow creation UI (use API/curl for now)
-- ❌ No agent configuration UI (use API/curl)
-- ❌ No fancy graphs or visualizations
-- ❌ No authentication/users
-- ❌ No settings pages
-- ❌ No dark mode
-- ❌ No complex state management (just React Query)
+#### Real-time Updates (Server-Sent Events) ✅
+- [x] Backend SSE endpoint `/api/runs/:id/events`
+- [x] Frontend EventSource connection
+- [x] Listen for `node:started`, `node:completed`, `run:completed`
+- [x] Update UI in real-time without polling
 
-#### Success Criteria
+#### Basic Components ✅
+- [x] StatusBadge (colored pill: pending=gray, running=blue, completed=green, failed=red)
+- [x] DataTable (reusable table with sort/filter)
+- [x] JsonViewer (collapsible JSON display)
+- [x] Button (primary/secondary variants)
+- [x] Layout with simple header
+
+#### Originally NOT in MVP (Now Implemented!)
+- ✅ Workflow creation UI (visual builder with all node types)
+- ✅ Agent configuration UI (full CRUD)
+- ✅ Visual DAG execution visualization
+- ❌ No authentication/users (still future)
+- ❌ No settings pages (still future)
+- ❌ No dark mode (still future)
+- ✅ React Query for state management
+
+#### Success Criteria - ALL MET ✅
 ✅ Can see all workflows
 ✅ Can trigger a workflow run
 ✅ Can watch nodes execute in real-time
 ✅ Can inspect node inputs/outputs
 ✅ Can see if run succeeded or failed
+✅ Can create workflows visually (BONUS)
+✅ Can configure agents (BONUS)
+
+---
+
+### Agent Management UI
+**Status: ✅ COMPLETE** | **Location**: `frontend/src/pages/AgentsPage.tsx`, `frontend/src/components/agents/` | **Priority: P0**
+
+Full CRUD interface for managing agents.
+
+#### Implemented (2026-02-02)
+- [x] **AgentsPage** (`/agents`)
+  - [x] Table with Name, Model, Integration, Tags, Created columns
+  - [x] Search/filter by name, description, tags
+  - [x] Create button → `/agents/new`
+  - [x] Edit action → `/agents/:id/edit`
+  - [x] Delete with confirmation
+  - [x] 13 tests passing
+
+- [x] **AgentForm** (`/agents/new`, `/agents/:id/edit`)
+  - [x] Name (required, validated)
+  - [x] Description
+  - [x] Provider dropdown (Anthropic, OpenAI, Custom)
+  - [x] Model input
+  - [x] Tags input (comma-separated)
+  - [x] Memory mode (stateless, session, persistent)
+  - [x] Isolation level (shared, process, container)
+  - [x] Sub-agent configuration (toggle + max count)
+  - [x] Create and edit modes
+  - [x] 16 tests passing
+
+- [x] **API Client Extension**
+  - [x] `api.agents.list()`, `get()`, `create()`, `update()`, `delete()`
+  - [x] Full TypeScript types matching backend schema
+  - [x] 9 tests passing
+
+- [x] **Navigation**
+  - [x] "Agents" link in header
+  - [x] Routes registered in App.tsx
 
 ---
 
