@@ -153,6 +153,56 @@ render(<MyComponent />, { wrapper: createWrapper() });
 - Nested describe blocks for feature groups
 - Clear test names: "displays X when Y"
 
+## Testing Keyboard Hooks
+
+```typescript
+// Mock useKeyboardShortcuts handlers
+const mockHandlers = {
+  onSave: vi.fn(),
+  onDelete: vi.fn(),
+  onUndo: vi.fn(),
+  onRedo: vi.fn(),
+  onDeselect: vi.fn(),
+  onDuplicate: vi.fn(),
+};
+
+// Dispatch keyboard events
+const event = new KeyboardEvent('keydown', {
+  key: 's',
+  ctrlKey: true, // or metaKey for Mac
+  bubbles: true,
+});
+document.dispatchEvent(event);
+expect(mockHandlers.onSave).toHaveBeenCalled();
+
+// Check for input field handling
+function isEditableElement(target: EventTarget | null): boolean {
+  const element = target as HTMLElement;
+  const tagName = element.tagName?.toLowerCase();
+  return tagName === 'input' || tagName === 'textarea' || element.isContentEditable;
+}
+```
+
+## Testing Modal/Dialog Interactions
+
+```typescript
+// Wait for modal to appear
+await waitFor(() => {
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
+// Find close button inside modal (avoid ambiguity)
+const modal = screen.getByRole('dialog');
+const closeButton = modal.querySelector('button[aria-label="Close"]') ||
+                    Array.from(modal.querySelectorAll('button')).find(btn => btn.textContent === 'Close');
+await user.click(closeButton!);
+
+// Verify modal closed
+await waitFor(() => {
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+```
+
 ## TDD Cycle Reminder
 1. **RED**: Write failing test first
 2. **GREEN**: Write minimum code to pass

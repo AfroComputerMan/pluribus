@@ -21,39 +21,65 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 5. **Undo/Redo**: History stack in Zustand store with index tracking (bug fixed: now starts with initial state)
 6. **Testing**: TDD mandatory, 85% coverage for validation, E2E for WorkflowCanvas
 
-## Current Status (2026-02-01)
+## Current Status (2026-02-02)
 - ✅ Phase 1: Foundation (committed, tested)
 - ✅ Phase 2: Core Canvas (committed, tested)
 - ✅ Phase 3: Configuration (implemented, 88%+ coverage)
-- ✅ Phase 4: Save/Publish workflows (committed, 349 tests)
-  - Serialization: toBackendFormat/fromBackendFormat for React Flow ↔ API
-  - Validation: Kahn's algorithm cycle detection, orphan warnings, node config validation
-  - Store: isDirty tracking, triggers, errorStrategy, loadWorkflow
-  - Mutations: useWorkflowMutations hook with React Query
-  - WorkflowMetadataForm: Full trigger & error strategy configuration UI
-  - Auto-layout on load via Dagre
-- ✅ Phase 5: Execution Visualization (committed, 39 new tests)
-  - ExecutionOverlay: Read-only React Flow canvas with status visualization
-  - NodeExecutionModal: Detailed node execution view
-  - ExecutionPage: Full SSE integration with real-time updates
-  - Navigation: "Visualize" button on RunDetailPage
-  - Fixed: vite.config.ts path aliases
-  - 349 total tests passing
-- ⏳ Phase 6-10: Remaining phases
+- ✅ Phase 4: Save/Publish workflows (committed, tested)
+- ✅ Phase 5: Execution Visualization (committed, tested)
+- ✅ Phase 6: Docker Execution Monitoring (committed, 444 tests)
+- ✅ Phase 7: MCP Tools Management (committed, 20 new tests)
+  - MCP API client with typed endpoints (servers, tools, discover, scan)
+  - McpToolsPage with server listing, enabled/disabled badges
+  - Tool discovery trigger and results display
+  - Toggle tool enabled state
+  - Scan all servers functionality
+  - Search/filter capability
+- ⏳ Phase 8: Responsive Design (not started)
+- ✅ Phase 9: UX Enhancements (committed, 37 new tests)
+  - useKeyboardShortcuts hook (Ctrl+S, Delete, Ctrl+Z, Ctrl+Shift+Z, Esc, Ctrl+D)
+  - Store extensions: duplicateNode(), clearSelection()
+  - WorkflowTemplatesPage with 5 pre-built workflow examples
+  - Template preview modal with node list
+- ⏳ Phase 10: Testing & Polish (not started)
 
-## Phase 5 Components Completed
-- ExecutionOverlay.tsx - Visual workflow execution canvas
-- NodeExecutionModal.tsx - Node execution detail modal
-- ExecutionPage.tsx - Full execution visualization page
-- Route: /runs/:id/visualize
+**Total: 501 tests passing**
+
+## Phase 7 Components Completed
+- McpToolsPage.tsx - MCP server/tool management UI
+- api/client.ts - MCP types and methods
+- Route: /mcp
+
+## Phase 9 Components Completed
+- useKeyboardShortcuts.ts - Keyboard shortcuts hook
+- WorkflowTemplatesPage.tsx - 5 pre-built workflow templates
+- Route: /templates
+- Store: duplicateNode(), clearSelection()
+
+## Keyboard Shortcuts
+| Shortcut | Action |
+|----------|--------|
+| Ctrl/Cmd+S | Save workflow |
+| Delete/Backspace | Delete selected node |
+| Ctrl/Cmd+Z | Undo |
+| Ctrl/Cmd+Shift+Z / Ctrl+Y | Redo |
+| Escape | Deselect node |
+| Ctrl/Cmd+D | Duplicate selected node |
+
+## Workflow Templates
+1. **Simple Agent Pipeline** - Sequential chain of agents
+2. **Conditional Routing** - True/false branching
+3. **Parallel Processing** - Concurrent execution with join
+4. **Review Workflow** - Human-in-loop approval
+5. **Data Processing Loop** - Iteration patterns
 
 ## Expected Outcomes
 - **User Experience**: Drag-and-drop workflow creation (80% faster than API/JSON)
 - **Real-time Feedback**: Instant execution visualization via SSE
-- **Mobile Support**: Responsive design works on tablets/phones
+- **Mobile Support**: Responsive design works on tablets/phones (Phase 8)
 - **Quality**: Validation prevents invalid workflows, undo/redo prevents mistakes
 - **Extensibility**: Agent/MCP management enables advanced configurations
-- **Reliability**: 349+ tests ensure correctness
+- **Reliability**: 501+ tests ensure correctness
 
 ## Success Criteria (MVP Must-Haves)
 ✅ Visual builder with drag-and-drop
@@ -64,9 +90,11 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 ✅ SSE integration (100% test coverage)
 ✅ Auto-layout + manual override (100% test coverage)
 ✅ Undo/redo (100% test coverage, bug fixed)
-⏳ Agent/MCP management
-⏳ Mobile responsive
-⏳ Docker resource controls per node
+✅ Agent/MCP management
+✅ Keyboard shortcuts
+✅ Workflow templates
+⏳ Mobile responsive (Phase 8)
+⏳ Docker resource controls per node (Phase 10)
 
 ## Implementation Strategy
 **Wave Pattern** - 10 sequential phases with quality gates + TDD:
@@ -74,9 +102,9 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 2. Core canvas ✅ (tested)
 3. Configuration ✅ (tested - 88%+ coverage)
 4. Save/publish ✅ (tested)
-5. Execution visualization ✅ (tested - 349 total tests passing)
-6. Docker monitoring (next)
-7. Agent/MCP management
-8. Responsive design
-9. UX enhancements
-10. Testing & polish (E2E for WorkflowCanvas)
+5. Execution visualization ✅ (tested)
+6. Docker monitoring ✅ (tested)
+7. MCP management ✅ (tested - 20 new tests)
+8. Responsive design ⏳ (next)
+9. UX enhancements ✅ (tested - 37 new tests)
+10. Testing & polish ⏳ (E2E for WorkflowCanvas)
