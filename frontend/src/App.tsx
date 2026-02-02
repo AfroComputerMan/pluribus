@@ -6,6 +6,8 @@ import { WorkflowRunsPage } from './pages/WorkflowRunsPage';
 import { RunDetailPage } from './pages/RunDetailPage';
 import { WorkflowBuilderPage } from './pages/WorkflowBuilderPage';
 import { ExecutionPage } from './pages/ExecutionPage';
+import { AgentsPage } from './pages/AgentsPage';
+import { AgentForm } from './components/agents/AgentForm';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,6 +28,10 @@ function App() {
             <Route index element={<WorkflowsPage />} />
             <Route path="workflows/:id/runs" element={<WorkflowRunsPage />} />
             <Route path="runs/:id" element={<RunDetailPage />} />
+            {/* Agents */}
+            <Route path="agents" element={<AgentsPage />} />
+            <Route path="agents/new" element={<AgentForm />} />
+            <Route path="agents/:id/edit" element={<AgentForm />} />
           </Route>
           {/* Workflow Builder - Full screen layout */}
           <Route path="workflows/new" element={<WorkflowBuilderPage />} />

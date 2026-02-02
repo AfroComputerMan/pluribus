@@ -89,6 +89,71 @@ async function apiFetch<T>(
 }
 
 // API Types (subset - expand as needed)
+
+// Agent types
+export interface ModelConfig {
+  provider: 'anthropic' | 'openai' | 'custom';
+  model: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface AgentIntegration {
+  type: 'claude-code' | 'codex' | 'opencode' | 'local-bridge';
+  connectionId: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  description: string | null;
+  tags: string[];
+  modelConfig: ModelConfig;
+  memoryMode: 'stateless' | 'session' | 'persistent';
+  isolationLevel: 'shared' | 'process' | 'container';
+  canSpawnSubAgents: boolean;
+  maxSubAgents: number | null;
+  skills: string[];
+  allowedMcpTools: string[];
+  integration: AgentIntegration | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAgentInput {
+  name: string;
+  description?: string | null;
+  tags?: string[];
+  modelConfig: ModelConfig;
+  memoryMode?: 'stateless' | 'session' | 'persistent';
+  isolationLevel?: 'shared' | 'process' | 'container';
+  canSpawnSubAgents?: boolean;
+  maxSubAgents?: number | null;
+  skills?: string[];
+  allowedMcpTools?: string[];
+  integration?: AgentIntegration | null;
+}
+
+export interface UpdateAgentInput {
+  name?: string;
+  description?: string | null;
+  tags?: string[];
+  modelConfig?: ModelConfig;
+  memoryMode?: 'stateless' | 'session' | 'persistent';
+  isolationLevel?: 'shared' | 'process' | 'container';
+  canSpawnSubAgents?: boolean;
+  maxSubAgents?: number | null;
+  skills?: string[];
+  allowedMcpTools?: string[];
+  integration?: AgentIntegration | null;
+}
+
+export interface AgentListParams {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  tags?: string[];
+}
+
 export interface Workflow {
   id: string;
   name: string;
@@ -254,5 +319,53 @@ export const api = {
   nodeRuns: {
     list: (workflowRunId: string) =>
       apiFetch<DataResponse<NodeRun[]>>(`/runs/${workflowRunId}/nodes`),
+  },
+
+  // Agents
+  agents: {
+    list: (params?: AgentListParams) => {
+      // Handle tags array specially - need multiple params
+      const queryParams: Record<string, string | number | boolean | undefined> = {};
+      if (params?.limit !== undefined) queryParams.limit = params.limit;
+      if (params?.offset !== undefined) queryParams.offset = params.offset;
+      if (params?.search !== undefined) queryParams.search = params.search;
+
+      // Build URL manually for tags since we need multiple 'tags' params
+      let url = '/agents';
+      const searchParams = new URLSearchParams();
+      Object.entries(queryParams).forEach(([key, value]) => {
+        if (value !== undefined) {
+          searchParams.append(key, String(value));
+        }
+      });
+      if (params?.tags) {
+        params.tags.forEach((tag) => searchParams.append('tags', tag));
+      }
+      const queryString = searchParams.toString();
+      if (queryString) {
+        url += `?${queryString}`;
+      }
+
+      return apiFetch<ListResponse<Agent>>(url);
+    },
+
+    get: (id: string) => apiFetch<DataResponse<Agent>>(`/agents/${id}`),
+
+    create: (input: CreateAgentInput) =>
+      apiFetch<DataResponse<Agent>>('/agents', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+
+    update: (id: string, input: UpdateAgentInput) =>
+      apiFetch<DataResponse<Agent>>(`/agents/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+
+    delete: (id: string) =>
+      apiFetch<void>(`/agents/${id}`, {
+        method: 'DELETE',
+      }),
   },
 };

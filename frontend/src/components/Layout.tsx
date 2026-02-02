@@ -18,6 +18,12 @@ export function Layout() {
               >
                 Workflows
               </Link>
+              <Link
+                to="/agents"
+                className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              >
+                Agents
+              </Link>
             </nav>
           </div>
         </div>
