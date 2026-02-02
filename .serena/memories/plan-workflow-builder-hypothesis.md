@@ -25,14 +25,20 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 - ✅ Phase 1: Foundation (committed, tested)
 - ✅ Phase 2: Core Canvas (committed, tested)
 - ✅ Phase 3: Configuration (implemented, 88%+ coverage)
-- ✅ Phase 4: Save/Publish workflows (committed)
+- ✅ Phase 4: Save/Publish workflows (committed, 349 tests)
+  - Serialization: toBackendFormat/fromBackendFormat for React Flow ↔ API
+  - Validation: Kahn's algorithm cycle detection, orphan warnings, node config validation
+  - Store: isDirty tracking, triggers, errorStrategy, loadWorkflow
+  - Mutations: useWorkflowMutations hook with React Query
+  - WorkflowMetadataForm: Full trigger & error strategy configuration UI
+  - Auto-layout on load via Dagre
 - ✅ Phase 5: Execution Visualization (committed, 39 new tests)
   - ExecutionOverlay: Read-only React Flow canvas with status visualization
   - NodeExecutionModal: Detailed node execution view
   - ExecutionPage: Full SSE integration with real-time updates
   - Navigation: "Visualize" button on RunDetailPage
   - Fixed: vite.config.ts path aliases
-  - 314 total tests passing
+  - 349 total tests passing
 - ⏳ Phase 6-10: Remaining phases
 
 ## Phase 5 Components Completed
@@ -47,7 +53,7 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 - **Mobile Support**: Responsive design works on tablets/phones
 - **Quality**: Validation prevents invalid workflows, undo/redo prevents mistakes
 - **Extensibility**: Agent/MCP management enables advanced configurations
-- **Reliability**: 314+ tests ensure correctness
+- **Reliability**: 349+ tests ensure correctness
 
 ## Success Criteria (MVP Must-Haves)
 ✅ Visual builder with drag-and-drop
@@ -67,8 +73,8 @@ Build comprehensive visual workflow builder using React Flow for DAG editing, en
 1. Foundation ✅ (tested)
 2. Core canvas ✅ (tested)
 3. Configuration ✅ (tested - 88%+ coverage)
-4. Save/publish ✅ (tested - 275 tests passing)
-5. Execution visualization ✅ (tested - 314 tests passing)
+4. Save/publish ✅ (tested)
+5. Execution visualization ✅ (tested - 349 total tests passing)
 6. Docker monitoring (next)
 7. Agent/MCP management
 8. Responsive design
