@@ -315,6 +315,58 @@ export interface CostSummary {
   byDay: Record<string, number>;
 }
 
+// MCP types
+export interface McpServer {
+  id: string;
+  name: string;
+  description: string | null;
+  transport: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  url?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpTool {
+  id: string;
+  serverId: string;
+  name: string;
+  description: string | null;
+  inputSchema: Record<string, unknown> | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpServerFilter {
+  enabled?: boolean;
+  transport?: 'stdio' | 'http' | 'sse';
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface McpToolFilter {
+  serverId?: string;
+  enabled?: boolean;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface McpDiscoverResult {
+  serverId: string;
+  toolsDiscovered: number;
+  tools: McpTool[];
+}
+
+export interface McpScanResult {
+  status: string;
+  message: string;
+}
+
 export interface ListResponse<T> {
   data: T[];
   meta: {
@@ -453,5 +505,37 @@ export const api = {
 
     usage: (params?: CostFilter) =>
       apiFetch<DataResponse<UsageRecord[]>>('/costs/usage', { params: params as Record<string, string | number | boolean | undefined> }),
+  },
+
+  // MCP (Phase 7: Agent & MCP Management)
+  mcp: {
+    servers: {
+      list: (params?: McpServerFilter) =>
+        apiFetch<ListResponse<McpServer>>('/mcp/servers', { params: params as Record<string, string | number | boolean | undefined> }),
+
+      get: (id: string) =>
+        apiFetch<DataResponse<McpServer>>(`/mcp/servers/${id}`),
+
+      discover: (id: string) =>
+        apiFetch<DataResponse<McpDiscoverResult>>(`/mcp/servers/${id}/discover`, {
+          method: 'POST',
+        }),
+    },
+
+    tools: {
+      list: (params?: McpToolFilter) =>
+        apiFetch<ListResponse<McpTool>>('/mcp/tools', { params: params as Record<string, string | number | boolean | undefined> }),
+
+      update: (id: string, input: { enabled: boolean }) =>
+        apiFetch<DataResponse<McpTool>>(`/mcp/tools/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(input),
+        }),
+    },
+
+    scan: () =>
+      apiFetch<DataResponse<McpScanResult>>('/mcp/scan', {
+        method: 'POST',
+      }),
   },
 };

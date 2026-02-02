@@ -24,6 +24,18 @@ export function Layout() {
               >
                 Agents
               </Link>
+              <Link
+                to="/mcp"
+                className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              >
+                MCP Tools
+              </Link>
+              <Link
+                to="/templates"
+                className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+              >
+                Templates
+              </Link>
             </nav>
           </div>
         </div>

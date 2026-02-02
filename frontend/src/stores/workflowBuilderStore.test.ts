@@ -126,6 +126,99 @@ describe('workflowBuilderStore', () => {
       const state = useWorkflowBuilderStore.getState()
       expect(state.selectedNode).toBeNull()
     })
+
+    it('clearSelection clears the selected node', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.setSelectedNode('node-1')
+
+      store.clearSelection()
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.selectedNode).toBeNull()
+    })
+  })
+
+  describe('duplicate node', () => {
+    it('duplicates a node with offset position', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({
+        id: 'node-1',
+        type: 'agent',
+        position: { x: 100, y: 100 },
+        data: { label: 'Test Node' },
+      })
+
+      store.duplicateNode('node-1')
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.nodes).toHaveLength(2)
+
+      const duplicated = state.nodes[1]
+      expect(duplicated.position.x).toBe(150) // +50 offset
+      expect(duplicated.position.y).toBe(150) // +50 offset
+      expect(duplicated.data.label).toContain('(copy)')
+    })
+
+    it('selects the duplicated node', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({
+        id: 'node-1',
+        type: 'agent',
+        position: { x: 0, y: 0 },
+        data: { label: 'Test' },
+      })
+
+      store.duplicateNode('node-1')
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.selectedNode).toBe(state.nodes[1].id)
+    })
+
+    it('does nothing if node not found', () => {
+      const store = useWorkflowBuilderStore.getState()
+
+      store.duplicateNode('nonexistent')
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.nodes).toHaveLength(0)
+    })
+
+    it('marks workflow as dirty', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({
+        id: 'node-1',
+        type: 'agent',
+        position: { x: 0, y: 0 },
+        data: {},
+      })
+      store.markClean()
+
+      store.duplicateNode('node-1')
+
+      const state = useWorkflowBuilderStore.getState()
+      expect(state.isDirty).toBe(true)
+    })
+
+    it('preserves node data in duplicate', () => {
+      const store = useWorkflowBuilderStore.getState()
+      store.addNode({
+        id: 'node-1',
+        type: 'agent',
+        position: { x: 0, y: 0 },
+        data: {
+          label: 'Agent',
+          agentId: 'agent-123',
+          timeout: 30000,
+        },
+      })
+
+      store.duplicateNode('node-1')
+
+      const state = useWorkflowBuilderStore.getState()
+      const duplicated = state.nodes[1]
+      expect(duplicated.data.agentId).toBe('agent-123')
+      expect(duplicated.data.timeout).toBe(30000)
+    })
   })
 
   describe('bulk operations', () => {

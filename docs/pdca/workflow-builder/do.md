@@ -2,7 +2,7 @@
 
 **Feature**: Visual workflow builder implementation log
 **Started**: 2026-01-28
-**Status**: Phase 3 Complete, Ready for Phase 4
+**Status**: Phase 7 Complete, Phase 9 Complete, Ready for Phase 8 & 10
 
 ---
 
@@ -27,17 +27,21 @@
 | Phase 3 | `InputMappingEditor.test.tsx` | 11 | ✅ 11 | 100% |
 | Phase 3 | `ResourceLimitsEditor.test.tsx` | 13 | ✅ 13 | 100% |
 | Phase 3 | `NodeConfigPanel.test.tsx` | 23 | ✅ 23 | 100% |
-| Phase 4 | `workflowValidation.test.ts` | TBD | TBD | TBD |
-| Phase 5 | `ExecutionOverlay.test.tsx` | TBD | TBD | TBD |
+| Phase 4 | `workflowValidation.test.ts` | 6 | ✅ 6 | 100% |
+| Phase 5 | `ExecutionOverlay.test.tsx` | 17 | ✅ 17 | 100% |
 | Phase 6 | `observability.test.ts` | 7 | ✅ 7 | 100% |
 | Phase 6 | `ContainerStatus.test.tsx` | 17 | ✅ 17 | 100% |
 | Phase 6 | `LogStreamViewer.test.tsx` | 19 | ✅ 19 | 100% |
 | Phase 6 | `CostTrackingPanel.test.tsx` | 14 | ✅ 14 | 100% |
-| Phase 7 | `AgentForm.test.tsx` | TBD | TBD | TBD |
+| Phase 7 | `AgentForm.test.tsx` | 15 | ✅ 15 | 100% |
+| Phase 7 | `AgentsPage.test.tsx` | 8 | ✅ 8 | 100% |
+| Phase 7 | `McpToolsPage.test.tsx` | 12 | ✅ 12 | 100% |
+| Phase 7 | `mcp.test.ts` | 8 | ✅ 8 | 100% |
 | Phase 8 | Responsive tests | TBD | TBD | TBD |
-| Phase 9 | `useKeyboardShortcuts.test.ts` | TBD | TBD | TBD |
+| Phase 9 | `useKeyboardShortcuts.test.ts` | 18 | ✅ 18 | 100% |
+| Phase 9 | `WorkflowTemplatesPage.test.tsx` | 13 | ✅ 13 | 100% |
 
-**Total Tests (Phase 1-6)**: 444 tests, all passing
+**Total Tests (Phase 1-9)**: 501 tests, all passing
 
 ### TDD Workflow Per Task
 
@@ -486,7 +490,59 @@
 
 ## Phase 7: Agent & MCP Management
 
-*Will be updated during Phase 7*
+**Timeline**: Completed 2026-02-02
+
+### Implementation Log
+
+**21:43** - Task 1: MCP API Client (TDD)
+- Created `src/api/mcp.test.ts` - 8 tests
+- Added MCP types: McpServer, McpTool, McpServerFilter, McpToolFilter, McpDiscoverResult, McpScanResult
+- Added api.mcp.servers.list(), get(), discover()
+- Added api.mcp.tools.list(), update()
+- Added api.mcp.scan()
+- ✅ All 8 tests passing
+
+**21:45** - Task 2: McpToolsPage Component (TDD)
+- Created `src/pages/McpToolsPage.test.tsx` - 12 tests
+- Created `src/pages/McpToolsPage.tsx`
+- Features: server list, enabled/disabled status, transport type
+- Tool discovery: trigger discover, show results
+- Tool management: toggle enabled status
+- Scan all servers functionality
+- Search/filter by name
+- ✅ All 12 tests passing
+
+**21:46** - Task 3: Integration
+- Added route `/mcp` to App.tsx
+- Added "MCP Tools" navigation link to Layout.tsx
+- TypeScript check passes
+- ✅ All tests passing
+
+**Current Status**: Phase 7 COMPLETE ✅
+
+### Phase 7 Summary
+
+**Created Files** (4):
+- `frontend/src/api/mcp.test.ts` - API tests (8)
+- `frontend/src/pages/McpToolsPage.tsx` - MCP management page
+- `frontend/src/pages/McpToolsPage.test.tsx` - Page tests (12)
+
+**Modified Files** (3):
+- `frontend/src/api/client.ts` - Added MCP types and methods
+- `frontend/src/App.tsx` - Added /mcp route
+- `frontend/src/components/Layout.tsx` - Added nav link
+
+**Tests Added**: 20 new tests
+
+**Quality Gates Passed**:
+- ✅ Can list all MCP servers
+- ✅ Can see connection status (enabled/disabled badges)
+- ✅ Can trigger tool discovery for a server
+- ✅ Can see discovered tools count
+- ✅ Can toggle tool enabled status
+- ✅ Can scan all servers
+- ✅ Can filter servers by search
+- ✅ TDD workflow followed
 
 ---
 
@@ -498,7 +554,74 @@
 
 ## Phase 9: UX Enhancements
 
-*Will be updated during Phase 9*
+**Timeline**: Completed 2026-02-02
+
+### Implementation Log
+
+**21:47** - Task 1: useKeyboardShortcuts Hook (TDD)
+- Created `src/hooks/useKeyboardShortcuts.test.ts` - 18 tests
+- Created `src/hooks/useKeyboardShortcuts.ts`
+- Shortcuts implemented:
+  - Ctrl/Cmd+S: Save workflow
+  - Delete/Backspace: Delete selected node (respects input fields)
+  - Ctrl/Cmd+Z: Undo
+  - Ctrl/Cmd+Shift+Z or Ctrl+Y: Redo
+  - Escape: Deselect node
+  - Ctrl/Cmd+D: Duplicate selected node
+- Integrated into WorkflowBuilderPage
+- ✅ All 18 tests passing
+
+**21:49** - Task 2: Store Extensions for Shortcuts
+- Added `clearSelection()` method to workflowBuilderStore
+- Added `duplicateNode(id)` method to workflowBuilderStore
+- Duplicate creates offset copy (+50px x, +50px y)
+- Duplicate auto-selects the new node
+- Added 6 new tests for new methods
+- ✅ All 52 store tests passing
+
+**21:51** - Task 3: WorkflowTemplatesPage (TDD)
+- Created `src/pages/WorkflowTemplatesPage.test.tsx` - 13 tests
+- Created `src/pages/WorkflowTemplatesPage.tsx`
+- 5 pre-built templates:
+  1. Simple Agent Pipeline - sequential chain
+  2. Conditional Routing - true/false branches
+  3. Parallel Processing - concurrent execution
+  4. Review Workflow - human-in-loop
+  5. Data Processing Loop - iteration
+- Features: template preview modal, search/filter, use template, start blank
+- Added route `/templates` to App.tsx
+- Added "Templates" navigation link to Layout.tsx
+- ✅ All 13 tests passing
+
+**Current Status**: Phase 9 COMPLETE ✅
+
+### Phase 9 Summary
+
+**Created Files** (4):
+- `frontend/src/hooks/useKeyboardShortcuts.ts` - Keyboard shortcuts hook
+- `frontend/src/hooks/useKeyboardShortcuts.test.ts` - Tests (18)
+- `frontend/src/pages/WorkflowTemplatesPage.tsx` - Templates page
+- `frontend/src/pages/WorkflowTemplatesPage.test.tsx` - Tests (13)
+
+**Modified Files** (5):
+- `frontend/src/stores/workflowBuilderStore.ts` - Added clearSelection, duplicateNode
+- `frontend/src/stores/workflowBuilderStore.test.ts` - Added 6 tests
+- `frontend/src/pages/WorkflowBuilderPage.tsx` - Integrated keyboard shortcuts
+- `frontend/src/App.tsx` - Added /templates route
+- `frontend/src/components/Layout.tsx` - Added nav link
+
+**Tests Added**: 37 new tests
+
+**Quality Gates Passed**:
+- ✅ Ctrl+S saves workflow
+- ✅ Delete key removes selected node (respects input fields)
+- ✅ Ctrl+Z/Ctrl+Shift+Z undo/redo
+- ✅ Esc deselects node
+- ✅ Ctrl+D duplicates node
+- ✅ Workflow templates loadable (5 examples)
+- ✅ Template preview shows node list
+- ✅ Start from scratch option available
+- ✅ TDD workflow followed
 
 ---
 

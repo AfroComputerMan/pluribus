@@ -10,6 +10,7 @@ import { WorkflowMetadataForm } from '../components/workflow/WorkflowMetadataFor
 import { Button } from '../components/Button';
 import { useWorkflowBuilderStore } from '../stores/workflowBuilderStore';
 import { useWorkflowMutations } from '../hooks/useWorkflowMutations';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { fromBackendFormat } from '../lib/workflow/serialization';
 import { applyDagreLayout } from '../lib/autoLayout';
 
@@ -19,6 +20,7 @@ export function WorkflowBuilderPage() {
   const isEditMode = Boolean(id);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
+  const store = useWorkflowBuilderStore();
   const {
     reset,
     loadWorkflow,
@@ -26,7 +28,12 @@ export function WorkflowBuilderPage() {
     workflowName,
     setWorkflowName,
     isDirty,
-  } = useWorkflowBuilderStore();
+    undo,
+    redo,
+    deleteNode,
+    clearSelection,
+    duplicateNode,
+  } = store;
 
   const { saveWorkflow, isSaving } = useWorkflowMutations();
 
@@ -107,6 +114,24 @@ export function WorkflowBuilderPage() {
     }
     navigate('/');
   };
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onSave: handleSave,
+    onUndo: undo,
+    onRedo: redo,
+    onDeselect: clearSelection,
+    onDelete: () => {
+      if (selectedNode) {
+        deleteNode(selectedNode);
+      }
+    },
+    onDuplicate: () => {
+      if (selectedNode) {
+        duplicateNode(selectedNode);
+      }
+    },
+  });
 
   if (isEditMode && isLoading) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;

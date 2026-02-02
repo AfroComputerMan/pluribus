@@ -8,6 +8,8 @@ import { WorkflowBuilderPage } from './pages/WorkflowBuilderPage';
 import { ExecutionPage } from './pages/ExecutionPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { AgentForm } from './components/agents/AgentForm';
+import { McpToolsPage } from './pages/McpToolsPage';
+import { WorkflowTemplatesPage } from './pages/WorkflowTemplatesPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +34,10 @@ function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="agents/new" element={<AgentForm />} />
             <Route path="agents/:id/edit" element={<AgentForm />} />
+            {/* MCP Tools */}
+            <Route path="mcp" element={<McpToolsPage />} />
+            {/* Workflow Templates */}
+            <Route path="templates" element={<WorkflowTemplatesPage />} />
           </Route>
           {/* Workflow Builder - Full screen layout */}
           <Route path="workflows/new" element={<WorkflowBuilderPage />} />

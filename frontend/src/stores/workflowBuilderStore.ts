@@ -69,7 +69,9 @@ interface WorkflowBuilderState {
   addNode: (node: WorkflowNode) => void;
   updateNode: (id: string, updates: Partial<WorkflowNode>) => void;
   deleteNode: (id: string) => void;
+  duplicateNode: (id: string) => void;
   setSelectedNode: (id: string | null) => void;
+  clearSelection: () => void;
 
   // Edge operations
   addEdge: (edge: WorkflowEdge) => void;
@@ -199,6 +201,44 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
 
     setSelectedNode: (id) => {
       set({ selectedNode: id });
+    },
+
+    clearSelection: () => {
+      set({ selectedNode: null });
+    },
+
+    duplicateNode: (id) => {
+      const { nodes, edges, history, historyIndex, maxHistorySize } = get();
+      const nodeToDuplicate = nodes.find((node) => node.id === id);
+
+      if (!nodeToDuplicate) return;
+
+      // Generate new unique ID
+      const newId = `${nodeToDuplicate.type}-${Date.now()}`;
+
+      // Create duplicate with offset position
+      const duplicatedNode: WorkflowNode = {
+        ...nodeToDuplicate,
+        id: newId,
+        position: {
+          x: nodeToDuplicate.position.x + 50,
+          y: nodeToDuplicate.position.y + 50,
+        },
+        data: {
+          ...nodeToDuplicate.data,
+          label: `${nodeToDuplicate.data.label || nodeToDuplicate.type} (copy)`,
+        },
+      };
+
+      const newNodes = [...nodes, duplicatedNode];
+      const historyUpdate = pushToHistory(newNodes, edges, history, historyIndex, maxHistorySize);
+
+      set({
+        nodes: newNodes,
+        selectedNode: newId, // Select the duplicated node
+        isDirty: true,
+        ...historyUpdate,
+      });
     },
 
     addEdge: (edge) => {

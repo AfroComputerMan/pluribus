@@ -1,7 +1,7 @@
 // frontend/src/components/workflow/LogStreamViewer.test.tsx
 // TDD: Tests for LogStreamViewer component
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LogStreamViewer } from './LogStreamViewer';
 import type { LogEntry } from '../../api/client';
