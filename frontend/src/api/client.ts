@@ -227,6 +227,20 @@ export interface WorkflowRun {
   updatedAt: string;
 }
 
+// Resource usage tracking (from runtime)
+export interface ResourceUsage {
+  memoryPeakMB: number;
+  cpuTimeMs: number;
+  wallTimeMs: number;
+}
+
+// Resource limits for node execution
+export interface ResourceLimits {
+  maxMemoryMB?: number;
+  maxCpuPercent?: number;
+  maxDurationMs?: number;
+}
+
 export interface NodeRun {
   id: string;
   workflowRunId: string;
@@ -239,6 +253,66 @@ export interface NodeRun {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // Phase 6: Docker execution monitoring
+  resourceUsage?: ResourceUsage;
+  isolationLevel?: 'shared' | 'process' | 'container';
+  resourceLimits?: ResourceLimits;
+}
+
+// Observability types
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface LogEntry {
+  id?: number;
+  timestamp: string;
+  level: LogLevel;
+  source: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+  workflowRunId?: string;
+  agentId?: string;
+  nodeExecutionId?: string;
+}
+
+export interface LogFilter {
+  level?: LogLevel;
+  source?: string;
+  workflowRunId?: string;
+  agentId?: string;
+  nodeExecutionId?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface UsageRecord {
+  id?: number;
+  timestamp: string;
+  agentId: string;
+  workflowRunId?: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface CostFilter {
+  agentId?: string;
+  workflowId?: string;
+  workflowRunId?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface CostSummary {
+  totalCostUsd: number;
+  byAgent: Record<string, number>;
+  byWorkflow: Record<string, number>;
+  byModel: Record<string, number>;
+  byDay: Record<string, number>;
 }
 
 export interface ListResponse<T> {
@@ -367,5 +441,17 @@ export const api = {
       apiFetch<void>(`/agents/${id}`, {
         method: 'DELETE',
       }),
+  },
+
+  // Observability (Phase 6: Docker execution monitoring)
+  observability: {
+    logs: (params?: LogFilter) =>
+      apiFetch<ListResponse<LogEntry>>('/logs', { params: params as Record<string, string | number | boolean | undefined> }),
+
+    costs: (params?: CostFilter) =>
+      apiFetch<DataResponse<CostSummary>>('/costs', { params: params as Record<string, string | number | boolean | undefined> }),
+
+    usage: (params?: CostFilter) =>
+      apiFetch<DataResponse<UsageRecord[]>>('/costs/usage', { params: params as Record<string, string | number | boolean | undefined> }),
   },
 };

@@ -29,12 +29,15 @@
 | Phase 3 | `NodeConfigPanel.test.tsx` | 23 | ✅ 23 | 100% |
 | Phase 4 | `workflowValidation.test.ts` | TBD | TBD | TBD |
 | Phase 5 | `ExecutionOverlay.test.tsx` | TBD | TBD | TBD |
-| Phase 6 | `ContainerStatus.test.tsx` | TBD | TBD | TBD |
+| Phase 6 | `observability.test.ts` | 7 | ✅ 7 | 100% |
+| Phase 6 | `ContainerStatus.test.tsx` | 17 | ✅ 17 | 100% |
+| Phase 6 | `LogStreamViewer.test.tsx` | 19 | ✅ 19 | 100% |
+| Phase 6 | `CostTrackingPanel.test.tsx` | 14 | ✅ 14 | 100% |
 | Phase 7 | `AgentForm.test.tsx` | TBD | TBD | TBD |
 | Phase 8 | Responsive tests | TBD | TBD | TBD |
 | Phase 9 | `useKeyboardShortcuts.test.ts` | TBD | TBD | TBD |
 
-**Total Tests (Phase 1-3)**: 212 tests, all passing
+**Total Tests (Phase 1-6)**: 444 tests, all passing
 
 ### TDD Workflow Per Task
 
@@ -397,7 +400,87 @@
 
 ## Phase 6: Docker Execution Monitoring
 
-*Will be updated during Phase 6*
+**Timeline**: Completed 2026-02-02
+
+### Implementation Log
+
+**21:27** - Started Phase 6 Implementation
+- Analyzed backend schema for resource usage data
+- Identified existing types: ResourceUsage, ResourceLimits, UsageRecord, CostSummary
+- Identified existing endpoints: /api/logs, /api/costs
+
+**21:29** - Task 1: API Client Types (TDD)
+- Created `src/api/observability.test.ts` - 7 tests
+- Extended NodeRun interface with resourceUsage, isolationLevel, resourceLimits
+- Added LogEntry, UsageRecord, CostSummary types
+- Added api.observability.logs(), costs(), usage() methods
+- ✅ All 7 tests passing
+
+**21:30** - Task 2: ContainerStatus Component (TDD)
+- Created `src/components/workflow/ContainerStatus.test.tsx` - 17 tests
+- Component shows isolation level (container/process/shared)
+- Displays resource limits (memory, CPU, timeout)
+- Shows resource usage with progress bar (green/yellow/red thresholds)
+- Supports compact mode
+- ✅ All 17 tests passing
+
+**21:32** - Task 3: LogStreamViewer Component (TDD)
+- Created `src/components/workflow/LogStreamViewer.test.tsx` - 19 tests
+- Terminal-style dark theme for log readability
+- Filtering by node ID, log level, search text
+- Auto-scroll with toggle
+- Loading and streaming indicators
+- Search text highlighting with `<mark>`
+- ✅ All 19 tests passing
+
+**21:34** - Task 4: CostTrackingPanel Component (TDD)
+- Created `src/components/workflow/CostTrackingPanel.test.tsx` - 14 tests
+- Displays total cost, input/output tokens
+- Model breakdown sorted by cost
+- Compact mode for inline display
+- Formatted numbers with commas
+- ✅ All 14 tests passing
+
+**21:35** - Task 5: Integration
+- Integrated ContainerStatus into NodeExecutionModal
+- TypeScript check passes
+- Production build succeeds (616KB bundle)
+- ✅ All 444 tests passing
+
+**Current Status**: Phase 6 COMPLETE ✅
+
+### Phase 6 Summary
+
+**Created Files** (8):
+- `frontend/src/api/observability.test.ts` - 7 tests
+- `frontend/src/components/workflow/ContainerStatus.tsx` - Component
+- `frontend/src/components/workflow/ContainerStatus.test.tsx` - 17 tests
+- `frontend/src/components/workflow/LogStreamViewer.tsx` - Component
+- `frontend/src/components/workflow/LogStreamViewer.test.tsx` - 19 tests
+- `frontend/src/components/workflow/CostTrackingPanel.tsx` - Component
+- `frontend/src/components/workflow/CostTrackingPanel.test.tsx` - 14 tests
+
+**Modified Files** (2):
+- `frontend/src/api/client.ts` - Added observability types and methods
+- `frontend/src/components/workflow/NodeExecutionModal.tsx` - Integrated ContainerStatus
+
+**Tests Added**: 57 new tests (Total: 444)
+
+**Quality Gates Passed**:
+- ✅ ContainerStatus shows isolation strategy
+- ✅ ContainerStatus shows resource limits
+- ✅ ContainerStatus shows peak memory usage with progress bar
+- ✅ LogStreamViewer streams logs with filtering
+- ✅ CostTrackingPanel shows cost breakdown
+- ✅ `bunx tsc --noEmit` passes
+- ✅ `bunx vite build` succeeds (616KB)
+- ✅ TDD workflow followed: Red → Green for all components
+
+**Learnings**:
+- Locale-dependent timestamp formatting requires flexible test assertions
+- Text highlighting with `<mark>` splits text, use partial matches in tests
+- Terminal-style dark theme (gray-900) improves log readability
+- Progress bar color thresholds (75%/90%) provide clear visual feedback
 
 ---
 

@@ -1,9 +1,11 @@
 /**
  * NodeExecutionModal
  * Modal component for displaying node execution details
+ * Phase 6: Added ContainerStatus for Docker resource monitoring
  */
 
 import type { NodeRun } from '../../api/client';
+import { ContainerStatus } from './ContainerStatus';
 
 interface NodeExecutionModalProps {
   execution: NodeRun | null;
@@ -123,6 +125,15 @@ export function NodeExecutionModal({ execution, onClose }: NodeExecutionModalPro
               <div className="text-sm text-gray-900">{duration || '-'}</div>
             </div>
           </div>
+
+          {/* Container/Resource Status (Phase 6) */}
+          {(execution.isolationLevel || execution.resourceUsage || execution.resourceLimits) && (
+            <ContainerStatus
+              isolationLevel={execution.isolationLevel}
+              resourceUsage={execution.resourceUsage}
+              resourceLimits={execution.resourceLimits}
+            />
+          )}
 
           {/* Error (if any) */}
           {execution.error && (

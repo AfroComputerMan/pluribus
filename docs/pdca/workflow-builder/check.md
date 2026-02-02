@@ -86,7 +86,7 @@
 | Phase 3 | ✅ TDD followed | ✅ 100% | 96 new tests, Red→Green→Refactor verified |
 | Phase 4 | ⏳ | ⏳ | Validation logic - target 85% |
 | Phase 5 | ⏳ | ⏳ | |
-| Phase 6 | ⏳ | ⏳ | |
+| Phase 6 | ✅ TDD followed | ✅ 100% | 57 tests: observability, ContainerStatus, LogStreamViewer, CostTrackingPanel |
 | Phase 7 | ⏳ | ⏳ | |
 | Phase 8 | ⏳ | ⏳ | |
 | Phase 9 | ⏳ | ⏳ | |
@@ -151,12 +151,12 @@
 - ⏳ Shows execution duration
 
 ### Phase 6: Docker Execution Monitoring
-- ⏳ Can see container isolation strategy
-- ⏳ Can see resource limits
-- ⏳ Can see peak memory usage
-- ⏳ Can stream logs in real-time
-- ⏳ Can view cost breakdown
-- ⏳ Token usage displayed
+- ✅ Can see container isolation strategy (container/process/shared)
+- ✅ Can see resource limits (memory MB, CPU %, timeout)
+- ✅ Can see peak memory usage with progress bar
+- ✅ Can stream logs in real-time with filtering
+- ✅ Can view cost breakdown by model
+- ✅ Token usage displayed (input/output/total)
 
 ### Phase 7: Agent & MCP Management
 - ⏳ Can list all agents
