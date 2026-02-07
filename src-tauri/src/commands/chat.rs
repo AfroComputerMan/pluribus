@@ -101,6 +101,7 @@ pub async fn send_message(
 
     // Ensure runtime-created sessions are persisted (idempotent).
     upsert_runtime_session_in_db(&state, &session)?;
+    persist_user_message_in_db(&state, &session_id, &message)?;
 
     if needs_spawn {
         // Spawn new process
@@ -427,6 +428,28 @@ fn resolve_project_path(state: &AppState, project_id: &str) -> Result<String, Ap
     Ok(maybe_path.unwrap_or_else(|| project_id.to_string()))
 }
 
+fn persist_user_message_in_db(state: &AppState, session_id: &str, content: &str) -> Result<(), AppError> {
+    let db = state.db.lock()
+        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
+    let conn = db.as_ref()
+        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+
+    let next_order: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(order_index), -1) + 1 FROM messages WHERE session_id = ?1",
+        rusqlite::params![session_id],
+        |row| row.get(0),
+    ).map_err(|e| AppError::Database(format!("Failed to get next order index: {}", e)))?;
+
+    let message_id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO messages (id, session_id, role, content, content_type, order_index, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
+        rusqlite::params![message_id, session_id, "user", content, "text", next_order],
+    ).map_err(|e| AppError::Database(format!("Failed to persist user message: {}", e)))?;
+
+    Ok(())
+}
+
 fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<SessionHandle>, AppError> {
     let db = state.db.lock()
         .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
@@ -713,5 +736,40 @@ mod tests {
         let state = setup_state();
         let path = resolve_project_path(&state, "/tmp/direct-path").unwrap();
         assert_eq!(path, "/tmp/direct-path");
+    }
+
+    #[test]
+    fn persist_user_message_in_db_increments_order_index() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-msg", "Repo Msg", "/tmp/repo-msg"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-msg-1", "/tmp/repo-msg", "Session Msg", "created", "sonnet", "supervised", "2026-02-07T00:07:00Z"]
+            ).unwrap();
+        }
+
+        persist_user_message_in_db(&state, "s-msg-1", "first").unwrap();
+        persist_user_message_in_db(&state, "s-msg-1", "second").unwrap();
+
+        let db = state.db.lock().unwrap();
+        let mut stmt = db.as_ref().unwrap().prepare(
+            "SELECT content, order_index FROM messages WHERE session_id = ?1 ORDER BY order_index ASC"
+        ).unwrap();
+        let rows = stmt.query_map(rusqlite::params!["s-msg-1"], |row| {
+            let content: String = row.get(0)?;
+            let order_index: i64 = row.get(1)?;
+            Ok((content, order_index))
+        }).unwrap();
+
+        let collected: Vec<(String, i64)> = rows.map(|r| r.unwrap()).collect();
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[0], ("first".to_string(), 0));
+        assert_eq!(collected[1], ("second".to_string(), 1));
     }
 }

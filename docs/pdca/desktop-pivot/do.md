@@ -240,6 +240,20 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — User Message Persistence on Send (TDD Slice)
+
+**[Rust test-first pass]** — persist user prompts to `messages` table with deterministic ordering
+- Wrote test first:
+  - `persist_user_message_in_db_increments_order_index` ensures sequential `order_index` per session.
+- Implemented to green:
+  - Added `persist_user_message_in_db` helper in `chat.rs`.
+  - Wired helper into `send_message` after session upsert, before process send/spawn.
+  - Message rows now persist as `role=user`, `content_type=text`, incremental `order_index`.
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 10/10 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)
