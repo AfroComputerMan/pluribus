@@ -12,6 +12,7 @@ export interface SessionConfig {
 export interface SessionSummary {
   id: string;
   projectId: string;
+  projectPath?: string;
   name: string;
   status: import('./chat').SessionStatus;
   claudeSessionId?: string;

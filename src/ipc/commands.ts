@@ -19,6 +19,7 @@ export interface CreateSessionInput {
 export interface SessionSummary {
   id: string;
   projectId: string;
+  projectPath?: string;
   name: string;
   status: 'created' | 'running' | 'completed' | 'failed' | 'killed' | 'paused';
   claudeSessionId?: string;
@@ -31,6 +32,32 @@ export interface SessionSummary {
   totalOutputTokens: number;
   turnCount: number;
   createdAt: string;
+}
+
+export interface SendMessageInput {
+  sessionId: string;
+  projectPath: string;
+  message: string;
+  model: string;
+  autonomyLevel: string;
+  channel: Channel<string>;
+  worktreePath?: string | null;
+  maxTurns?: number | null;
+  allowedTools?: string[] | null;
+}
+
+export function buildSendMessageArgs(input: SendMessageInput) {
+  return {
+    sessionId: input.sessionId,
+    projectPath: input.projectPath,
+    worktreePath: input.worktreePath ?? null,
+    model: input.model,
+    autonomyLevel: input.autonomyLevel,
+    message: input.message,
+    maxTurns: input.maxTurns ?? null,
+    allowedTools: input.allowedTools ?? null,
+    channel: input.channel,
+  };
 }
 
 export interface Project {
@@ -109,8 +136,8 @@ export const sessionCommands = {
 // ── Chat Commands ──────────────────────────────────
 
 export const chatCommands = {
-  sendMessage: (sessionId: string, message: string, channel: Channel<string>) =>
-    invoke<void>('send_message', { sessionId, message, channel }),
+  sendMessage: (input: SendMessageInput) =>
+    invoke<void>('send_message', buildSendMessageArgs(input)),
 
   abort: (sessionId: string) =>
     invoke<void>('abort_session', { sessionId }),

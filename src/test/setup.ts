@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { expect, afterEach } from 'vitest';
+import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 
 // Cleanup after each test
@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 // Mock Tauri API for tests
-globalThis.__TAURI__ = {
+(globalThis as typeof globalThis & { __TAURI__: unknown }).__TAURI__ = {
   invoke: async () => ({}),
   event: {
     listen: () => Promise.resolve(() => {}),

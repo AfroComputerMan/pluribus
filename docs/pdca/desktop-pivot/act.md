@@ -117,6 +117,7 @@
 
 - Gate each phase with executable checks, not checklist completion alone.
 - Keep PDCA status synced with code reality on every commit to prevent drift.
+- For IPC boundaries, write contract tests first (payload-shape tests) before wiring UI hooks.
 
 ### Technical Improvements
 

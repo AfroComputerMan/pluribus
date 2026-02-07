@@ -68,14 +68,14 @@
 |----------|-------|-------|
 | `bun run tauri dev` launches app | No | Blocked by missing Tauri icon assets at context generation |
 | Create session pointing to local git repo | TBD | Not yet re-verified end-to-end |
-| Type message, see streaming response | TBD | Not yet re-verified end-to-end |
+| Type message, see streaming response | Partial | UI path now wired (`ChatPage` -> `ChatPanel` -> `useChatStream`); full runtime stream still pending manual validation with Claude CLI |
 | Markdown renders correctly | TBD | |
 | Tool calls render as collapsible cards | TBD | |
 | Tool results render with syntax highlighting | TBD | |
 | Session persists across app restart (SQLite) | TBD | |
 | Session sidebar shows status dot + cost | TBD | |
 | NDJSON parser tests pass (90%+ coverage) | Yes | 42/42 pass, 93.04% lines |
-| TypeScript compiles cleanly | No | Added `tsconfig.desktop.json`, but `bun run desktop:typecheck` is blocked until desktop deps are installable in this environment |
+| TypeScript compiles cleanly | Yes (desktop) | `bun run desktop:typecheck` passing after config/test typing fixes |
 | No orphaned claude processes after session close | TBD | |
 
 ### Phase 2: Multi-Session + Worktrees

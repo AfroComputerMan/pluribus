@@ -98,6 +98,26 @@
   - Split desktop scripts from backend scripts (`desktop:dev`, `desktop:build`, `desktop:typecheck`) and updated Tauri pre-build commands to use desktop-specific scripts
 - Outcome: Phase 1 implementation is materially present; remaining work is integration hardening and runtime verification.
 
+### 2026-02-07: Phase 1 — Chat Wiring + IPC Contract (TDD Slice)
+
+**[Test-first integration pass]** — fixed frontend-to-Rust chat stream contract and connected UI
+- Wrote failing test first:
+  - Added `src/ipc/commands.test.ts` to validate `send_message` invoke payload mapping.
+  - Initial run failed because `buildSendMessageArgs` did not exist.
+- Implemented to green:
+  - Added `buildSendMessageArgs` and `SendMessageInput` in `src/ipc/commands.ts`.
+  - Updated `chatCommands.sendMessage` to pass full Rust command args.
+  - Updated `useChatStream` to send session-scoped runtime fields (`projectPath`, `model`, `autonomyLevel`, `worktreePath`).
+  - Wired `ChatPage` to render `ChatPanel` and call `useChatStream` instead of placeholder text.
+  - Added `projectPath` to `SessionSummary` typing to match Rust session serialization.
+- Stabilization fixes:
+  - `src/test/setup.ts`: fixed global mock typing for strict TS.
+  - `vite.config.ts`: switched config typing import to `vitest/config` for `test` block support.
+- Verification results:
+  - `bun run desktop:typecheck`: pass
+  - `bun test src/ipc/commands.test.ts src/lib/ndjson-parser.test.ts`: 43/43 pass
+  - `cd src-tauri && cargo check`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)
