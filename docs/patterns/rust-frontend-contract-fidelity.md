@@ -10,6 +10,7 @@
 2. Update DB hydration queries at the same time as struct changes.
 3. Add/extend tests that assert user-visible fields are preserved.
 4. Keep frontend normalizers for compatibility, but prefer correct Rust payloads first.
+5. Resolve identifier fields (e.g. `projectId`) to concrete runtime fields (`project_path`) at command boundaries.
 
 ## Reference
 

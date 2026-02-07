@@ -226,6 +226,20 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — Project Path Resolution in Session Creation (TDD Slice)
+
+**[Rust test-first pass]** — ensured `create_session` uses real repo path when `projectId` refers to a saved project
+- Wrote tests first:
+  - `resolve_project_path_uses_projects_table_when_id_exists`
+  - `resolve_project_path_falls_back_to_project_id_when_missing`
+- Implemented to green:
+  - Added `resolve_project_path` helper in `chat.rs`.
+  - `create_session` now resolves `project_path` via `projects.path` when available; otherwise keeps backward-compatible fallback.
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 9/9 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)

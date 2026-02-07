@@ -234,10 +234,12 @@ pub async fn create_session(
     let system_prompt_append = input.get("systemPromptAppend").and_then(|v| v.as_str()).map(|s| s.to_string());
     let allowed_tools = input.get("allowedTools").map(|v| v.to_string());
 
+    let resolved_project_path = resolve_project_path(&state, &project_id)?;
+
     let session = SessionHandle::new(
         session_id.clone(),
         name.clone(),
-        project_id.clone(),
+        resolved_project_path,
         None,
         model.clone(),
         autonomy_level.clone(),
@@ -404,6 +406,25 @@ fn persist_claude_session_id_in_db(state: &AppState, session_id: &str, claude_se
         rusqlite::params![claude_session_id, session_id],
     ).map_err(|e| AppError::Database(format!("Failed to persist claude session id: {}", e)))?;
     Ok(())
+}
+
+fn resolve_project_path(state: &AppState, project_id: &str) -> Result<String, AppError> {
+    if project_id.is_empty() {
+        return Ok(String::new());
+    }
+
+    let db = state.db.lock()
+        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
+    let conn = db.as_ref()
+        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+
+    let maybe_path: Option<String> = conn.query_row(
+        "SELECT path FROM projects WHERE id = ?1",
+        rusqlite::params![project_id],
+        |row| row.get(0),
+    ).ok();
+
+    Ok(maybe_path.unwrap_or_else(|| project_id.to_string()))
 }
 
 fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<SessionHandle>, AppError> {
@@ -670,5 +691,27 @@ mod tests {
         let filtered = load_sessions_from_db(&state, Some("/tmp/repo-f1")).unwrap();
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].id, "s-f1");
+    }
+
+    #[test]
+    fn resolve_project_path_uses_projects_table_when_id_exists() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["proj-1", "Project 1", "/tmp/project-1"]
+            ).unwrap();
+        }
+
+        let path = resolve_project_path(&state, "proj-1").unwrap();
+        assert_eq!(path, "/tmp/project-1");
+    }
+
+    #[test]
+    fn resolve_project_path_falls_back_to_project_id_when_missing() {
+        let state = setup_state();
+        let path = resolve_project_path(&state, "/tmp/direct-path").unwrap();
+        assert_eq!(path, "/tmp/direct-path");
     }
 }
