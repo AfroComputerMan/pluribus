@@ -279,18 +279,31 @@ pub async fn abort_session(state: &AppState, session_id: &str) -> AppResult<()> 
 pub async fn send_to_stdin(state: &AppState, session_id: &str, message: &str) -> AppResult<()> {
     use tokio::io::AsyncWriteExt;
 
+    // Take stdin out of the shared map before awaiting, so no std::sync::MutexGuard
+    // is held across .await (required by Tauri command futures).
+    let mut stdin_writer = {
+        let mut processes = state.processes.lock()
+            .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+
+        let handle = processes.get_mut(session_id)
+            .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
+
+        handle.stdin_writer.take()
+            .ok_or_else(|| AppError::Process("No stdin available".to_string()))?
+    };
+
+    stdin_writer.write_all(message.as_bytes()).await?;
+    stdin_writer.write_all(b"\n").await?;
+    stdin_writer.flush().await?;
+
+    // Put stdin writer back for future sends.
     let mut processes = state.processes.lock()
         .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
-
-    let handle = processes.get_mut(session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))?;
-
-    let stdin = handle.stdin_writer.as_mut()
-        .ok_or_else(|| AppError::Process("No stdin available".to_string()))?;
-
-    stdin.write_all(message.as_bytes()).await?;
-    stdin.write_all(b"\n").await?;
-    stdin.flush().await?;
+    if let Some(handle) = processes.get_mut(session_id) {
+        if handle.stdin_writer.is_none() {
+            handle.stdin_writer = Some(stdin_writer);
+        }
+    }
 
     Ok(())
 }

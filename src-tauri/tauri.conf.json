@@ -30,33 +30,10 @@
   },
   "plugins": {
     "shell": {
-      "scope": [
-        {
-          "name": "claude",
-          "cmd": "claude",
-          "args": true,
-          "sidecar": false
-        },
-        {
-          "name": "git",
-          "cmd": "git",
-          "args": true,
-          "sidecar": false
-        }
-      ]
+      "open": false
     },
     "sql": {
       "preload": ["sqlite:pluribus.db"]
-    },
-    "fs": {
-      "scope": [
-        {
-          "path": "$APPDATA/**"
-        },
-        {
-          "path": "$HOME/projects/**"
-        }
-      ]
     }
   }
 }
