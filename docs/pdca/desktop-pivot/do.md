@@ -133,6 +133,24 @@
   - `bun run desktop:typecheck`: pass
   - `cd src-tauri && cargo check`: pass
 
+### 2026-02-07: Phase 1 — Session Persistence Hydration (TDD Slice)
+
+**[Rust test-first pass]** — hydrate sessions from SQLite when in-memory cache is empty
+- Wrote tests first in `src-tauri/src/commands/chat.rs`:
+  - status parsing fallback behavior (`parse_session_status`)
+  - single-session load from DB by id
+  - bulk session load from DB
+- First run failed on FK constraints (good signal): session rows require existing `projects` rows.
+- Implemented to green:
+  - Added DB hydration helpers: `load_session_from_db`, `load_all_sessions_from_db`.
+  - Updated `get_session` to fallback to DB on cache miss and rehydrate memory map.
+  - Updated `list_sessions` to hydrate from DB when memory is empty.
+  - Fixed test fixtures to insert required `projects` rows before `sessions`.
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 3/3 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)

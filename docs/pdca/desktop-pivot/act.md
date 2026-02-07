@@ -123,6 +123,7 @@
 
 - Add missing Tauri bundle assets early so `generate_context!` cannot block runtime validation.
 - Separate backend and desktop TypeScript boundaries to keep signal high.
+- On Rust command handlers, treat in-memory state as cache and hydrate from SQLite on cache miss.
 
 ---
 

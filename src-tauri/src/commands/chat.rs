@@ -149,12 +149,22 @@ pub async fn get_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<SessionHandle, AppError> {
-    let sessions = state.sessions.lock()
-        .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+    {
+        let sessions = state.sessions.lock()
+            .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+        if let Some(session) = sessions.get(&session_id) {
+            return Ok(session.clone());
+        }
+    }
 
-    sessions.get(&session_id)
-        .cloned()
-        .ok_or_else(|| AppError::SessionNotFound(session_id))
+    if let Some(session) = load_session_from_db(&state, &session_id)? {
+        let mut sessions = state.sessions.lock()
+            .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+        sessions.insert(session_id.clone(), session.clone());
+        Ok(session)
+    } else {
+        Err(AppError::SessionNotFound(session_id))
+    }
 }
 
 /// List all sessions
@@ -162,10 +172,26 @@ pub async fn get_session(
 pub async fn list_sessions(
     state: State<'_, AppState>,
 ) -> Result<Vec<SessionHandle>, AppError> {
-    let sessions = state.sessions.lock()
-        .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+    {
+        let sessions = state.sessions.lock()
+            .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+        if !sessions.is_empty() {
+            return Ok(sessions.values().cloned().collect());
+        }
+    }
 
-    Ok(sessions.values().cloned().collect())
+    let loaded = load_all_sessions_from_db(&state)?;
+    if loaded.is_empty() {
+        return Ok(loaded);
+    }
+
+    let mut sessions = state.sessions.lock()
+        .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+    for session in &loaded {
+        sessions.insert(session.id.clone(), session.clone());
+    }
+
+    Ok(loaded)
 }
 
 /// Pause a running session (Unix only)
@@ -303,4 +329,150 @@ pub async fn update_claude_session_id(
 
     session.set_claude_session_id(claude_session_id);
     Ok(())
+}
+
+fn parse_session_status(status: &str) -> SessionStatus {
+    match status {
+        "created" => SessionStatus::Created,
+        "running" => SessionStatus::Running,
+        "completed" => SessionStatus::Completed,
+        "failed" => SessionStatus::Failed,
+        "killed" => SessionStatus::Killed,
+        "paused" => SessionStatus::Paused,
+        _ => SessionStatus::Created,
+    }
+}
+
+fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<SessionHandle>, AppError> {
+    let db = state.db.lock()
+        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
+    let conn = db.as_ref()
+        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+         FROM sessions WHERE id = ?1"
+    ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
+
+    let mut rows = stmt.query(rusqlite::params![session_id])
+        .map_err(|e| AppError::Database(format!("Failed to query session: {}", e)))?;
+
+    if let Some(row) = rows.next().map_err(|e| AppError::Database(format!("Failed to read row: {}", e)))? {
+        let status_str: String = row.get(1)
+            .map_err(|e| AppError::Database(format!("Failed to read status: {}", e)))?;
+        Ok(Some(SessionHandle {
+            id: row.get(0).map_err(|e| AppError::Database(format!("Failed to read id: {}", e)))?,
+            status: parse_session_status(&status_str),
+            claude_session_id: row.get(2).map_err(|e| AppError::Database(format!("Failed to read claude_session_id: {}", e)))?,
+            project_path: row.get(3).map_err(|e| AppError::Database(format!("Failed to read project_id: {}", e)))?,
+            worktree_path: row.get(4).map_err(|e| AppError::Database(format!("Failed to read worktree_path: {}", e)))?,
+            model: row.get(5).map_err(|e| AppError::Database(format!("Failed to read model: {}", e)))?,
+            autonomy_level: row.get(6).map_err(|e| AppError::Database(format!("Failed to read autonomy_level: {}", e)))?,
+            created_at: row.get(7).map_err(|e| AppError::Database(format!("Failed to read created_at: {}", e)))?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn load_all_sessions_from_db(state: &AppState) -> Result<Vec<SessionHandle>, AppError> {
+    let db = state.db.lock()
+        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
+    let conn = db.as_ref()
+        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+         FROM sessions ORDER BY created_at DESC"
+    ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
+
+    let rows = stmt.query_map([], |row| {
+        let status_str: String = row.get(1)?;
+        Ok(SessionHandle {
+            id: row.get(0)?,
+            status: parse_session_status(&status_str),
+            claude_session_id: row.get(2)?,
+            project_path: row.get(3)?,
+            worktree_path: row.get(4)?,
+            model: row.get(5)?,
+            autonomy_level: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    }).map_err(|e| AppError::Database(format!("Failed to map rows: {}", e)))?;
+
+    let mut sessions = Vec::new();
+    for row in rows {
+        sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
+    }
+    Ok(sessions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_state() -> AppState {
+        let state = AppState::new();
+        state.init_db(":memory:").expect("db should initialize");
+        state
+    }
+
+    #[test]
+    fn parse_session_status_defaults_for_unknown() {
+        assert_eq!(parse_session_status("weird"), SessionStatus::Created);
+        assert_eq!(parse_session_status("running"), SessionStatus::Running);
+    }
+
+    #[test]
+    fn load_session_from_db_returns_saved_session() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo", "Repo", "/tmp/repo"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s1", "/tmp/repo", "Session", "created", "sonnet", "supervised", "2026-02-07T00:00:00Z"]
+            ).unwrap();
+        }
+
+        let loaded = load_session_from_db(&state, "s1").unwrap().expect("session should exist");
+        assert_eq!(loaded.id, "s1");
+        assert_eq!(loaded.project_path, "/tmp/repo");
+        assert_eq!(loaded.model, "sonnet");
+    }
+
+    #[test]
+    fn load_all_sessions_from_db_returns_all_saved_sessions() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-a", "Repo A", "/tmp/repo-a"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-b", "Repo B", "/tmp/repo-b"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s1", "/tmp/repo-a", "Session A", "created", "sonnet", "supervised", "2026-02-07T00:00:00Z"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s2", "/tmp/repo-b", "Session B", "running", "opus", "ask", "2026-02-07T00:01:00Z"]
+            ).unwrap();
+        }
+
+        let loaded = load_all_sessions_from_db(&state).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded.iter().any(|s| s.id == "s1" && s.project_path == "/tmp/repo-a"));
+        assert!(loaded.iter().any(|s| s.id == "s2" && s.status == SessionStatus::Running));
+    }
 }
