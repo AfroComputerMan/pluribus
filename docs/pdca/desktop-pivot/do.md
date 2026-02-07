@@ -49,6 +49,36 @@
 - Created `check.md` for evaluation framework
 - Created `act.md` for learnings and improvements
 
+### 2026-02-08: Phase 1 — Project Scaffold
+
+**[Architecture Specialist]** — Initialized Tauri 2.0 project structure
+- Created `src-tauri/` directory with Rust backend structure
+  - Cargo.toml with Tauri 2.0 dependencies (tauri-plugin-shell, tauri-plugin-sql, tauri-plugin-fs)
+  - tauri.conf.json configured for app identifier, window settings, plugin scopes
+  - capabilities/default.json with shell, sql, and fs permissions
+  - src/main.rs with Tauri builder and plugin initialization
+  - src/lib.rs with module declarations
+  - src/state.rs with AppState, SessionHandle, and ProcessHandle types
+  - src/error.rs with AppError enum and result types
+  - src/commands/mod.rs (placeholder for future Tauri commands)
+  - src/process/mod.rs (placeholder for process management)
+  - src/worktree/mod.rs (placeholder for worktree operations)
+  - build.rs for Tauri build integration
+- Created new `src/` directory for React frontend (separate from existing backend)
+  - main.tsx with React 19, React Router, and React Query setup
+  - App.tsx with minimal HomePage component
+  - index.css with TailwindCSS v4 imports
+  - test/setup.ts with Vitest + jsdom configuration
+  - Directory structure: types/, db/, ipc/, stores/, hooks/, lib/, components/, pages/
+- Created root-level configuration files
+  - package.json with Tauri dependencies and React 19
+  - vite.config.ts with React plugin and Tauri-specific settings
+  - index.html as Vite entry point
+  - tsconfig.json configured for React and JSX
+  - tsconfig.node.json for Vite config
+  - postcss.config.js for TailwindCSS v4
+- Result: `bun run dev` ready to test (after `bun install` and Rust dependencies)
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)
@@ -58,8 +88,8 @@
 
 ### Task Checklist
 
-- [ ] Initialize Tauri 2.0 project (`bun create tauri-app`, React + Vite + TS)
-- [ ] Set up Tauri plugins (`bun add @tauri-apps/plugin-shell @tauri-apps/plugin-sql @tauri-apps/plugin-fs`)
+- [x] Initialize Tauri 2.0 project (`bun create tauri-app`, React + Vite + TS)
+- [x] Set up Tauri plugins (`bun add @tauri-apps/plugin-shell @tauri-apps/plugin-sql @tauri-apps/plugin-fs`)
 - [ ] Create SQLite schema (all 7 tables via Drizzle)
 - [ ] Implement Drizzle sqlite-proxy client
 - [ ] Build Rust ProcessManager (spawn, BufReader->Channel)

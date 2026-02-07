@@ -9,7 +9,13 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Force dagre and graphlib to use CommonJS versions that Vite can properly transform
+      '@dagrejs/dagre': path.resolve(__dirname, 'node_modules/@dagrejs/dagre/dist/dagre.cjs.js'),
+      '@dagrejs/graphlib': path.resolve(__dirname, 'node_modules/@dagrejs/graphlib/index.js'),
     },
+  },
+  optimizeDeps: {
+    include: ['@dagrejs/dagre', '@dagrejs/graphlib'],
   },
   server: {
     proxy: {

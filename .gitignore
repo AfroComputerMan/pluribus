@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+src-tauri/target/
+src-tauri/Cargo.lock
 
 # Environment files
 .env
