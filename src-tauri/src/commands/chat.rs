@@ -170,16 +170,21 @@ pub async fn get_session(
 #[tauri::command]
 pub async fn list_sessions(
     state: State<'_, AppState>,
+    project_id: Option<String>,
 ) -> Result<Vec<SessionHandle>, AppError> {
     {
         let sessions = state.sessions.lock()
             .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
         if !sessions.is_empty() {
-            return Ok(sessions.values().cloned().collect());
+            let values = sessions.values().cloned().collect::<Vec<_>>();
+            if let Some(ref pid) = project_id {
+                return Ok(values.into_iter().filter(|s| s.project_path == *pid).collect());
+            }
+            return Ok(values);
         }
     }
 
-    let loaded = load_all_sessions_from_db(&state)?;
+    let loaded = load_sessions_from_db(&state, project_id.as_deref())?;
     if loaded.is_empty() {
         return Ok(loaded);
     }
@@ -434,35 +439,50 @@ fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<Ses
     }
 }
 
-fn load_all_sessions_from_db(state: &AppState) -> Result<Vec<SessionHandle>, AppError> {
+fn load_sessions_from_db(state: &AppState, project_id: Option<&str>) -> Result<Vec<SessionHandle>, AppError> {
     let db = state.db.lock()
         .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
     let conn = db.as_ref()
         .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
 
-    let mut stmt = conn.prepare(
-        "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
-         FROM sessions ORDER BY created_at DESC"
-    ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
-
-    let rows = stmt.query_map([], |row| {
-        let status_str: String = row.get(2)?;
-        Ok(SessionHandle {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            status: parse_session_status(&status_str),
-            claude_session_id: row.get(3)?,
-            project_path: row.get(4)?,
-            worktree_path: row.get(5)?,
-            model: row.get(6)?,
-            autonomy_level: row.get(7)?,
-            created_at: row.get(8)?,
-        })
-    }).map_err(|e| AppError::Database(format!("Failed to map rows: {}", e)))?;
+    let mapper = |row: &rusqlite::Row<'_>| -> rusqlite::Result<SessionHandle> {
+            let status_str: String = row.get(2)?;
+            Ok(SessionHandle {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                status: parse_session_status(&status_str),
+                claude_session_id: row.get(3)?,
+                project_path: row.get(4)?,
+                worktree_path: row.get(5)?,
+                model: row.get(6)?,
+                autonomy_level: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        };
 
     let mut sessions = Vec::new();
-    for row in rows {
-        sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
+    if let Some(pid) = project_id {
+        let mut stmt = conn.prepare(
+            "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+             FROM sessions WHERE project_id = ?1 ORDER BY created_at DESC"
+        ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt.query_map([pid], mapper)
+            .map_err(|e| AppError::Database(format!("Failed to map rows: {}", e)))?;
+        for row in rows {
+            sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
+        }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+             FROM sessions ORDER BY created_at DESC"
+        ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
+
+        let rows = stmt.query_map([], mapper)
+            .map_err(|e| AppError::Database(format!("Failed to map rows: {}", e)))?;
+        for row in rows {
+            sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
+        }
     }
     Ok(sessions)
 }
@@ -531,7 +551,7 @@ mod tests {
             ).unwrap();
         }
 
-        let loaded = load_all_sessions_from_db(&state).unwrap();
+        let loaded = load_sessions_from_db(&state, None).unwrap();
         assert_eq!(loaded.len(), 2);
         assert!(loaded.iter().any(|s| s.id == "s1" && s.project_path == "/tmp/repo-a"));
         assert!(loaded.iter().any(|s| s.id == "s2" && s.status == SessionStatus::Running));
@@ -620,5 +640,35 @@ mod tests {
             |row| row.get(0)
         ).unwrap();
         assert_eq!(value, "claude-abc");
+    }
+
+    #[test]
+    fn load_sessions_from_db_filters_by_project_id() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-f1", "Repo F1", "/tmp/repo-f1"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-f2", "Repo F2", "/tmp/repo-f2"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-f1", "/tmp/repo-f1", "Session F1", "created", "sonnet", "supervised", "2026-02-07T00:05:00Z"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-f2", "/tmp/repo-f2", "Session F2", "created", "sonnet", "supervised", "2026-02-07T00:06:00Z"]
+            ).unwrap();
+        }
+
+        let filtered = load_sessions_from_db(&state, Some("/tmp/repo-f1")).unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, "s-f1");
     }
 }

@@ -13,6 +13,7 @@
 2. `list_*` commands:
    - return in-memory when non-empty
    - otherwise load all rows from DB and repopulate cache
+   - when a project filter is present, apply it at the query level and in cache path
 3. Keep a small parser for string enum columns (e.g. session status) with safe defaults.
 
 ## Why

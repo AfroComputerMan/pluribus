@@ -212,6 +212,20 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — Project-Scoped Session Listing (TDD Slice)
+
+**[Rust test-first pass]** — added DB-backed project filtering for `list_sessions`
+- Wrote failing test first:
+  - `load_sessions_from_db_filters_by_project_id` verifies only sessions for requested project are returned.
+- Implemented to green:
+  - Replaced broad load helper with `load_sessions_from_db(state, project_id?)`.
+  - Updated `list_sessions` command to accept optional `project_id` and filter both cache and DB paths.
+  - Kept hydration semantics intact (cache repopulated after DB load).
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 7/7 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)
