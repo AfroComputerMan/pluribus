@@ -116,6 +116,7 @@ mod tests {
     fn create_test_session() -> SessionHandle {
         SessionHandle::new(
             "test-123".to_string(),
+            "Test Session".to_string(),
             "/tmp/project".to_string(),
             None,
             "claude-opus-4".to_string(),

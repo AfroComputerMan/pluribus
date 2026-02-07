@@ -163,6 +163,7 @@ pub enum ProcessStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionHandle {
     pub id: String,
+    pub name: String,
     pub status: SessionStatus,
     pub claude_session_id: Option<String>,
     pub project_path: String,
@@ -175,6 +176,7 @@ pub struct SessionHandle {
 impl SessionHandle {
     pub fn new(
         id: String,
+        name: String,
         project_path: String,
         worktree_path: Option<String>,
         model: String,
@@ -188,6 +190,7 @@ impl SessionHandle {
 
         Self {
             id,
+            name,
             status: SessionStatus::Created,
             claude_session_id: None,
             project_path,

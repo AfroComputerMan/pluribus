@@ -81,6 +81,7 @@ pub async fn send_message(
         } else {
             let new_session = SessionHandle::new(
                 session_id.clone(),
+                format!("Session {}", &session_id[..session_id.len().min(8)]),
                 project_path.clone(),
                 worktree_path.clone(),
                 model.clone(),
@@ -227,6 +228,7 @@ pub async fn create_session(
 
     let session = SessionHandle::new(
         session_id.clone(),
+        name.clone(),
         project_id.clone(),
         None,
         model.clone(),
@@ -365,7 +367,7 @@ fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<Ses
         .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+        "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
          FROM sessions WHERE id = ?1"
     ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
 
@@ -373,17 +375,18 @@ fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<Ses
         .map_err(|e| AppError::Database(format!("Failed to query session: {}", e)))?;
 
     if let Some(row) = rows.next().map_err(|e| AppError::Database(format!("Failed to read row: {}", e)))? {
-        let status_str: String = row.get(1)
+        let status_str: String = row.get(2)
             .map_err(|e| AppError::Database(format!("Failed to read status: {}", e)))?;
         Ok(Some(SessionHandle {
             id: row.get(0).map_err(|e| AppError::Database(format!("Failed to read id: {}", e)))?,
+            name: row.get(1).map_err(|e| AppError::Database(format!("Failed to read name: {}", e)))?,
             status: parse_session_status(&status_str),
-            claude_session_id: row.get(2).map_err(|e| AppError::Database(format!("Failed to read claude_session_id: {}", e)))?,
-            project_path: row.get(3).map_err(|e| AppError::Database(format!("Failed to read project_id: {}", e)))?,
-            worktree_path: row.get(4).map_err(|e| AppError::Database(format!("Failed to read worktree_path: {}", e)))?,
-            model: row.get(5).map_err(|e| AppError::Database(format!("Failed to read model: {}", e)))?,
-            autonomy_level: row.get(6).map_err(|e| AppError::Database(format!("Failed to read autonomy_level: {}", e)))?,
-            created_at: row.get(7).map_err(|e| AppError::Database(format!("Failed to read created_at: {}", e)))?,
+            claude_session_id: row.get(3).map_err(|e| AppError::Database(format!("Failed to read claude_session_id: {}", e)))?,
+            project_path: row.get(4).map_err(|e| AppError::Database(format!("Failed to read project_id: {}", e)))?,
+            worktree_path: row.get(5).map_err(|e| AppError::Database(format!("Failed to read worktree_path: {}", e)))?,
+            model: row.get(6).map_err(|e| AppError::Database(format!("Failed to read model: {}", e)))?,
+            autonomy_level: row.get(7).map_err(|e| AppError::Database(format!("Failed to read autonomy_level: {}", e)))?,
+            created_at: row.get(8).map_err(|e| AppError::Database(format!("Failed to read created_at: {}", e)))?,
         }))
     } else {
         Ok(None)
@@ -397,21 +400,22 @@ fn load_all_sessions_from_db(state: &AppState) -> Result<Vec<SessionHandle>, App
         .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+        "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
          FROM sessions ORDER BY created_at DESC"
     ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
 
     let rows = stmt.query_map([], |row| {
-        let status_str: String = row.get(1)?;
+        let status_str: String = row.get(2)?;
         Ok(SessionHandle {
             id: row.get(0)?,
+            name: row.get(1)?,
             status: parse_session_status(&status_str),
-            claude_session_id: row.get(2)?,
-            project_path: row.get(3)?,
-            worktree_path: row.get(4)?,
-            model: row.get(5)?,
-            autonomy_level: row.get(6)?,
-            created_at: row.get(7)?,
+            claude_session_id: row.get(3)?,
+            project_path: row.get(4)?,
+            worktree_path: row.get(5)?,
+            model: row.get(6)?,
+            autonomy_level: row.get(7)?,
+            created_at: row.get(8)?,
         })
     }).map_err(|e| AppError::Database(format!("Failed to map rows: {}", e)))?;
 
@@ -456,6 +460,7 @@ mod tests {
 
         let loaded = load_session_from_db(&state, "s1").unwrap().expect("session should exist");
         assert_eq!(loaded.id, "s1");
+        assert_eq!(loaded.name, "Session");
         assert_eq!(loaded.project_path, "/tmp/repo");
         assert_eq!(loaded.model, "sonnet");
     }

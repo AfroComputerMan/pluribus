@@ -163,6 +163,23 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — Session Name Fidelity (TDD Slice)
+
+**[Rust test-first pass]** — preserved user-provided session names through command serialization
+- Wrote failing assertion first in Rust command tests:
+  - `load_session_from_db_returns_saved_session` now asserts `SessionHandle.name`.
+  - Initial compile failed because `SessionHandle` had no `name` field.
+- Implemented to green:
+  - Added `name` to `SessionHandle` in `src-tauri/src/state.rs`.
+  - Updated `SessionHandle::new` signature and all call sites.
+  - Updated DB hydration queries (`load_session_from_db` / `load_all_sessions_from_db`) to select/map `name`.
+  - Defaulted ad-hoc runtime sessions (created via `send_message`) to a generated display name.
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 4/4 pass
+  - `cd src-tauri && cargo test process::session -- --nocapture`: 12/12 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)
