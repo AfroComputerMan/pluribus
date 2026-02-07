@@ -180,6 +180,21 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — Runtime Session Metadata Durability (TDD Slice)
+
+**[Rust test-first pass]** — ensured runtime sessions and Claude session IDs persist to SQLite
+- Wrote failing tests first in `src-tauri/src/commands/chat.rs`:
+  - runtime session upsert is idempotent (`INSERT OR IGNORE` behavior)
+  - `claude_session_id` persistence updates backing row
+- Implemented to green:
+  - Added `upsert_runtime_session_in_db` and wired into `send_message` for runtime-created sessions.
+  - Added `persist_claude_session_id_in_db` and wired into `update_claude_session_id`.
+  - Fixed ownership bug in `update_claude_session_id` (`session_id` borrow after move).
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 6/6 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)

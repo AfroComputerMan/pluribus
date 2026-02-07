@@ -99,6 +99,9 @@ pub async fn send_message(
         !processes.contains_key(&session_id)
     };
 
+    // Ensure runtime-created sessions are persisted (idempotent).
+    upsert_runtime_session_in_db(&state, &session)?;
+
     if needs_spawn {
         // Spawn new process
         let config = SpawnConfig {
@@ -322,9 +325,10 @@ pub async fn update_claude_session_id(
         .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
 
     let session = sessions.get_mut(&session_id)
-        .ok_or_else(|| AppError::SessionNotFound(session_id))?;
+        .ok_or_else(|| AppError::SessionNotFound(session_id.clone()))?;
 
     session.set_claude_session_id(claude_session_id);
+    persist_claude_session_id_in_db(&state, &session_id, session.claude_session_id.as_deref().unwrap_or(""))?;
     Ok(())
 }
 
@@ -358,6 +362,43 @@ fn get_session_status_inner(state: &AppState, session_id: &str) -> Result<Sessio
     } else {
         Err(AppError::SessionNotFound(session_id.to_string()))
     }
+}
+
+fn upsert_runtime_session_in_db(state: &AppState, session: &SessionHandle) -> Result<(), AppError> {
+    let db = state.db.lock()
+        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
+    let conn = db.as_ref()
+        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO sessions (id, project_id, name, status, model, autonomy_level, worktree_path, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![
+            &session.id,
+            &session.project_path,
+            &session.name,
+            format!("{:?}", session.status).to_lowercase(),
+            &session.model,
+            &session.autonomy_level,
+            &session.worktree_path,
+            &session.created_at,
+        ],
+    ).map_err(|e| AppError::Database(format!("Failed to upsert runtime session: {}", e)))?;
+
+    Ok(())
+}
+
+fn persist_claude_session_id_in_db(state: &AppState, session_id: &str, claude_session_id: &str) -> Result<(), AppError> {
+    let db = state.db.lock()
+        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
+    let conn = db.as_ref()
+        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+
+    conn.execute(
+        "UPDATE sessions SET claude_session_id = ?1 WHERE id = ?2",
+        rusqlite::params![claude_session_id, session_id],
+    ).map_err(|e| AppError::Database(format!("Failed to persist claude session id: {}", e)))?;
+    Ok(())
 }
 
 fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<SessionHandle>, AppError> {
@@ -518,5 +559,66 @@ mod tests {
         // Confirm cache was hydrated.
         let sessions = state.sessions.lock().unwrap();
         assert!(sessions.contains_key("s3"));
+    }
+
+    #[test]
+    fn upsert_runtime_session_inserts_and_is_idempotent() {
+        let state = setup_state();
+
+        // project id is used as project_path in current runtime session shape
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-r", "Repo Runtime", "/tmp/repo-r"]
+            ).unwrap();
+        }
+
+        let session = SessionHandle::new(
+            "runtime-s1".to_string(),
+            "Runtime Session".to_string(),
+            "/tmp/repo-r".to_string(),
+            None,
+            "sonnet".to_string(),
+            "supervised".to_string(),
+        );
+
+        upsert_runtime_session_in_db(&state, &session).unwrap();
+        upsert_runtime_session_in_db(&state, &session).unwrap();
+
+        let db = state.db.lock().unwrap();
+        let count: i64 = db.as_ref().unwrap().query_row(
+            "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+            rusqlite::params!["runtime-s1"],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn persist_claude_session_id_updates_session_row() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-d", "Repo DB", "/tmp/repo-d"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-db-1", "/tmp/repo-d", "Session DB", "created", "sonnet", "supervised", "2026-02-07T00:03:00Z"]
+            ).unwrap();
+        }
+
+        persist_claude_session_id_in_db(&state, "s-db-1", "claude-abc").unwrap();
+
+        let db = state.db.lock().unwrap();
+        let value: String = db.as_ref().unwrap().query_row(
+            "SELECT claude_session_id FROM sessions WHERE id = ?1",
+            rusqlite::params!["s-db-1"],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(value, "claude-abc");
     }
 }
