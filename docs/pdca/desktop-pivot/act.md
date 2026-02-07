@@ -1,8 +1,8 @@
 # Act: Pluribus Desktop Pivot
 
 **Feature**: Native desktop application learnings and improvements
-**Completed**: TBD
-**Status**: Not Started (Will be created after evaluation)
+**Completed**: 2026-02-07 (interim)
+**Status**: In Progress (initial implementation learnings captured)
 
 ---
 
@@ -10,7 +10,8 @@
 
 ### Patterns to Document
 
-*Will be identified during implementation and evaluation*
+1. `docs/patterns/verify-before-implementing.md` (applied)
+2. `docs/patterns/desktop-phase-gating.md` (added in this cycle)
 
 #### Pattern 1: CLI Wrapper Architecture
 - **Context**: Building GUI applications on top of CLI tools
@@ -87,7 +88,26 @@
 
 ### Discovered During Implementation
 
-*Will be documented as discovered*
+#### Debt Item 4: Tauri binary build blocked by icon assets
+- **Impact**: Medium — blocks full `cargo check`/`tauri dev` verification
+- **Effort to Fix**: < 1 day
+- **Priority**: P1 for Phase 1 closure
+- **Mitigation**: Add valid RGBA icon set to `src-tauri/icons` and re-run build checks
+- **Future Plan**: Add asset validation to preflight checklist
+
+#### Debt Item 5: Shared TypeScript config for backend + desktop
+- **Impact**: Medium — typecheck noise hides real regressions
+- **Effort to Fix**: 0.5-1 day
+- **Priority**: P1 for reliable CI
+- **Mitigation**: split into backend and desktop tsconfig/typecheck scripts
+- **Future Plan**: make both checks required in CI
+
+#### Debt Item 6: Dependency bootstrap under restricted network
+- **Impact**: Medium — prevents full desktop compile validation in constrained environments
+- **Effort to Fix**: < 0.5 day once network/package mirror is available
+- **Priority**: P2
+- **Mitigation**: keep a documented desktop dependency list + use dedicated scripts so checks become runnable immediately when deps are installed
+- **Future Plan**: add offline mirror/cached install strategy for CI and local onboarding
 
 ---
 
@@ -95,11 +115,13 @@
 
 ### Process Improvements
 
-*Will be documented after project completion*
+- Gate each phase with executable checks, not checklist completion alone.
+- Keep PDCA status synced with code reality on every commit to prevent drift.
 
 ### Technical Improvements
 
-*Will be documented after project completion*
+- Add missing Tauri bundle assets early so `generate_context!` cannot block runtime validation.
+- Separate backend and desktop TypeScript boundaries to keep signal high.
 
 ---
 
@@ -108,23 +130,23 @@
 ### What to Carry Over from Old Pluribus
 
 **Frontend Components (Copy):**
-- [ ] Button.tsx → src/components/common/Button.tsx
-- [ ] StatusBadge.tsx → src/components/common/StatusBadge.tsx
-- [ ] DataTable.tsx → src/components/common/DataTable.tsx
-- [ ] JsonViewer.tsx → src/components/common/JsonViewer.tsx
+- [x] Button.tsx → src/components/common/Button.tsx
+- [x] StatusBadge.tsx → src/components/common/StatusBadge.tsx
+- [x] DataTable.tsx → src/components/common/DataTable.tsx
+- [x] JsonViewer.tsx → src/components/common/JsonViewer.tsx
 
 **Frontend Components (Adapt):**
-- [ ] CostTrackingPanel.tsx → adapt for session-based cost tracking
-- [ ] useKeyboardShortcuts.ts → adapt shortcut set for desktop app
+- [x] CostTrackingPanel.tsx → adapt for session-based cost tracking
+- [x] useKeyboardShortcuts.ts → adapt shortcut set for desktop app
 
 **Frontend Patterns (Reference):**
-- [ ] workflowBuilderStore.ts → pattern for chatStore/sessionStore
-- [ ] api/client.ts → pattern for ipc/commands.ts
-- [ ] useSSE.ts → pattern for ipc/channels.ts
+- [x] workflowBuilderStore.ts → pattern for chatStore/sessionStore
+- [x] api/client.ts → pattern for ipc/commands.ts
+- [x] useSSE.ts → pattern for ipc/channels.ts
 
 **Backend Logic (Port to Rust):**
-- [ ] integrations/adapters/claude-code.ts → src-tauri/src/process/manager.rs
-- [ ] NDJSON parsing logic → src/lib/ndjson-parser.ts (stays in TS)
+- [x] integrations/adapters/claude-code.ts → src-tauri/src/process/manager.rs
+- [x] NDJSON parsing logic → src/lib/ndjson-parser.ts (stays in TS)
 
 **Backend Logic (Port to TypeScript):**
 - [ ] lib/errors.ts → src/lib/errors.ts (simplify)

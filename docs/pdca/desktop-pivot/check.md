@@ -1,8 +1,8 @@
 # Check: Pluribus Desktop Pivot
 
 **Feature**: Native desktop application evaluation
-**Completed**: TBD
-**Status**: Not Started (Will be populated during and after implementation)
+**Completed**: 2026-02-07 (interim)
+**Status**: In Progress (Phase 1 implementation audited; integration gates still open)
 
 ---
 
@@ -23,14 +23,14 @@
 
 | Metric | Expected | Actual | Status | Notes |
 |--------|----------|--------|--------|-------|
-| Test coverage (overall) | >= 70% | TBD | - | |
-| Test coverage (NDJSON parser) | >= 90% | TBD | - | Critical path |
+| Test coverage (overall) | >= 70% | TBD | - | Not measured for full app yet |
+| Test coverage (NDJSON parser) | >= 90% | 93.04% lines | Pass | `bun test src/lib/ndjson-parser.test.ts` |
 | Test coverage (IPC layer) | >= 85% | TBD | - | |
-| Rust LOC | < 1000 | TBD | - | Thin Rust layer |
+| Rust LOC | < 1000 | 2019 | Risk | Current implementation exceeds target; consider refactor/scope trim in later phase |
 | Frontend bundle size | < 2 MB | TBD | - | WebView assets |
 | Binary size (total) | < 15 MB | TBD | - | Tauri build output |
-| SQLite tables | 7 | TBD | - | |
-| TDD compliance | 100% | TBD | - | Tests before implementation |
+| SQLite tables | 7 | 7 | Pass | Created in `AppState::init_db` + TS schema |
+| TDD compliance | 100% | Partial | Risk | NDJSON parser met test-first target; broader Phase 1 tests still missing |
 
 ### Reuse from Existing Pluribus
 
@@ -51,7 +51,7 @@
 
 | Phase | Expected | Actual | Status | Notes |
 |-------|----------|--------|--------|-------|
-| Phase 1: Core Chat | 3 weeks | TBD | - | Critical path |
+| Phase 1: Core Chat | 3 weeks | In progress | ~80% | Core implementation present; runtime validation pending |
 | Phase 2: Multi-Session + Worktrees | 2 weeks | TBD | - | |
 | Phase 3: Agent Teams | 3 weeks | TBD | - | |
 | Phase 4: Diff Review | 2 weeks | TBD | - | |
@@ -66,16 +66,16 @@
 
 | Criteria | Pass? | Notes |
 |----------|-------|-------|
-| `bun run tauri dev` launches app | TBD | |
-| Create session pointing to local git repo | TBD | |
-| Type message, see streaming response | TBD | |
+| `bun run tauri dev` launches app | No | Blocked by missing Tauri icon assets at context generation |
+| Create session pointing to local git repo | TBD | Not yet re-verified end-to-end |
+| Type message, see streaming response | TBD | Not yet re-verified end-to-end |
 | Markdown renders correctly | TBD | |
 | Tool calls render as collapsible cards | TBD | |
 | Tool results render with syntax highlighting | TBD | |
 | Session persists across app restart (SQLite) | TBD | |
 | Session sidebar shows status dot + cost | TBD | |
-| NDJSON parser tests pass (90%+ coverage) | TBD | |
-| TypeScript compiles cleanly | TBD | |
+| NDJSON parser tests pass (90%+ coverage) | Yes | 42/42 pass, 93.04% lines |
+| TypeScript compiles cleanly | No | Added `tsconfig.desktop.json`, but `bun run desktop:typecheck` is blocked until desktop deps are installable in this environment |
 | No orphaned claude processes after session close | TBD | |
 
 ### Phase 2: Multi-Session + Worktrees
@@ -140,7 +140,9 @@
 ## What Failed / Challenges
 
 ### Technical Challenges
-*To be documented during implementation*
+- Tauri build macro currently fails before command wiring is validated because icon assets are missing (`generate_context!` hard requirement).
+- Single workspace `tsconfig.json` currently mixes backend Bun code and desktop React/Tauri code; this causes noisy typecheck failures and masks true desktop regressions.
+- Environment-level network restriction prevented dependency installation (`bun add` failed with `ConnectionRefused`), so desktop compile checks cannot fully run yet.
 
 ### Process Issues
 *To be documented during implementation*

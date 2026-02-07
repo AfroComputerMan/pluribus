@@ -1,7 +1,9 @@
 /// Worktree management for project directory handling
 ///
-/// This module will handle:
-/// - Validating and normalizing worktree paths
-/// - Checking git repository status
-/// - Reading .gitignore patterns
-/// - Monitoring file system changes (if needed)
+/// This module provides git worktree operations for Pluribus sessions:
+/// - Creating isolated worktrees per session
+/// - Managing pluribus/* branches
+/// - Listing and pruning worktrees
+/// - Repository validation
+
+pub mod manager;

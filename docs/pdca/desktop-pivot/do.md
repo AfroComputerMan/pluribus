@@ -1,8 +1,8 @@
 # Do: Pluribus Desktop Pivot
 
 **Feature**: Native desktop application implementation log
-**Started**: 2026-02-08
-**Status**: Not Started (Awaiting Plan Approval)
+**Started**: 2026-02-07
+**Status**: In Progress (Phase 1 implementation complete, integration checks in progress)
 
 ---
 
@@ -12,7 +12,7 @@
 
 | Phase | Test File | Tests Written | Tests Passing | Coverage |
 |-------|-----------|---------------|---------------|----------|
-| Phase 1 | `ndjson-parser.test.ts` | TBD | TBD | Target 90% |
+| Phase 1 | `ndjson-parser.test.ts` | 42 | 42 | 93.04% lines (target >= 90%) |
 | Phase 1 | `ipc/commands.test.ts` | TBD | TBD | Target 85% |
 | Phase 1 | `ipc/channels.test.ts` | TBD | TBD | Target 85% |
 | Phase 1 | `stores/sessionStore.test.ts` | TBD | TBD | Target 85% |
@@ -79,34 +79,55 @@
   - postcss.config.js for TailwindCSS v4
 - Result: `bun run dev` ready to test (after `bun install` and Rust dependencies)
 
+### 2026-02-07: Phase 1 — Core Chat Implementation Sweep
+
+**[Verification + completion pass]** — audited existing unstaged implementation and normalized status
+- Confirmed implemented modules across Rust + frontend:
+  - Rust commands: `chat`, `db`, `project`, `worktree`
+  - Rust managers: process lifecycle/session state + git worktree manager
+  - Frontend: app shell, session sidebar/dialog, chat panel/input/cards, Zustand stores, IPC wrappers
+  - NDJSON parser + test suite at `src/lib/ndjson-parser.test.ts`
+- Verification results:
+  - `bun test src/lib/ndjson-parser.test.ts`: 42/42 pass, parser line coverage 93.04%
+  - `cargo check --lib` in `src-tauri`: pass
+  - `cargo check` (bin): fails at Tauri context generation due missing icon assets (`src-tauri/icons/icon.png`)
+  - `bun run desktop:typecheck`: currently blocked because desktop dependencies (`vite`/`vitest` types) are not installable in this network-restricted environment
+- Code quality fixes applied during verification:
+  - Removed conflicting `From<AppError> for tauri::ipc::InvokeError` impl
+  - Cleaned Rust warnings (unused imports/variables) in process/worktree modules
+  - Split desktop scripts from backend scripts (`desktop:dev`, `desktop:build`, `desktop:typecheck`) and updated Tauri pre-build commands to use desktop-specific scripts
+- Outcome: Phase 1 implementation is materially present; remaining work is integration hardening and runtime verification.
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)
 
-**Timeline**: Not started
+**Timeline**: In progress (implementation complete, verification gates pending)
 **Goal**: Single session chat with Claude CLI, NDJSON parsing, streaming display
 
 ### Task Checklist
 
 - [x] Initialize Tauri 2.0 project (`bun create tauri-app`, React + Vite + TS)
 - [x] Set up Tauri plugins (`bun add @tauri-apps/plugin-shell @tauri-apps/plugin-sql @tauri-apps/plugin-fs`)
-- [ ] Create SQLite schema (all 7 tables via Drizzle)
-- [ ] Implement Drizzle sqlite-proxy client
-- [ ] Build Rust ProcessManager (spawn, BufReader->Channel)
-- [ ] Build Rust SessionHandle (state machine, stdin, kill)
-- [ ] Build NDJSON parser with tests (90%+ coverage)
-- [ ] Build Zustand stores (session, chat, settings)
-- [ ] Build ChatPanel, ChatInput, MessageBubble, StreamingMessage
-- [ ] Build ToolCallCard + ToolResultCard
-- [ ] Build SessionSidebar + AppShell layout
-- [ ] Copy common components from Pluribus
-- [ ] Implement check_claude_cli for onboarding
-- [ ] Build ipc/commands.ts (type-safe invoke wrappers)
-- [ ] Wire useChatStream hook end-to-end
+- [x] Create SQLite schema (all 7 tables via Drizzle)
+- [x] Implement Drizzle sqlite-proxy client
+- [x] Build Rust ProcessManager (spawn, BufReader->Channel)
+- [x] Build Rust SessionHandle (state machine, stdin, kill)
+- [x] Build NDJSON parser with tests (90%+ coverage)
+- [x] Build Zustand stores (session, chat, settings)
+- [x] Build ChatPanel, ChatInput, MessageBubble, StreamingMessage
+- [x] Build ToolCallCard + ToolResultCard
+- [x] Build SessionSidebar + AppShell layout
+- [x] Copy common components from Pluribus
+- [x] Implement check_claude_cli for onboarding
+- [x] Build ipc/commands.ts (type-safe invoke wrappers)
+- [x] Wire useChatStream hook end-to-end
 
 ### Implementation Log
 
-*Will be updated during Phase 1 implementation*
+- Gate pending: add real app icons so `cargo check` / `bun run tauri dev` can build the binary target.
+- Gate pending: run end-to-end runtime checks (session create -> send message -> stream -> completion).
+- Gate pending: install desktop dependencies when network access is available (`react`, `@tauri-apps/api`, `zustand`, `vite`, `vitest`, etc.), then re-run `bun run desktop:typecheck`.
 
 ---
 
