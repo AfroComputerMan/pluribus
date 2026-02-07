@@ -195,6 +195,23 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — Session Status DB Durability (TDD Slice)
+
+**[Rust test-first pass]** — persisted status transitions from process lifecycle to SQLite
+- Wrote failing-path test in `src-tauri/src/process/manager.rs`:
+  - `persist_session_status_in_db_updates_row` validates status row update.
+- Implemented to green:
+  - Added `persist_session_status_in_db` helper.
+  - Wired DB status sync into:
+    - process exit handling (`completed` / `failed`)
+    - abort flow (`killed`)
+    - pause/resume flows (`paused` / `running`)
+- Verification results:
+  - `cd src-tauri && cargo test process::manager -- --nocapture`: 1/1 pass
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 6/6 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)

@@ -216,6 +216,7 @@ async fn wait_for_exit(state: &AppState, session_id: &str) -> AppResult<()> {
                 } else {
                     SessionStatus::Failed
                 };
+                persist_session_status_in_db(state, session_id, &session.status)?;
             }
         }
 
@@ -269,6 +270,7 @@ pub async fn abort_session(state: &AppState, session_id: &str) -> AppResult<()> 
 
         if let Some(session) = sessions.get_mut(session_id) {
             session.status = SessionStatus::Killed;
+            persist_session_status_in_db(state, session_id, &session.status)?;
         }
     }
 
@@ -329,6 +331,7 @@ pub async fn pause_session(state: &AppState, session_id: &str) -> AppResult<()> 
 
         if let Some(session) = sessions.get_mut(session_id) {
             session.status = SessionStatus::Paused;
+            persist_session_status_in_db(state, session_id, &session.status)?;
         }
     }
 
@@ -356,6 +359,7 @@ pub async fn resume_session(state: &AppState, session_id: &str) -> AppResult<()>
 
         if let Some(session) = sessions.get_mut(session_id) {
             session.status = SessionStatus::Running;
+            persist_session_status_in_db(state, session_id, &session.status)?;
         }
     }
 
@@ -369,5 +373,65 @@ impl Clone for AppState {
             processes: Arc::clone(&self.processes),
             db: Arc::clone(&self.db),
         }
+    }
+}
+
+fn persist_session_status_in_db(state: &AppState, session_id: &str, status: &SessionStatus) -> AppResult<()> {
+    let db = state.db.lock()
+        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
+    let conn = db.as_ref()
+        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+
+    let status_str = match status {
+        SessionStatus::Created => "created",
+        SessionStatus::Running => "running",
+        SessionStatus::Completed => "completed",
+        SessionStatus::Failed => "failed",
+        SessionStatus::Killed => "killed",
+        SessionStatus::Paused => "paused",
+    };
+
+    conn.execute(
+        "UPDATE sessions SET status = ?1 WHERE id = ?2",
+        rusqlite::params![status_str, session_id],
+    ).map_err(|e| AppError::Database(format!("Failed to persist session status: {}", e)))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_state() -> AppState {
+        let state = AppState::new();
+        state.init_db(":memory:").expect("db should initialize");
+        state
+    }
+
+    #[test]
+    fn persist_session_status_in_db_updates_row() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-status", "Repo Status", "/tmp/repo-status"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-status-1", "/tmp/repo-status", "Session Status", "created", "sonnet", "supervised", "2026-02-07T00:04:00Z"]
+            ).unwrap();
+        }
+
+        persist_session_status_in_db(&state, "s-status-1", &SessionStatus::Paused).unwrap();
+
+        let db = state.db.lock().unwrap();
+        let value: String = db.as_ref().unwrap().query_row(
+            "SELECT status FROM sessions WHERE id = ?1",
+            rusqlite::params!["s-status-1"],
+            |row| row.get(0)
+        ).unwrap();
+        assert_eq!(value, "paused");
     }
 }

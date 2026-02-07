@@ -125,6 +125,7 @@
 - Separate backend and desktop TypeScript boundaries to keep signal high.
 - On Rust command handlers, treat in-memory state as cache and hydrate from SQLite on cache miss.
 - For command-side metadata updates (`claude_session_id`, runtime session creation), persist to DB in the same handler to avoid restart drift.
+- For process lifecycle state changes (pause/resume/abort/exit), persist session status to DB at transition time.
 
 ---
 

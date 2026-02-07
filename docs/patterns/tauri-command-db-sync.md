@@ -9,6 +9,7 @@
 - runtime-created sessions (`send_message` path)
 - session identifiers returned by CLI (`claude_session_id`)
 - status transitions that must survive restart
+- process lifecycle transitions (`running`, `paused`, `killed`, `completed`, `failed`)
 
 ## Rules
 

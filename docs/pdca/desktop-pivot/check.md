@@ -73,7 +73,7 @@
 | Tool calls render as collapsible cards | TBD | |
 | Tool results render with syntax highlighting | TBD | |
 | Session persists across app restart (SQLite) | Partial | hydration now includes runtime session upsert and `claude_session_id` DB sync; manual restart validation still pending |
-| Session sidebar shows status dot + cost | Partial | Session metadata fidelity improved (name/status hydration); manual UI verification of cost rendering still pending |
+| Session sidebar shows status dot + cost | Partial | status transitions now persist in DB from process lifecycle; manual UI verification of dot/cost rendering still pending |
 | NDJSON parser tests pass (90%+ coverage) | Yes | 42/42 pass, 93.04% lines |
 | TypeScript compiles cleanly | Yes (desktop) | `bun run desktop:typecheck` passing after config/test typing fixes |
 | No orphaned claude processes after session close | TBD | |
