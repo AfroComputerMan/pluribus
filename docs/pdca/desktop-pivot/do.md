@@ -151,6 +151,18 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — Session Status Hydration (TDD Slice)
+
+**[Rust test-first pass]** — fixed `get_session_status` restart behavior
+- Added failing-path coverage by introducing `get_session_status_inner` and a test for DB fallback hydration.
+- Implemented command behavior:
+  - `get_session_status` now delegates to `get_session_status_inner`.
+  - Inner logic checks memory first, then falls back to SQLite and rehydrates cache.
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 4/4 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)

@@ -135,12 +135,7 @@ pub async fn get_session_status(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<SessionStatus, AppError> {
-    let sessions = state.sessions.lock()
-        .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
-
-    sessions.get(&session_id)
-        .map(|s| s.status.clone())
-        .ok_or_else(|| AppError::SessionNotFound(session_id))
+    get_session_status_inner(&state, &session_id)
 }
 
 /// Get session details
@@ -343,6 +338,26 @@ fn parse_session_status(status: &str) -> SessionStatus {
     }
 }
 
+fn get_session_status_inner(state: &AppState, session_id: &str) -> Result<SessionStatus, AppError> {
+    {
+        let sessions = state.sessions.lock()
+            .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+        if let Some(session) = sessions.get(session_id) {
+            return Ok(session.status.clone());
+        }
+    }
+
+    if let Some(session) = load_session_from_db(state, session_id)? {
+        let status = session.status.clone();
+        let mut sessions = state.sessions.lock()
+            .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+        sessions.insert(session_id.to_string(), session);
+        Ok(status)
+    } else {
+        Err(AppError::SessionNotFound(session_id.to_string()))
+    }
+}
+
 fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<SessionHandle>, AppError> {
     let db = state.db.lock()
         .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
@@ -474,5 +489,29 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert!(loaded.iter().any(|s| s.id == "s1" && s.project_path == "/tmp/repo-a"));
         assert!(loaded.iter().any(|s| s.id == "s2" && s.status == SessionStatus::Running));
+    }
+
+    #[test]
+    fn get_session_status_inner_hydrates_from_db_when_cache_is_empty() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-c", "Repo C", "/tmp/repo-c"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s3", "/tmp/repo-c", "Session C", "paused", "sonnet", "supervised", "2026-02-07T00:02:00Z"]
+            ).unwrap();
+        }
+
+        let status = get_session_status_inner(&state, "s3").unwrap();
+        assert_eq!(status, SessionStatus::Paused);
+
+        // Confirm cache was hydrated.
+        let sessions = state.sessions.lock().unwrap();
+        assert!(sessions.contains_key("s3"));
     }
 }

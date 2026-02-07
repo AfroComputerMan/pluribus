@@ -72,7 +72,7 @@
 | Markdown renders correctly | TBD | |
 | Tool calls render as collapsible cards | TBD | |
 | Tool results render with syntax highlighting | TBD | |
-| Session persists across app restart (SQLite) | Partial | Rust command path now hydrates sessions from SQLite when in-memory cache is empty; manual restart validation still pending |
+| Session persists across app restart (SQLite) | Partial | `get_session`, `list_sessions`, and `get_session_status` now hydrate from SQLite on cache miss; manual restart validation still pending |
 | Session sidebar shows status dot + cost | TBD | |
 | NDJSON parser tests pass (90%+ coverage) | Yes | 42/42 pass, 93.04% lines |
 | TypeScript compiles cleanly | Yes (desktop) | `bun run desktop:typecheck` passing after config/test typing fixes |
