@@ -206,7 +206,7 @@ pub async fn create_session(
 
     let session = SessionHandle::new(
         session_id.clone(),
-        String::new(), // project_path resolved later from project_id
+        project_id.clone(),
         None,
         model.clone(),
         autonomy_level.clone(),

@@ -34,6 +34,42 @@ export interface SessionSummary {
   createdAt: string;
 }
 
+type RawSessionSummary = Partial<SessionSummary> & {
+  project_id?: string;
+  project_path?: string;
+  claude_session_id?: string;
+  autonomy_level?: string;
+  worktree_path?: string;
+  worktree_branch?: string;
+  total_cost_usd?: number;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  turn_count?: number;
+  created_at?: string;
+};
+
+export function normalizeSessionSummary(raw: RawSessionSummary): SessionSummary {
+  const projectPath = raw.projectPath ?? raw.project_path ?? raw.projectId ?? raw.project_id ?? '';
+  const projectId = raw.projectId ?? raw.project_id ?? projectPath;
+  return {
+    id: raw.id ?? '',
+    projectId,
+    projectPath,
+    name: raw.name ?? 'Session',
+    status: (raw.status as SessionSummary['status']) ?? 'created',
+    claudeSessionId: raw.claudeSessionId ?? raw.claude_session_id,
+    model: raw.model ?? 'sonnet',
+    autonomyLevel: raw.autonomyLevel ?? raw.autonomy_level ?? 'supervised',
+    worktreePath: raw.worktreePath ?? raw.worktree_path,
+    worktreeBranch: raw.worktreeBranch ?? raw.worktree_branch,
+    totalCostUsd: raw.totalCostUsd ?? raw.total_cost_usd ?? 0,
+    totalInputTokens: raw.totalInputTokens ?? raw.total_input_tokens ?? 0,
+    totalOutputTokens: raw.totalOutputTokens ?? raw.total_output_tokens ?? 0,
+    turnCount: raw.turnCount ?? raw.turn_count ?? 0,
+    createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
+  };
+}
+
 export interface SendMessageInput {
   sessionId: string;
   projectPath: string;
@@ -120,14 +156,15 @@ export interface AppSettings {
 // ── Session Commands ───────────────────────────────
 
 export const sessionCommands = {
-  create: (input: CreateSessionInput) =>
-    invoke<SessionSummary>('create_session', { input }),
+  create: async (input: CreateSessionInput) =>
+    normalizeSessionSummary(await invoke<RawSessionSummary>('create_session', { input })),
 
-  list: (projectId?: string) =>
-    invoke<SessionSummary[]>('list_sessions', { projectId }),
+  list: async (projectId?: string) =>
+    (await invoke<RawSessionSummary[]>('list_sessions', { projectId }))
+      .map(normalizeSessionSummary),
 
-  get: (id: string) =>
-    invoke<SessionSummary>('get_session', { id }),
+  get: async (id: string) =>
+    normalizeSessionSummary(await invoke<RawSessionSummary>('get_session', { id })),
 
   delete: (id: string) =>
     invoke<void>('delete_session', { id }),

@@ -118,6 +118,21 @@
   - `bun test src/ipc/commands.test.ts src/lib/ndjson-parser.test.ts`: 43/43 pass
   - `cd src-tauri && cargo check`: pass
 
+### 2026-02-07: Phase 1 — Session Contract Normalization (TDD Slice)
+
+**[Test-first compatibility pass]** — normalized Rust session payloads for frontend stream path stability
+- Wrote failing test first:
+  - Extended `src/ipc/commands.test.ts` with `normalizeSessionSummary` expectations for snake_case Rust payloads.
+  - Initial run failed due missing export/implementation.
+- Implemented to green:
+  - Added `normalizeSessionSummary` in `src/ipc/commands.ts` to map snake_case and camelCase fields.
+  - Updated `sessionCommands.create/list/get` to normalize all session responses before store usage.
+  - Updated Rust `create_session` to preserve `project_path` from input (instead of empty string), so `send_message` has a valid working directory source.
+- Verification results:
+  - `bun test src/ipc/commands.test.ts`: 2/2 pass
+  - `bun run desktop:typecheck`: pass
+  - `cd src-tauri && cargo check`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)

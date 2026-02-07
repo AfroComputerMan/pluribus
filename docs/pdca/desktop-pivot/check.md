@@ -67,7 +67,7 @@
 | Criteria | Pass? | Notes |
 |----------|-------|-------|
 | `bun run tauri dev` launches app | No | Blocked by missing Tauri icon assets at context generation |
-| Create session pointing to local git repo | TBD | Not yet re-verified end-to-end |
+| Create session pointing to local git repo | Partial | Session payload contract now normalized; manual runtime create/send validation still pending |
 | Type message, see streaming response | Partial | UI path now wired (`ChatPage` -> `ChatPanel` -> `useChatStream`); full runtime stream still pending manual validation with Claude CLI |
 | Markdown renders correctly | TBD | |
 | Tool calls render as collapsible cards | TBD | |
