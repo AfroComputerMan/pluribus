@@ -254,6 +254,20 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-07: Phase 1 — Deterministic Session Listing (TDD Slice)
+
+**[Rust test-first pass]** — removed partial-cache blind spots in project-filtered session listing
+- Wrote failing-path test first:
+  - `list_sessions_inner_reads_db_when_cache_is_partial` reproduces project-filter miss when cache only contains another project's sessions.
+- Implemented to green:
+  - Added `list_sessions_inner`.
+  - `list_sessions` now reads authoritative rows from SQLite for list responses, then warms/prunes cache.
+  - Project-filtered listing now works even when in-memory cache is incomplete.
+- Verification results:
+  - `cd src-tauri && cargo test commands::chat -- --nocapture`: 11/11 pass
+  - `cd src-tauri && cargo check`: pass
+  - `bun run desktop:typecheck`: pass
+
 ---
 
 ## Phase 1: Core Chat (Weeks 1-3)

@@ -173,30 +173,7 @@ pub async fn list_sessions(
     state: State<'_, AppState>,
     project_id: Option<String>,
 ) -> Result<Vec<SessionHandle>, AppError> {
-    {
-        let sessions = state.sessions.lock()
-            .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
-        if !sessions.is_empty() {
-            let values = sessions.values().cloned().collect::<Vec<_>>();
-            if let Some(ref pid) = project_id {
-                return Ok(values.into_iter().filter(|s| s.project_path == *pid).collect());
-            }
-            return Ok(values);
-        }
-    }
-
-    let loaded = load_sessions_from_db(&state, project_id.as_deref())?;
-    if loaded.is_empty() {
-        return Ok(loaded);
-    }
-
-    let mut sessions = state.sessions.lock()
-        .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
-    for session in &loaded {
-        sessions.insert(session.id.clone(), session.clone());
-    }
-
-    Ok(loaded)
+    list_sessions_inner(&state, project_id.as_deref())
 }
 
 /// Pause a running session (Unix only)
@@ -531,6 +508,27 @@ fn load_sessions_from_db(state: &AppState, project_id: Option<&str>) -> Result<V
     Ok(sessions)
 }
 
+fn list_sessions_inner(state: &AppState, project_id: Option<&str>) -> Result<Vec<SessionHandle>, AppError> {
+    // Always query SQLite for authoritative list results.
+    let loaded = load_sessions_from_db(state, project_id)?;
+
+    // Keep in-memory cache warm with loaded sessions.
+    let mut sessions = state.sessions.lock()
+        .map_err(|e| AppError::Internal(format!("Lock poisoned: {}", e)))?;
+    for session in &loaded {
+        sessions.insert(session.id.clone(), session.clone());
+    }
+
+    // If unfiltered list requested, prune cache to reflect DB truth.
+    if project_id.is_none() {
+        let loaded_ids: std::collections::HashSet<&str> =
+            loaded.iter().map(|s| s.id.as_str()).collect();
+        sessions.retain(|id, _| loaded_ids.contains(id.as_str()));
+    }
+
+    Ok(loaded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -714,6 +712,52 @@ mod tests {
         let filtered = load_sessions_from_db(&state, Some("/tmp/repo-f1")).unwrap();
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].id, "s-f1");
+    }
+
+    #[test]
+    fn list_sessions_inner_reads_db_when_cache_is_partial() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-p1", "Repo P1", "/tmp/repo-p1"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo-p2", "Repo P2", "/tmp/repo-p2"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-p1", "/tmp/repo-p1", "Session P1", "created", "sonnet", "supervised", "2026-02-07T00:08:00Z"]
+            ).unwrap();
+            db.as_ref().unwrap().execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-p2", "/tmp/repo-p2", "Session P2", "created", "sonnet", "supervised", "2026-02-07T00:09:00Z"]
+            ).unwrap();
+        }
+
+        // Seed cache with only project 1 session.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.insert(
+                "s-p1".to_string(),
+                SessionHandle::new(
+                    "s-p1".to_string(),
+                    "Session P1".to_string(),
+                    "/tmp/repo-p1".to_string(),
+                    None,
+                    "sonnet".to_string(),
+                    "supervised".to_string(),
+                ),
+            );
+        }
+
+        let filtered = list_sessions_inner(&state, Some("/tmp/repo-p2")).unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, "s-p2");
     }
 
     #[test]
