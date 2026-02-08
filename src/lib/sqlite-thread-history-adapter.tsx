@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   RuntimeAdapterProvider,
   useAui,
@@ -7,6 +7,7 @@ import {
   type ThreadHistoryAdapter,
 } from "@assistant-ui/react";
 import { db, type MessageRow } from "@/lib/db";
+import { onTitleReady } from "@/lib/sqlite-thread-list-adapter";
 
 /** Serialize a ThreadMessage into a MessageRow for SQLite storage. */
 function messageToRow(
@@ -58,6 +59,17 @@ export function SQLiteHistoryProvider({
   children?: React.ReactNode;
 }) {
   const aui = useAui();
+
+  // When Haiku finishes generating a title mid-stream, push it into
+  // assistant-ui's state so the sidebar updates immediately.
+  useEffect(() => {
+    return onTitleReady((remoteId, title) => {
+      const state = aui.threadListItem().getState();
+      if (state.remoteId === remoteId) {
+        aui.threadListItem().rename(title);
+      }
+    });
+  }, [aui]);
 
   const history = useMemo<ThreadHistoryAdapter>(
     () => ({

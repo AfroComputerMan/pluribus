@@ -16,6 +16,53 @@ type RemoteThreadMetadata = {
 
 const pendingThreadCwdById = new Map<string, string>();
 
+// --- Title generation (concurrent with main run) ---
+
+/** IDs that already received an AI-generated title via the event channel. */
+const titleAlreadySetForIds = new Set<string>();
+
+type TitleReadyCallback = (remoteId: string, title: string) => void;
+const titleReadyCallbacks = new Set<TitleReadyCallback>();
+
+/** Subscribe to title-ready events. Returns unsubscribe function. */
+export function onTitleReady(cb: TitleReadyCallback): () => void {
+  titleReadyCallbacks.add(cb);
+  return () => { titleReadyCallbacks.delete(cb); };
+}
+
+/**
+ * Fire-and-forget: start generating a title concurrently with the main run.
+ * When the CLI returns, persists to SQLite and notifies subscribers so the
+ * Provider can call `aui.threadListItem().rename()` mid-stream.
+ */
+export function prefetchTitle(remoteId: string, userText: string): void {
+  if (titleAlreadySetForIds.has(remoteId)) return;
+
+  const snippet = userText.slice(0, 500);
+  const prompt = `Generate a concise 3-4 word title for a conversation starting with this message. Return ONLY the title, no quotes or extra punctuation.\n\nMessage: ${snippet}`;
+
+  Command.create("claude", [
+    "-p",
+    prompt,
+    "--model",
+    "claude-haiku-4-5-20251001",
+    "--output-format",
+    "text",
+  ])
+    .execute()
+    .then(async (result) => {
+      if (result.code === 0 && result.stdout.trim()) {
+        const generated = result.stdout.trim();
+        if (generated.length >= 1 && generated.length <= 60) {
+          await db.threads.rename(remoteId, generated);
+          titleAlreadySetForIds.add(remoteId);
+          for (const cb of titleReadyCallbacks) cb(remoteId, generated);
+        }
+      }
+    })
+    .catch(() => { /* CLI unavailable — generateTitle() will use fallback */ });
+}
+
 export function setPendingThreadCwd(threadId: string, cwd: string): void {
   const normalized = cwd.trim();
   if (!normalized) {
@@ -71,6 +118,17 @@ export function createSQLiteThreadListAdapter(): RemoteThreadListAdapter {
     },
 
     async generateTitle(remoteId: string, messages: readonly ThreadMessage[]) {
+      // If the event channel already pushed an AI title mid-stream, just
+      // echo back whatever is persisted — no need to spawn Haiku again.
+      if (titleAlreadySetForIds.has(remoteId)) {
+        const row = await db.threads.get(remoteId);
+        const existing = row?.title ?? "New Thread";
+        return createAssistantStream((controller) => {
+          controller.appendText(existing);
+        });
+      }
+
+      // Fallback: prefetch wasn't triggered or CLI failed silently.
       const firstUserMsg = messages.find((m) => m.role === "user");
       const text =
         firstUserMsg?.content
@@ -78,33 +136,9 @@ export function createSQLiteThreadListAdapter(): RemoteThreadListAdapter {
           .map((c) => c.text)
           .join(" ") ?? "New Thread";
 
-      const fallback = text.length > 50 ? text.slice(0, 47) + "..." : text;
-
-      return createAssistantStream(async (controller) => {
-        let title = fallback;
-        try {
-          const snippet = text.slice(0, 500);
-          const prompt = `Generate a short, descriptive title (max 8 words) for a conversation that starts with this message. Return ONLY the title text, no quotes or punctuation around it.\n\nMessage: ${snippet}`;
-          const result = await Command.create("claude", [
-            "-p",
-            prompt,
-            "--model",
-            "claude-haiku-4-5-20251001",
-            "--output-format",
-            "text",
-          ]).execute();
-
-          if (result.code === 0 && result.stdout.trim()) {
-            const generated = result.stdout.trim();
-            if (generated.length >= 1 && generated.length <= 80) {
-              title = generated;
-            }
-          }
-        } catch {
-          // CLI unavailable or failed — use fallback silently
-        }
-
-        await db.threads.rename(remoteId, title);
+      const title = text.length > 50 ? text.slice(0, 47) + "..." : text;
+      await db.threads.rename(remoteId, title);
+      return createAssistantStream((controller) => {
         controller.appendText(title);
       });
     },

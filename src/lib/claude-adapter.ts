@@ -1,9 +1,40 @@
 import { Command, type Child } from "@tauri-apps/plugin-shell";
-import type { ChatModelAdapter } from "@assistant-ui/react";
+import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
+import type { ReadonlyJSONObject } from "assistant-stream/utils";
 import { db } from "@/lib/db";
 import { queueDevEventForArchive } from "@/lib/dev-event-batcher";
+import { prefetchTitle } from "@/lib/sqlite-thread-list-adapter";
+
+type JsonRecord = Record<string, unknown>;
+
+type ClaudeMessageMetrics = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadInputTokens: number | null;
+  cacheCreationInputTokens: number | null;
+  contextWindow: number | null;
+  contextUsedTokens: number | null;
+  contextLeftBeforeCompaction: number | null;
+  totalTokens: number | null;
+};
 
 type ClaudeStreamEventBase = {
+  index?: number;
+  delta?: {
+    type?: string;
+    text?: string;
+    thinking?: string;
+    partial_json?: string;
+  };
+  content_block?: {
+    type?: string;
+    id?: string;
+    name?: string;
+    tool_name?: string;
+    text?: string;
+    thinking?: string;
+    input?: unknown;
+  };
   subtype?: string;
   is_error?: boolean;
   message?: {
@@ -13,6 +44,11 @@ type ClaudeStreamEventBase = {
       id?: string;
       name?: string;
       tool_name?: string;
+      input?: unknown;
+      thinking?: string;
+      tool_use_id?: string;
+      content?: unknown;
+      result?: unknown;
       is_error?: boolean;
       error?: string;
     }>;
@@ -61,7 +97,25 @@ type ClaudeResultEvent = ClaudeStreamEventBase & {
   result?: string;
 };
 
-type ClaudeStreamEvent = ClaudeSystemEvent | ClaudeAssistantEvent | ClaudeResultEvent;
+type ClaudeContentBlockStartEvent = ClaudeStreamEventBase & {
+  type: "content_block_start";
+};
+
+type ClaudeContentBlockDeltaEvent = ClaudeStreamEventBase & {
+  type: "content_block_delta";
+};
+
+type ClaudeContentBlockStopEvent = ClaudeStreamEventBase & {
+  type: "content_block_stop";
+};
+
+type ClaudeStreamEvent =
+  | ClaudeSystemEvent
+  | ClaudeAssistantEvent
+  | ClaudeResultEvent
+  | ClaudeContentBlockStartEvent
+  | ClaudeContentBlockDeltaEvent
+  | ClaudeContentBlockStopEvent;
 
 const sessionByThread = new Map<string, string>();
 const GLOBAL_THREAD_KEY = "__global__";
@@ -69,10 +123,10 @@ const activeThreadRuns = new Set<string>();
 const pendingThreadRunWaiters = new Map<string, Array<() => void>>();
 const MAX_DEV_EVENTS = 500;
 const THREAD_LOCK_TIMEOUT_MS = 60_000;
-const RUN_TIMEOUT_MS = 120_000;
+const RUN_IDLE_TIMEOUT_MS = 300_000;
 const DEV_LOGS = import.meta.env.DEV;
 const CLAUDE_SHELL_SCRIPT =
-  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --resume "$CLAUDE_SESSION_ID" < /dev/null; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --session-id "$CLAUDE_SESSION_ID" < /dev/null; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose < /dev/null; fi';
+  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --resume "$CLAUDE_SESSION_ID"; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --session-id "$CLAUDE_SESSION_ID"; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose; fi';
 
 export type ClaudeDevEventCategory =
   | "hooks"
@@ -126,6 +180,14 @@ export interface ClaudeSessionRecord {
   lastError: string | null;
 }
 
+export interface ClaudePermissionRequest {
+  id: string;
+  threadKey: string;
+  prompt: string;
+  createdAt: number;
+  resolved: boolean;
+}
+
 const devListeners = new Set<() => void>();
 let devEventSeq = 0;
 let devSnapshot: Omit<ClaudeDevSnapshot, "events"> = {
@@ -152,6 +214,10 @@ const sessionRecords = new Map<string, ClaudeSessionRecord>();
 const sessionListeners = new Set<() => void>();
 const cwdByThread = new Map<string, string>();
 const seenMcpToolUseIds = new Set<string>();
+const activeChildByThread = new Map<string, Child>();
+const permissionRequestById = new Map<string, ClaudePermissionRequest>();
+const permissionRequestsByThread = new Map<string, ClaudePermissionRequest[]>();
+const permissionRequestListeners = new Set<() => void>();
 let sessionRecordsSnapshot: ClaudeSessionRecord[] = [];
 
 let diagRan = false;
@@ -170,6 +236,118 @@ function devWarn(...args: unknown[]): void {
 
 function devError(...args: unknown[]): void {
   console.error(...args);
+}
+
+function notifyPermissionRequestListeners(): void {
+  for (const listener of permissionRequestListeners) {
+    listener();
+  }
+}
+
+function detectPermissionPrompt(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (/\b(y\/n|yes\/no)\b/i.test(trimmed)) return trimmed;
+  if (/allow .*tool/i.test(trimmed)) return trimmed;
+  if (/approve .*request/i.test(trimmed)) return trimmed;
+  if (/permission/i.test(trimmed) && trimmed.endsWith("?")) return trimmed;
+  return null;
+}
+
+function pushPermissionRequest(threadKey: string, prompt: string): void {
+  const existing = permissionRequestsByThread.get(threadKey) ?? [];
+  const hasMatchingPending = existing.some((r) => !r.resolved && r.prompt === prompt);
+  if (hasMatchingPending) return;
+
+  const request: ClaudePermissionRequest = {
+    id: `${threadKey}:${Date.now()}:${existing.length}`,
+    threadKey,
+    prompt,
+    createdAt: Date.now(),
+    resolved: false,
+  };
+  permissionRequestById.set(request.id, request);
+  permissionRequestsByThread.set(threadKey, [...existing, request]);
+  notifyPermissionRequestListeners();
+}
+
+function hasPendingPermissionRequests(threadKey: string): boolean {
+  const entries = permissionRequestsByThread.get(threadKey) ?? [];
+  return entries.some((entry) => !entry.resolved);
+}
+
+function resolveAllPermissionRequestsForThread(threadKey: string): void {
+  const entries = permissionRequestsByThread.get(threadKey) ?? [];
+  let changed = false;
+  const next = entries.map((entry) => {
+    if (entry.resolved) return entry;
+    changed = true;
+    const updated = { ...entry, resolved: true };
+    permissionRequestById.set(updated.id, updated);
+    return updated;
+  });
+  if (!changed) return;
+  permissionRequestsByThread.set(threadKey, next);
+  notifyPermissionRequestListeners();
+}
+
+function resolvePermissionRequest(requestId: string): void {
+  const request = permissionRequestById.get(requestId);
+  if (!request || request.resolved) return;
+
+  const updated: ClaudePermissionRequest = {
+    ...request,
+    resolved: true,
+  };
+  permissionRequestById.set(requestId, updated);
+  const current = permissionRequestsByThread.get(request.threadKey) ?? [];
+  permissionRequestsByThread.set(
+    request.threadKey,
+    current.map((item) => (item.id === requestId ? updated : item)),
+  );
+  notifyPermissionRequestListeners();
+}
+
+const EMPTY_PERMISSION_REQUESTS: ClaudePermissionRequest[] = [];
+const permissionSnapshotCache = new Map<string, ClaudePermissionRequest[]>();
+
+export function getClaudePermissionRequests(threadKey: string | null): ClaudePermissionRequest[] {
+  if (!threadKey) return EMPTY_PERMISSION_REQUESTS;
+  const entries = permissionRequestsByThread.get(threadKey);
+  if (!entries) return EMPTY_PERMISSION_REQUESTS;
+  const pending = entries.filter((entry) => !entry.resolved);
+  if (pending.length === 0) return EMPTY_PERMISSION_REQUESTS;
+
+  // Return cached array if contents haven't changed (same length + same IDs)
+  const cached = permissionSnapshotCache.get(threadKey);
+  if (
+    cached &&
+    cached.length === pending.length &&
+    cached.every((item, i) => item.id === pending[i]!.id && item.resolved === pending[i]!.resolved)
+  ) {
+    return cached;
+  }
+  permissionSnapshotCache.set(threadKey, pending);
+  return pending;
+}
+
+export function subscribeClaudePermissionRequests(listener: () => void): () => void {
+  permissionRequestListeners.add(listener);
+  return () => {
+    permissionRequestListeners.delete(listener);
+  };
+}
+
+export async function respondToClaudePermissionRequest(
+  requestId: string,
+  approved: boolean,
+): Promise<void> {
+  const request = permissionRequestById.get(requestId);
+  if (!request || request.resolved) return;
+  const child = activeChildByThread.get(request.threadKey);
+  if (!child) return;
+  await child.write(`${approved ? "y" : "n"}\n`);
+  resolvePermissionRequest(requestId);
 }
 
 async function runDiagnostics(): Promise<void> {
@@ -381,6 +559,61 @@ function extractMcpServerName(toolName: string): string | null {
   return afterPrefix.slice(0, splitAt);
 }
 
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
+}
+
+function asReadonlyJSONObject(value: unknown): ReadonlyJSONObject {
+  const record = asRecord(value);
+  return (record ?? {}) as ReadonlyJSONObject;
+}
+
+function computeMessageMetrics(event: ClaudeStreamEvent): ClaudeMessageMetrics | null {
+  if (!event.usage && !event.modelUsage) return null;
+
+  const usage = event.usage;
+  const modelEntry = event.modelUsage ? Object.entries(event.modelUsage)[0] : undefined;
+  const modelUsage = modelEntry?.[1];
+
+  const inputTokens = asNumber(usage?.input_tokens) ?? asNumber(modelUsage?.inputTokens);
+  const outputTokens = asNumber(usage?.output_tokens) ?? asNumber(modelUsage?.outputTokens);
+  const cacheReadInputTokens =
+    asNumber(usage?.cache_read_input_tokens) ?? asNumber(modelUsage?.cacheReadInputTokens);
+  const cacheCreationInputTokens =
+    asNumber(usage?.cache_creation_input_tokens) ?? asNumber(modelUsage?.cacheCreationInputTokens);
+  const contextWindow = asNumber(modelUsage?.contextWindow);
+
+  const contextUsedTokens =
+    inputTokens !== null || cacheReadInputTokens !== null || cacheCreationInputTokens !== null
+      ? (inputTokens ?? 0) + (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0)
+      : null;
+  const contextLeftBeforeCompaction =
+    contextWindow !== null && contextUsedTokens !== null
+      ? Math.max(0, contextWindow - contextUsedTokens)
+      : null;
+  const totalTokens =
+    inputTokens !== null || outputTokens !== null
+      ? (inputTokens ?? 0) + (outputTokens ?? 0)
+      : null;
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadInputTokens,
+    cacheCreationInputTokens,
+    contextWindow,
+    contextUsedTokens,
+    contextLeftBeforeCompaction,
+    totalTokens,
+  };
+}
+
 function persistMcpInvocationsFromEvent(
   event: ClaudeStreamEvent,
   threadKey: string,
@@ -547,7 +780,12 @@ function extractUserPrompt(
     .join("\n");
 }
 
-type QueueItem = { text: string } | { done: true } | { error: Error };
+type QueueItem =
+  | {
+      chunk: ChatModelRunResult;
+    }
+  | { done: true }
+  | { error: Error };
 
 function createAsyncQueue() {
   const buffer: QueueItem[] = [];
@@ -615,15 +853,31 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
         adapterOptions?.onUserPrompt?.(prompt);
 
         let knownSessionId = getSessionForThread(threadKey);
+
+        // First message on a new thread — start title generation concurrently
+        if (!knownSessionId) {
+          prefetchTitle(threadKey, prompt);
+        }
+
         let lastAttempt = 0;
 
         while (lastAttempt < 3) {
           lastAttempt += 1;
+          resolveAllPermissionRequestsForThread(threadKey);
 
           const { strategy, sessionId } = chooseSessionStrategy(threadKey, knownSessionId);
           const attemptedSessionId = sessionId;
           const sessionMode = strategy === "resume" ? "resume" : strategy === "session-id" ? "session-id" : "none";
-          const debugArgs = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
+          const debugArgs = [
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--permission-mode",
+            "default",
+            "--verbose",
+          ];
           if (sessionMode === "resume" && sessionId) {
             debugArgs.push("--resume", sessionId);
           } else if (sessionMode === "session-id" && sessionId) {
@@ -647,6 +901,13 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           let sessionInUse = false;
           let latestSessionId: string | null = null;
           let sawAssistantText = false;
+          let sawPartialTextOrReasoning = false;
+          let sawPartialToolCall = false;
+          const emittedToolCallIds = new Set<string>();
+          const partialToolCallByIndex = new Map<
+            number,
+            { toolCallId: string; toolName: string; inputJson: string }
+          >();
           let exitCode: number | null = null;
           let exitSignal: number | null = null;
           let timedOut = false;
@@ -684,6 +945,109 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
                 });
               }
 
+              if (event.type === "content_block_start") {
+                const block = event.content_block;
+                const blockIndex = typeof event.index === "number" ? event.index : -1;
+
+                if (block?.type === "text" && typeof block.text === "string" && block.text) {
+                  sawPartialTextOrReasoning = true;
+                  sawAssistantText = true;
+                  push({
+                    chunk: {
+                      content: [{ type: "text", text: block.text }],
+                    },
+                  });
+                } else if (
+                  (block?.type === "thinking" || block?.type === "reasoning") &&
+                  (typeof block.thinking === "string" || typeof block.text === "string")
+                ) {
+                  sawPartialTextOrReasoning = true;
+                  const reasoningText =
+                    typeof block.thinking === "string"
+                      ? block.thinking
+                      : typeof block.text === "string"
+                        ? block.text
+                        : "";
+                  if (reasoningText) {
+                    sawAssistantText = true;
+                    push({
+                      chunk: {
+                        content: [{ type: "reasoning", text: reasoningText }],
+                      },
+                    });
+                  }
+                } else if (block?.type === "tool_use") {
+                  sawPartialToolCall = true;
+                  const toolCallId = block.id ?? crypto.randomUUID();
+                  const toolName =
+                    typeof block.name === "string"
+                      ? block.name
+                      : typeof block.tool_name === "string"
+                        ? block.tool_name
+                        : "tool";
+                  const args = asReadonlyJSONObject(block.input);
+                  const inputJson = JSON.stringify(args);
+                  partialToolCallByIndex.set(blockIndex, { toolCallId, toolName, inputJson });
+                  emittedToolCallIds.add(toolCallId);
+                  push({
+                    chunk: {
+                      content: [
+                        {
+                          type: "tool-call",
+                          toolCallId,
+                          toolName,
+                          args,
+                          argsText: JSON.stringify(args, null, 2),
+                        },
+                      ],
+                    },
+                  });
+                }
+              } else if (event.type === "content_block_delta") {
+                const deltaType = event.delta?.type;
+                if (deltaType === "text_delta" && typeof event.delta?.text === "string") {
+                  sawPartialTextOrReasoning = true;
+                  sawAssistantText = true;
+                  push({
+                    chunk: {
+                      content: [{ type: "text", text: event.delta.text }],
+                    },
+                  });
+                } else if (
+                  deltaType === "thinking_delta" &&
+                  (typeof event.delta?.thinking === "string" || typeof event.delta?.text === "string")
+                ) {
+                  sawPartialTextOrReasoning = true;
+                  const reasoningText =
+                    typeof event.delta?.thinking === "string"
+                      ? event.delta.thinking
+                      : typeof event.delta?.text === "string"
+                        ? event.delta.text
+                        : "";
+                  if (reasoningText) {
+                    sawAssistantText = true;
+                    push({
+                      chunk: {
+                        content: [{ type: "reasoning", text: reasoningText }],
+                      },
+                    });
+                  }
+                } else if (
+                  deltaType === "input_json_delta" &&
+                  typeof event.delta?.partial_json === "string"
+                ) {
+                  const blockIndex = typeof event.index === "number" ? event.index : -1;
+                  const existing = partialToolCallByIndex.get(blockIndex);
+                  if (existing) {
+                    existing.inputJson += event.delta.partial_json;
+                    partialToolCallByIndex.set(blockIndex, existing);
+                  }
+                }
+              } else if (event.type === "content_block_stop") {
+                const blockIndex = typeof event.index === "number" ? event.index : -1;
+                partialToolCallByIndex.delete(blockIndex);
+              }
+
               // Capture usage snapshots
               if (event.usage || event.modelUsage) {
                 const usage = event.usage;
@@ -703,6 +1067,19 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
                   context_window: modelEntry?.[1]?.contextWindow ?? null,
                   captured_at: new Date().toISOString(),
                 });
+
+                const metrics = computeMessageMetrics(event);
+                if (metrics) {
+                  push({
+                    chunk: {
+                      metadata: {
+                        custom: {
+                          claudeMessageMetrics: metrics,
+                        },
+                      },
+                    },
+                  });
+                }
               }
 
               persistMcpInvocationsFromEvent(event, threadKey, event.session_id ?? latestSessionId);
@@ -733,21 +1110,119 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               if (event.type === "assistant" && event.message?.content) {
                 for (const block of event.message.content) {
                   if (block.type === "text" && block.text) {
+                    if (sawPartialTextOrReasoning) continue;
                     sawAssistantText = true;
-                    push({ text: block.text });
+                    push({
+                      chunk: {
+                        content: [{ type: "text", text: block.text }],
+                      },
+                    });
+                    continue;
+                  }
+
+                  if (
+                    (block.type === "reasoning" || block.type === "thinking") &&
+                    (block.text || block.thinking)
+                  ) {
+                    if (sawPartialTextOrReasoning) continue;
+                    const reasoningText = block.text ?? block.thinking ?? "";
+                    if (!reasoningText) continue;
+                    sawAssistantText = true;
+                    push({
+                      chunk: {
+                        content: [
+                          {
+                            type: "reasoning",
+                            text: reasoningText,
+                            ...(block.id ? { parentId: block.id } : {}),
+                          },
+                        ],
+                      },
+                    });
+                    continue;
+                  }
+
+                  if (block.type === "tool_use") {
+                    if (sawPartialToolCall) continue;
+                    const toolCallId = block.id ?? crypto.randomUUID();
+                    if (emittedToolCallIds.has(toolCallId)) continue;
+                    const toolName =
+                      typeof block.name === "string"
+                        ? block.name
+                        : typeof block.tool_name === "string"
+                          ? block.tool_name
+                          : "tool";
+                    const args = asReadonlyJSONObject(block.input);
+                    const argsText = JSON.stringify(args, null, 2);
+
+                    push({
+                      chunk: {
+                        content: [
+                          {
+                            type: "tool-call",
+                            toolCallId,
+                            toolName,
+                            args,
+                            argsText,
+                          },
+                        ],
+                      },
+                    });
+                    continue;
                   }
                 }
               } else if (event.type === "result" && event.result && !sawAssistantText) {
-                push({ text: event.result });
+                push({
+                  chunk: {
+                    content: [{ type: "text", text: event.result }],
+                  },
+                });
               }
             } catch {
-              // ignore parse errors
+              // Non-JSON lines can include permission prompts.
+              const permissionPrompt = detectPermissionPrompt(trimmed);
+              if (permissionPrompt) {
+                pushPermissionRequest(threadKey, permissionPrompt);
+              }
             }
+          };
+
+          let child: Child | null = null;
+          let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+          let lastActivityAt = Date.now();
+          let lastStdoutAt: number | null = null;
+          let lastStderrAt: number | null = null;
+          let lastStderrLine: string | null = null;
+          let idleTimeoutDetails: string | null = null;
+          const refreshIdleTimeout = () => {
+            if (!child) return;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            timeoutHandle = setTimeout(() => {
+              if (hasPendingPermissionRequests(threadKey)) {
+                devWarn(
+                  "[claude-adapter] idle timeout deferred; waiting on pending permission request",
+                );
+                refreshIdleTimeout();
+                return;
+              }
+              timedOut = true;
+              const idleForMs = Date.now() - lastActivityAt;
+              idleTimeoutDetails =
+                `No stdout/stderr activity for ${idleForMs}ms` +
+                ` (lastStdoutAt=${lastStdoutAt ?? "never"},` +
+                ` lastStderrAt=${lastStderrAt ?? "never"},` +
+                ` lastStderr=${JSON.stringify(lastStderrLine)})`;
+              devWarn("[claude-adapter] idle timeout:", idleTimeoutDetails);
+              void child?.kill();
+            }, RUN_IDLE_TIMEOUT_MS);
           };
 
           let stdoutBuffer = "";
           command.stdout.on("data", (chunk: string) => {
             devLog("[claude-adapter] stdout:", chunk);
+            lastActivityAt = Date.now();
+            lastStdoutAt = lastActivityAt;
+            refreshIdleTimeout();
             stdoutBuffer += chunk;
             const lines = stdoutBuffer.split(/\r?\n/);
             stdoutBuffer = lines.pop() ?? "";
@@ -758,6 +1233,14 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
 
           command.stderr.on("data", (line: string) => {
             devWarn("[claude-adapter] stderr:", line);
+            lastActivityAt = Date.now();
+            lastStderrAt = lastActivityAt;
+            lastStderrLine = line.trim() || lastStderrLine;
+            refreshIdleTimeout();
+            const permissionPrompt = detectPermissionPrompt(line);
+            if (permissionPrompt) {
+              pushPermissionRequest(threadKey, permissionPrompt);
+            }
             if (line.includes("No conversation found with session ID")) {
               missingConversation = true;
               const staleSessionId = attemptedSessionId ?? knownSessionId;
@@ -787,6 +1270,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           command.on("close", (data) => {
             exitCode = data.code;
             exitSignal = data.signal;
+            resolveAllPermissionRequestsForThread(threadKey);
             if (stdoutBuffer.trim()) {
               handleStreamLine(stdoutBuffer);
             }
@@ -800,18 +1284,15 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
 
           command.on("error", (err: string) => {
             devError("[claude-adapter] process error:", err);
+            resolveAllPermissionRequestsForThread(threadKey);
             push({ error: new Error(`Claude CLI error: ${err}`) });
           });
 
-          let child: Child;
-          let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
           try {
             child = await command.spawn();
             devLog("[claude-adapter] spawned pid:", child.pid);
-            timeoutHandle = setTimeout(() => {
-              timedOut = true;
-              void child.kill();
-            }, RUN_TIMEOUT_MS);
+            activeChildByThread.set(threadKey, child);
+            refreshIdleTimeout();
           } catch (err) {
             devError("[claude-adapter] spawn failed:", err);
             throw err;
@@ -820,7 +1301,8 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           const onAbort = () => {
             wasAborted = true;
             if (timeoutHandle) clearTimeout(timeoutHandle);
-            void child.kill();
+            void child?.kill();
+            resolveAllPermissionRequestsForThread(threadKey);
             push({ done: true });
           };
           abortSignal.addEventListener("abort", onAbort, { once: true });
@@ -831,17 +1313,17 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               if ("done" in item) break;
               if ("error" in item) throw item.error;
 
-              yield {
-                content: [{ type: "text" as const, text: item.text }],
-              };
+              yield item.chunk;
             }
           } finally {
+            activeChildByThread.delete(threadKey);
             abortSignal.removeEventListener("abort", onAbort);
             if (timeoutHandle) clearTimeout(timeoutHandle);
           }
 
           if (timedOut) {
-            throw new Error(`Claude CLI timed out after ${RUN_TIMEOUT_MS}ms`);
+            const details = idleTimeoutDetails ? `; ${idleTimeoutDetails}` : "";
+            throw new Error(`Claude CLI idle timeout after ${RUN_IDLE_TIMEOUT_MS}ms${details}`);
           }
 
           if (
@@ -917,10 +1399,14 @@ if (import.meta.hot) {
     sessionByThread.clear();
     cwdByThread.clear();
     seenMcpToolUseIds.clear();
+    activeChildByThread.clear();
+    permissionRequestById.clear();
+    permissionRequestsByThread.clear();
     sessionRecords.clear();
     sessionRecordsSnapshot = [];
     devListeners.clear();
     sessionListeners.clear();
+    permissionRequestListeners.clear();
     devEventsHead = 0;
     devEventsCount = 0;
   });

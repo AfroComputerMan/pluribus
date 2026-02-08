@@ -3,6 +3,11 @@ import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import {
+  getClaudePermissionRequests,
+  respondToClaudePermissionRequest,
+  subscribeClaudePermissionRequests,
+} from "@/lib/claude-adapter";
+import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
   AuiIf,
@@ -10,6 +15,9 @@ import {
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAuiState,
+  type ReasoningGroupProps,
+  type ReasoningMessagePartProps,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
@@ -17,10 +25,11 @@ import {
   CheckIcon,
   CopyIcon,
   DownloadIcon,
+  LoaderCircleIcon,
   MoreHorizontalIcon,
   SquareIcon,
 } from "lucide-react";
-import type { FC } from "react";
+import { type FC, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 export const Thread: FC = () => {
   return (
@@ -47,6 +56,7 @@ export const Thread: FC = () => {
 
         <ThreadPrimitive.ViewportFooter className="aui-thread-viewport-footer sticky bottom-0 mx-auto mt-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible rounded-t-3xl pb-4 md:pb-6">
           <ThreadScrollToBottom />
+          <PermissionApprovalBar />
           <Composer />
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
@@ -102,10 +112,52 @@ const Composer: FC = () => {
   );
 };
 
+const PermissionApprovalBar: FC = () => {
+  const activeThreadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const getSnapshot = useCallback(
+    () => getClaudePermissionRequests(activeThreadId),
+    [activeThreadId],
+  );
+  const requests = useSyncExternalStore(
+    subscribeClaudePermissionRequests,
+    getSnapshot,
+  );
+
+  if (!requests.length) return null;
+  const current = requests[0]!;
+
+  return (
+    <div className="aui-permission-approval-bar flex items-center justify-between rounded-lg border border-border/70 bg-background/95 px-3 py-2 text-sm shadow-sm">
+      <p className="mr-3 line-clamp-2 text-foreground">{current.prompt}</p>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void respondToClaudePermissionRequest(current.id, false);
+          }}
+        >
+          Deny
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => {
+            void respondToClaudePermissionRequest(current.id, true);
+          }}
+        >
+          Approve
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const ComposerAction: FC = () => {
   return (
     <div className="aui-composer-action-wrapper relative mx-2 mb-2 flex items-center justify-between">
-      <div />
+      <RunningElapsed />
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
           <TooltipIconButton
@@ -138,6 +190,41 @@ const ComposerAction: FC = () => {
   );
 };
 
+const RunningElapsed: FC = () => {
+  const isRunning = useAuiState(({ thread }) => thread.isRunning);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    setElapsedSeconds(0);
+    const intervalId = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isRunning]);
+
+  if (!isRunning) return <div />;
+
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  const formatted = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+
+  return (
+    <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+      <LoaderCircleIcon className="size-3.5 animate-spin" />
+      <span>{formatted}</span>
+    </div>
+  );
+};
+
 const MessageError: FC = () => {
   return (
     <MessagePrimitive.Error>
@@ -158,16 +245,76 @@ const AssistantMessage: FC = () => {
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,
+            Reasoning: ReasoningPart,
+            ReasoningGroup,
             tools: { Fallback: ToolFallback },
           }}
         />
         <MessageError />
       </div>
 
-      <div className="aui-assistant-message-footer mt-1 ml-2 flex">
+      <div className="aui-assistant-message-footer mt-1 ml-2 flex items-center gap-3">
         <AssistantActionBar />
+        <AssistantMessageMetrics />
       </div>
     </MessagePrimitive.Root>
+  );
+};
+
+const ReasoningGroup: FC<ReasoningGroupProps> = ({ children }) => {
+  return (
+    <details
+      open
+      className="aui-reasoning-group my-2 overflow-hidden rounded-lg border border-border/60 bg-muted/30"
+    >
+      <summary className="cursor-pointer px-3 py-2 font-medium text-muted-foreground text-xs">
+        Claude thinking
+      </summary>
+      <div className="px-3 pb-3">{children}</div>
+    </details>
+  );
+};
+
+const ReasoningPart: FC<ReasoningMessagePartProps> = () => {
+  return (
+    <div className="aui-reasoning-part text-muted-foreground text-sm">
+      <MarkdownText />
+    </div>
+  );
+};
+
+type ClaudeMessageMetrics = {
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  contextLeftBeforeCompaction?: number | null;
+};
+
+function formatInt(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  return value.toLocaleString();
+}
+
+const AssistantMessageMetrics: FC = () => {
+  const metrics = useAuiState(
+    ({ message }) =>
+      (message.metadata.custom?.claudeMessageMetrics as ClaudeMessageMetrics | undefined) ??
+      undefined,
+  );
+
+  if (!metrics) return null;
+
+  const inputTokens = typeof metrics.inputTokens === "number" ? metrics.inputTokens : null;
+  const outputTokens = typeof metrics.outputTokens === "number" ? metrics.outputTokens : null;
+  const totalTokens =
+    inputTokens !== null || outputTokens !== null
+      ? (inputTokens ?? 0) + (outputTokens ?? 0)
+      : null;
+
+  return (
+    <div className="aui-assistant-message-metrics text-muted-foreground text-xs">
+      Tokens: {formatInt(totalTokens)} | Context left:{" "}
+      {formatInt(metrics.contextLeftBeforeCompaction)}
+    </div>
   );
 };
 
