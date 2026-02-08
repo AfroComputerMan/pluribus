@@ -197,6 +197,7 @@ pub async fn resume_session(
 }
 
 /// Create a new session (AppState + SQLite row)
+/// If `useWorktree` is true, creates a git worktree before returning.
 #[tauri::command]
 pub async fn create_session(
     state: State<'_, AppState>,
@@ -211,14 +212,33 @@ pub async fn create_session(
     let max_budget_usd = input.get("maxBudgetUsd").and_then(|v| v.as_f64());
     let system_prompt_append = input.get("systemPromptAppend").and_then(|v| v.as_str()).map(|s| s.to_string());
     let allowed_tools = input.get("allowedTools").map(|v| v.to_string());
+    let use_worktree = input.get("useWorktree").and_then(|v| v.as_bool()).unwrap_or(false);
+    let base_branch = input.get("baseBranch").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let resolved_project_path = resolve_project_path(&state, &project_id)?;
+
+    // Optionally create worktree
+    let (worktree_path, worktree_branch) = if use_worktree && !resolved_project_path.is_empty() {
+        match crate::worktree::manager::WorktreeManager::create(
+            &resolved_project_path,
+            &session_id,
+            base_branch.as_deref(),
+        ).await {
+            Ok(info) => (Some(info.path), Some(info.branch)),
+            Err(e) => {
+                eprintln!("[Session {}] Worktree creation failed, proceeding without: {}", session_id, e);
+                (None, None)
+            }
+        }
+    } else {
+        (None, None)
+    };
 
     let session = SessionHandle::new(
         session_id.clone(),
         name.clone(),
         resolved_project_path,
-        None,
+        worktree_path.clone(),
         model.clone(),
         autonomy_level.clone(),
     );
@@ -233,7 +253,7 @@ pub async fn create_session(
     // Insert into SQLite
     state.with_db(|conn| {
         conn.execute(
-            "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, max_turns, max_budget_usd, system_prompt_append, allowed_tools) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, worktree_path, worktree_branch, max_turns, max_budget_usd, system_prompt_append, allowed_tools) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
                 &session_id,
                 &project_id,
@@ -241,6 +261,8 @@ pub async fn create_session(
                 "created",
                 &model,
                 &autonomy_level,
+                &worktree_path,
+                &worktree_branch,
                 max_turns,
                 max_budget_usd,
                 system_prompt_append,

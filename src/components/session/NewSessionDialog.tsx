@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/common';
 import { useSettingsStore } from '@/stores/settingsStore';
-import type { CreateSessionInput } from '@/ipc/commands';
+import { projectCommands, type CreateSessionInput, type Project } from '@/ipc/commands';
 
 interface NewSessionDialogProps {
   isOpen: boolean;
@@ -20,19 +20,46 @@ export function NewSessionDialog({ isOpen, onClose, onSubmit }: NewSessionDialog
   const defaultAutonomy = useSettingsStore((s) => s.autonomyLevel);
 
   const [name, setName] = useState(defaultSessionName);
-  const [projectPath, setProjectPath] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [newProjectPath, setNewProjectPath] = useState('');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectError, setProjectError] = useState('');
   const [model, setModel] = useState<string>(defaultModel);
   const [autonomyLevel, setAutonomyLevel] = useState<'ask' | 'supervised' | 'autonomous'>(defaultAutonomy);
   const [useWorktree, setUseWorktree] = useState(true);
   const [budgetLimit, setBudgetLimit] = useState('');
   const [maxTurns, setMaxTurns] = useState('');
 
+  useEffect(() => {
+    if (isOpen) {
+      projectCommands.list().then(setProjects).catch(() => {});
+      setName(defaultSessionName());
+      setSelectedProjectId('');
+      setNewProjectPath('');
+      setProjectError('');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const handleOpenNewProject = async () => {
+    if (!newProjectPath.trim()) return;
+    setProjectError('');
+    try {
+      const project = await projectCommands.open(newProjectPath.trim());
+      setProjects((prev) => [project, ...prev.filter((p) => p.id !== project.id)]);
+      setSelectedProjectId(project.id);
+      setNewProjectPath('');
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const projectId = selectedProjectId || newProjectPath.trim() || 'default';
     onSubmit({
-      projectId: projectPath || 'default',
+      projectId,
       name,
       model,
       autonomyLevel,
@@ -71,14 +98,39 @@ export function NewSessionDialog({ isOpen, onClose, onSubmit }: NewSessionDialog
           </div>
 
           <div>
-            <label className={labelClass}>Project Path</label>
-            <input
-              type="text"
-              value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-              placeholder="/path/to/project"
+            <label className={labelClass}>Project</label>
+            <select
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
               className={inputClass}
-            />
+            >
+              <option value="">-- Select a project --</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.path})
+                </option>
+              ))}
+            </select>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={newProjectPath}
+                onChange={(e) => setNewProjectPath(e.target.value)}
+                placeholder="Or enter a new project path..."
+                className={inputClass}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleOpenNewProject}
+                disabled={!newProjectPath.trim()}
+              >
+                Open
+              </Button>
+            </div>
+            {projectError && (
+              <p className="mt-1 text-xs text-red-500">{projectError}</p>
+            )}
           </div>
 
           <div>
