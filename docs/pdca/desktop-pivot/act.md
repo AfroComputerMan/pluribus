@@ -42,7 +42,23 @@
 - **Solution**: Centralize into a single `utc_datetime_now()` function producing `YYYY-MM-DD HH:MM:SS` (matching SQLite's `datetime('now')`)
 - **Benefits**: Consistent ordering, predictable display, no mixed epoch-seconds / human-readable formats
 
-#### Pattern 6: Triple Schema Consistency
+#### Pattern 6: DB Access Helper
+- **Context**: Multiple Tauri commands need to access SQLite through Arc<Mutex<Option<Connection>>>
+- **Solution**: `AppState::with_db(|conn| { ... })` helper method handles lock acquisition and Option unwrap
+- **Benefits**: Eliminates 4-line boilerplate per DB access, ensures consistent error messages, makes DB access one-liners
+- **Key Insight**: The closure pattern works well because all DB access is synchronous (rusqlite is not async)
+
+#### Pattern 7: Shared Row Mappers
+- **Context**: Multiple functions need to map rusqlite rows to the same struct
+- **Solution**: Extract `fn session_row_mapper(row: &Row) -> rusqlite::Result<SessionHandle>` as a standalone function
+- **Benefits**: Single source of truth for column-to-field mapping, enables use with both `query_row` and `query_map`
+
+#### Pattern 8: Enum String Conversion
+- **Context**: SessionStatus needs to roundtrip through SQLite as lowercase strings
+- **Solution**: `as_str()` and `parse()` methods on the enum instead of scattered match blocks
+- **Benefits**: Centralized conversion logic, impossible to miss a variant when adding new statuses
+
+#### Pattern 9: Triple Schema Consistency
 - **Context**: Schema defined in 3 places: Drizzle TS, migration SQL, Rust `init_db`
 - **Solution**: Keep all 3 in sync; add indexes/constraints to all 3 simultaneously
 - **Risk**: Schema drift between TS and Rust sides is easy and has no automated check
