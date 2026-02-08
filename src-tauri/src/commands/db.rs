@@ -16,21 +16,18 @@ pub async fn execute_sql(
     sql: String,
     params: Vec<serde_json::Value>,
 ) -> Result<serde_json::Value, AppError> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let db = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+    state.with_db(|conn| {
+        let rusqlite_params = json_to_rusqlite_params(&params);
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = rusqlite_params
+            .iter()
+            .map(|p| p as &dyn rusqlite::types::ToSql)
+            .collect();
 
-    let rusqlite_params = json_to_rusqlite_params(&params);
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = rusqlite_params
-        .iter()
-        .map(|p| p as &dyn rusqlite::types::ToSql)
-        .collect();
+        let rows_affected = conn.execute(&sql, param_refs.as_slice())
+            .map_err(|e| AppError::Database(format!("SQL execute error: {}", e)))?;
 
-    let rows_affected = db.execute(&sql, param_refs.as_slice())
-        .map_err(|e| AppError::Database(format!("SQL execute error: {}", e)))?;
-
-    Ok(serde_json::json!({ "rowsAffected": rows_affected }))
+        Ok(serde_json::json!({ "rowsAffected": rows_affected }))
+    })
 }
 
 /// Execute a read SQL statement (SELECT) and return rows as arrays of values.
@@ -41,39 +38,30 @@ pub async fn select_sql(
     sql: String,
     params: Vec<serde_json::Value>,
 ) -> Result<Vec<Vec<serde_json::Value>>, AppError> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let db = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+    state.with_db(|conn| {
+        let rusqlite_params = json_to_rusqlite_params(&params);
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = rusqlite_params
+            .iter()
+            .map(|p| p as &dyn rusqlite::types::ToSql)
+            .collect();
 
-    let rusqlite_params = json_to_rusqlite_params(&params);
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> = rusqlite_params
-        .iter()
-        .map(|p| p as &dyn rusqlite::types::ToSql)
-        .collect();
+        let mut stmt = conn.prepare(&sql)
+            .map_err(|e| AppError::Database(format!("SQL prepare error: {}", e)))?;
 
-    let mut stmt = db.prepare(&sql)
-        .map_err(|e| AppError::Database(format!("SQL prepare error: {}", e)))?;
+        let column_count = stmt.column_count();
 
-    let column_count = stmt.column_count();
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            let mut values = Vec::with_capacity(column_count);
+            for i in 0..column_count {
+                values.push(row_value_to_json(row, i));
+            }
+            Ok(values)
+        })
+        .map_err(|e| AppError::Database(format!("SQL query error: {}", e)))?;
 
-    let rows = stmt.query_map(param_refs.as_slice(), |row| {
-        let mut values = Vec::with_capacity(column_count);
-        for i in 0..column_count {
-            let value = row_value_to_json(row, i);
-            values.push(value);
-        }
-        Ok(values)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Database(format!("Row read error: {}", e)))
     })
-    .map_err(|e| AppError::Database(format!("SQL query error: {}", e)))?;
-
-    let mut result = Vec::new();
-    for row in rows {
-        let row = row.map_err(|e| AppError::Database(format!("Row read error: {}", e)))?;
-        result.push(row);
-    }
-
-    Ok(result)
 }
 
 /// Wrapper enum for owned rusqlite parameter values
@@ -116,7 +104,6 @@ fn json_to_rusqlite_params(params: &[serde_json::Value]) -> Vec<OwnedValue> {
 
 /// Convert a rusqlite row column to a serde_json::Value
 fn row_value_to_json(row: &rusqlite::Row, idx: usize) -> serde_json::Value {
-    // Try each type in order of likelihood
     if let Ok(v) = row.get::<_, Option<i64>>(idx) {
         match v {
             Some(i) => serde_json::Value::Number(i.into()),

@@ -1,89 +1,10 @@
-use crate::error::{AppError, AppResult};
-use crate::state::{SessionHandle, SessionStatus};
+use crate::state::SessionHandle;
 
-/// Session state machine transitions
+/// Session utility methods
 impl SessionHandle {
-    /// Transition to Running state
-    pub fn transition_to_running(&mut self) -> AppResult<()> {
-        match self.status {
-            SessionStatus::Created => {
-                self.status = SessionStatus::Running;
-                Ok(())
-            }
-            SessionStatus::Paused => {
-                self.status = SessionStatus::Running;
-                Ok(())
-            }
-            SessionStatus::Completed | SessionStatus::Failed => {
-                // Allow resuming completed/failed sessions
-                self.status = SessionStatus::Running;
-                Ok(())
-            }
-            _ => Err(AppError::InvalidInput(format!(
-                "Cannot transition from {:?} to Running",
-                self.status
-            ))),
-        }
-    }
-
-    /// Transition to Completed state
-    pub fn transition_to_completed(&mut self) -> AppResult<()> {
-        match self.status {
-            SessionStatus::Running => {
-                self.status = SessionStatus::Completed;
-                Ok(())
-            }
-            _ => Err(AppError::InvalidInput(format!(
-                "Cannot transition from {:?} to Completed",
-                self.status
-            ))),
-        }
-    }
-
-    /// Transition to Failed state
-    pub fn transition_to_failed(&mut self) -> AppResult<()> {
-        match self.status {
-            SessionStatus::Running => {
-                self.status = SessionStatus::Failed;
-                Ok(())
-            }
-            _ => Err(AppError::InvalidInput(format!(
-                "Cannot transition from {:?} to Failed",
-                self.status
-            ))),
-        }
-    }
-
-    /// Transition to Killed state
-    pub fn transition_to_killed(&mut self) -> AppResult<()> {
-        match self.status {
-            SessionStatus::Running | SessionStatus::Paused => {
-                self.status = SessionStatus::Killed;
-                Ok(())
-            }
-            _ => Err(AppError::InvalidInput(format!(
-                "Cannot transition from {:?} to Killed",
-                self.status
-            ))),
-        }
-    }
-
-    /// Transition to Paused state
-    pub fn transition_to_paused(&mut self) -> AppResult<()> {
-        match self.status {
-            SessionStatus::Running => {
-                self.status = SessionStatus::Paused;
-                Ok(())
-            }
-            _ => Err(AppError::InvalidInput(format!(
-                "Cannot transition from {:?} to Paused",
-                self.status
-            ))),
-        }
-    }
-
     /// Check if session can be resumed
     pub fn can_resume(&self) -> bool {
+        use crate::state::SessionStatus;
         matches!(
             self.status,
             SessionStatus::Paused | SessionStatus::Completed | SessionStatus::Failed
@@ -92,11 +13,13 @@ impl SessionHandle {
 
     /// Check if session is active
     pub fn is_active(&self) -> bool {
+        use crate::state::SessionStatus;
         matches!(self.status, SessionStatus::Running | SessionStatus::Paused)
     }
 
     /// Check if session is terminal
     pub fn is_terminal(&self) -> bool {
+        use crate::state::SessionStatus;
         matches!(
             self.status,
             SessionStatus::Completed | SessionStatus::Failed | SessionStatus::Killed
@@ -112,6 +35,7 @@ impl SessionHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::SessionStatus;
 
     fn create_test_session() -> SessionHandle {
         SessionHandle::new(
@@ -122,69 +46,6 @@ mod tests {
             "claude-opus-4".to_string(),
             "autonomous".to_string(),
         )
-    }
-
-    #[test]
-    fn test_created_to_running() {
-        let mut session = create_test_session();
-        assert_eq!(session.status, SessionStatus::Created);
-        assert!(session.transition_to_running().is_ok());
-        assert_eq!(session.status, SessionStatus::Running);
-    }
-
-    #[test]
-    fn test_running_to_completed() {
-        let mut session = create_test_session();
-        session.status = SessionStatus::Running;
-        assert!(session.transition_to_completed().is_ok());
-        assert_eq!(session.status, SessionStatus::Completed);
-    }
-
-    #[test]
-    fn test_running_to_failed() {
-        let mut session = create_test_session();
-        session.status = SessionStatus::Running;
-        assert!(session.transition_to_failed().is_ok());
-        assert_eq!(session.status, SessionStatus::Failed);
-    }
-
-    #[test]
-    fn test_running_to_killed() {
-        let mut session = create_test_session();
-        session.status = SessionStatus::Running;
-        assert!(session.transition_to_killed().is_ok());
-        assert_eq!(session.status, SessionStatus::Killed);
-    }
-
-    #[test]
-    fn test_running_to_paused() {
-        let mut session = create_test_session();
-        session.status = SessionStatus::Running;
-        assert!(session.transition_to_paused().is_ok());
-        assert_eq!(session.status, SessionStatus::Paused);
-    }
-
-    #[test]
-    fn test_paused_to_running() {
-        let mut session = create_test_session();
-        session.status = SessionStatus::Paused;
-        assert!(session.transition_to_running().is_ok());
-        assert_eq!(session.status, SessionStatus::Running);
-    }
-
-    #[test]
-    fn test_completed_to_running() {
-        let mut session = create_test_session();
-        session.status = SessionStatus::Completed;
-        assert!(session.transition_to_running().is_ok());
-        assert_eq!(session.status, SessionStatus::Running);
-    }
-
-    #[test]
-    fn test_invalid_transition() {
-        let mut session = create_test_session();
-        session.status = SessionStatus::Completed;
-        assert!(session.transition_to_failed().is_err());
     }
 
     #[test]

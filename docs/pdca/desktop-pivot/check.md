@@ -26,7 +26,7 @@
 | Test coverage (overall) | >= 70% | TBD | - | Not measured for full app yet |
 | Test coverage (NDJSON parser) | >= 90% | 93.04% lines | Pass | `bun test src/lib/ndjson-parser.test.ts` |
 | Test coverage (IPC layer) | >= 85% | 56 tests, 3 files (channels, commands, events) | Pass | All sentinels, command wrappers, event listeners tested |
-| Rust LOC | < 1000 | 2019 | Risk | Current implementation exceeds target; consider refactor/scope trim in later phase |
+| Rust LOC | < 1000 | 2431 (1997 prod + 434 test) | Risk | Reduced from 2612 via with_db helper, dead code removal, shared row mappers |
 | Frontend bundle size | < 2 MB | TBD | - | WebView assets |
 | Binary size (total) | < 15 MB | TBD | - | Tauri build output |
 | SQLite tables | 7 | 7 | Pass | Created in `AppState::init_db` + TS schema |
@@ -125,13 +125,96 @@
 
 ---
 
+## Database Audit Findings (2026-02-08)
+
+### Schema Consistency
+- All three schema definitions (Drizzle TypeScript, TS migration SQL, Rust `init_db`) are now consistent across column names, types, defaults, foreign keys, and constraints.
+
+### Issues Found and Fixed
+
+| Issue | Severity | Fix Applied |
+|-------|----------|-------------|
+| `PRAGMA foreign_keys` not enabled | Critical | Added to Rust `init_db` and TS `runMigrations` |
+| Missing index on `tasks(team_id)` | Medium | Added to all 3 schema definitions + migration v2 |
+| Missing index on `usage_records(session_id)` | Medium | Added to all 3 schema definitions + migration v2 |
+| Timestamp format inconsistency in `SessionHandle::new()` | Medium | Replaced epoch-seconds with `utc_datetime_now()` producing `YYYY-MM-DD HH:MM:SS` |
+| Duplicate `chrono_now` in `project.rs` | Low | Consolidated into shared `utc_datetime_now()` in `state.rs` |
+| `load_sessions_from_db` lifetime error | Blocker | Restructured to avoid `pid` borrow escaping `if let` scope |
+| Cascade delete test missing | Low | Added `foreign_keys_enabled_cascade_deletes_messages` test |
+
+### Audit Results Summary
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Schema consistency (TS vs Rust) | Pass | All definitions match after fixes |
+| Index strategy | Pass | All frequently-filtered columns now indexed |
+| Query safety (SQL injection) | Pass | All queries use parameterized statements |
+| WAL mode enabled | Pass | Set in `init_db` |
+| Foreign key enforcement | Pass (fixed) | Was OFF, now enabled via PRAGMA |
+| Migration version tracking | Pass | `_migrations` table with version tracking |
+| Migration atomicity | Risk | No transaction wrapping; partial failures leave DB in inconsistent state |
+| Migration rollback | N/A | Not supported; acceptable for additive-only DDL |
+| UUID generation | Pass | Both sides use UUID v4 |
+| Timestamp handling | Pass (fixed) | All timestamps now UTC `YYYY-MM-DD HH:MM:SS` format |
+| Concurrency model | Pass | Mutex serializes writes; WAL enables concurrent reads |
+| Cascade deletes | Pass (fixed) | Now enforced via `PRAGMA foreign_keys = ON`; tested |
+
+---
+
+## Rust Code Quality Audit (2026-02-08)
+
+### Improvements Applied
+
+| Change | Files | LOC Impact | Notes |
+|--------|-------|------------|-------|
+| `AppState::with_db()` helper | state.rs, chat.rs, project.rs, db.rs, manager.rs | -40 | Eliminated 12+ repeated lock+unwrap patterns |
+| `SessionStatus::as_str()` / `::parse()` | state.rs, chat.rs, manager.rs | -15 | Consolidated scattered match blocks |
+| Shared `session_row_mapper` | chat.rs | -20 | Deduplicated row mapping between load_session/load_sessions |
+| Shared `project_row_mapper` | project.rs | -15 | Deduplicated 3x row mapping |
+| Removed dead `transition_to_*` methods | session.rs | -138 | 5 unused state machine methods + 7 tests; status set directly in production |
+| `Clone` impl moved to state.rs | state.rs (from manager.rs) | 0 | Where it belongs |
+| Fixed `unwrap()` in cleanup spawn | manager.rs | 0 | `unwrap()` -> `if let Ok(...)` |
+| `.collect()` instead of manual loop | project.rs, chat.rs, db.rs | -10 | Idiomatic Rust |
+
+### Error Handling Audit
+
+| Pattern | Count | Status |
+|---------|-------|--------|
+| `unwrap()` in production handlers | 0 | Pass (was 2, fixed via `utc_datetime_now` and cleanup spawn) |
+| `unwrap()` in tests | many | Acceptable |
+| `unwrap()` in `lib.rs::run()` setup | 3 | Acceptable (app-fatal setup errors) |
+| Proper `AppError` propagation | All paths | Pass |
+
+### Process Safety Audit
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Process group kill (`-pid`) | Pass | `libc::kill(-(pid as i32), SIGTERM)` in `abort_session` |
+| `setsid()` on spawn | Pass | Creates new process group via `pre_exec` |
+| SIGSTOP/SIGCONT for pause/resume | Pass | Unix-only with `#[cfg(unix)]` |
+| Cleanup spawn handles lock poison | Pass (fixed) | Was `unwrap()`, now `if let Ok(...)` |
+| stdin returned after use | Pass | Take-use-put pattern in `send_to_stdin` |
+
+### Concurrency Audit
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| No lock held across `.await` | Pass | stdin take/put pattern avoids this |
+| Lock duration minimized | Pass | All locks scoped in blocks |
+| Deadlock potential (lock ordering) | Low risk | sessions/processes/db never nested in same scope |
+| Poisoned lock handling | Pass | All `lock()` calls use `map_err` |
+
+---
+
 ## What Worked Well
 
 ### Technical Decisions
-*To be documented after implementation*
+- Drizzle sqlite-proxy pattern provides strong type safety while keeping SQL execution in Rust.
+- WAL mode was correctly enabled from the start.
+- All SQL queries use parameterized statements throughout.
 
 ### Reuse Strategy
-*To be documented — how well did the 60-70% reuse target hold up?*
+*To be documented -- how well did the 60-70% reuse target hold up?*
 
 ### Development Process
 *To be documented*
@@ -144,6 +227,8 @@
 - ~~Tauri build macro currently fails before command wiring is validated because icon assets are missing (`generate_context!` hard requirement).~~ Resolved: icons generated and `cargo check` passes.
 - Single workspace `tsconfig.json` currently mixes backend Bun code and desktop React/Tauri code; this causes noisy typecheck failures and masks true desktop regressions.
 - Environment-level network restriction prevented dependency installation (`bun add` failed with `ConnectionRefused`), so desktop compile checks cannot fully run yet.
+- SQLite foreign keys were silently disabled (SQLite defaults `PRAGMA foreign_keys` to OFF), meaning cascade deletes and referential integrity were not enforced.
+- Rust-side timestamp generation used epoch seconds while SQLite `datetime('now')` produced human-readable format, creating inconsistent data.
 
 ### Process Issues
 *To be documented during implementation*

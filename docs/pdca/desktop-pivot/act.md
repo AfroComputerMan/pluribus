@@ -31,6 +31,23 @@
 - **Benefits**: Full Drizzle query builder, schema migration, type safety
 - **Expected Location**: `docs/patterns/drizzle-sqlite-proxy.md`
 
+#### Pattern 4: SQLite Safety Pragmas
+- **Context**: SQLite defaults to foreign keys OFF and journal mode DELETE
+- **Solution**: Always set `PRAGMA journal_mode=WAL` and `PRAGMA foreign_keys = ON` at connection time
+- **Benefits**: Cascade deletes work, referential integrity enforced, concurrent reads possible during writes
+- **Lesson**: Schema `REFERENCES` / `ON DELETE CASCADE` clauses are decorative without `PRAGMA foreign_keys = ON`
+
+#### Pattern 5: Consistent Timestamp Format
+- **Context**: Multiple code paths generate timestamps (Rust `SystemTime`, SQLite `datetime('now')`, TypeScript)
+- **Solution**: Centralize into a single `utc_datetime_now()` function producing `YYYY-MM-DD HH:MM:SS` (matching SQLite's `datetime('now')`)
+- **Benefits**: Consistent ordering, predictable display, no mixed epoch-seconds / human-readable formats
+
+#### Pattern 6: Triple Schema Consistency
+- **Context**: Schema defined in 3 places: Drizzle TS, migration SQL, Rust `init_db`
+- **Solution**: Keep all 3 in sync; add indexes/constraints to all 3 simultaneously
+- **Risk**: Schema drift between TS and Rust sides is easy and has no automated check
+- **Future Plan**: Consider generating Rust CREATE TABLE from Drizzle schema, or single-source-of-truth approach
+
 ---
 
 ## Learnings → Global Rules
