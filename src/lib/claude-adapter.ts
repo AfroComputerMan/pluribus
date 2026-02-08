@@ -1,14 +1,6 @@
 import { Command } from "@tauri-apps/plugin-shell";
 import type { ChatModelAdapter } from "@assistant-ui/react";
 
-/**
- * Event shape emitted by `claude --output-format stream-json`.
- *
- * The CLI emits newline-delimited JSON with these event types:
- * - `system`    – session metadata (session_id)
- * - `assistant` – incremental content blocks (full text per block, not deltas)
- * - `result`    – final complete response text
- */
 interface ClaudeStreamEvent {
   type: string;
   subtype?: string;
@@ -17,6 +9,7 @@ interface ClaudeStreamEvent {
   cost_usd?: number;
   session_id?: string;
   thread_id?: string;
+  cwd?: string;
   tools?: string[];
   mcp_servers?: Array<{ name?: string; status?: string }>;
   slash_commands?: string[];
@@ -39,9 +32,9 @@ interface ClaudeStreamEvent {
     }
   >;
   total_cost_usd?: number;
+  errors?: string[];
 }
 
-/** Tracks Claude session IDs by assistant-ui thread ID (plus a global fallback). */
 const sessionByThread = new Map<string, string>();
 const GLOBAL_THREAD_KEY = "__global__";
 const STORAGE_KEY_PREFIX = "claude-adapter:session:";
@@ -74,6 +67,33 @@ export interface ClaudeDevSnapshot {
   latestSessionId: string | null;
 }
 
+export interface ClaudeAdapterOptions {
+  threadKey?: string;
+  onUserPrompt?: (prompt: string) => void;
+}
+
+export type ClaudeSessionStatus =
+  | "unknown"
+  | "resume_ok"
+  | "stale"
+  | "in_use"
+  | "session_id_ok"
+  | "fallback_new"
+  | "error";
+
+export type ClaudeSessionLocalCache = "unknown" | "present" | "missing";
+
+export interface ClaudeSessionRecord {
+  threadKey: string;
+  sessionId: string;
+  status: ClaudeSessionStatus;
+  localCache: ClaudeSessionLocalCache;
+  strategy: "resume" | "session-id" | "none";
+  lastCheckedAt: number | null;
+  lastUpdatedAt: number;
+  lastError: string | null;
+}
+
 const devListeners = new Set<() => void>();
 let devEventSeq = 0;
 let devSnapshot: ClaudeDevSnapshot = {
@@ -83,20 +103,19 @@ let devSnapshot: ClaudeDevSnapshot = {
   latestSessionId: null,
 };
 
-/** Whether we've already run the one-time PATH diagnostic. */
+const sessionRecords = new Map<string, ClaudeSessionRecord>();
+const sessionListeners = new Set<() => void>();
+const cwdByThread = new Map<string, string>();
+let sessionRecordsSnapshot: ClaudeSessionRecord[] = [];
+
 let diagRan = false;
 
-/**
- * Runs a one-time diagnostic to log the Tauri process PATH,
- * locate the `claude` binary, and verify it responds to --version.
- */
 async function runDiagnostics(): Promise<void> {
   if (diagRan) return;
   diagRan = true;
 
   console.log("[claude-diag] Running environment diagnostics...");
 
-  // 1. Print PATH and locate claude
   const pathCmd = Command.create("sh", [
     "-c",
     "echo PATH=$PATH && echo '---' && which claude 2>&1 && echo '---' && claude --version 2>&1",
@@ -122,10 +141,6 @@ async function runDiagnostics(): Promise<void> {
   }
 }
 
-/**
- * Resets the stored Claude CLI session ID.
- * Call this when starting a fresh conversation thread.
- */
 export function resetClaudeSession(): void {
   sessionByThread.clear();
   clearPersistedSession(GLOBAL_THREAD_KEY);
@@ -158,7 +173,7 @@ function persistSession(threadKey: string, id: string): void {
   try {
     window.localStorage.setItem(getStorageKey(threadKey), id);
   } catch {
-    // Ignore storage failures (private mode, quota, etc.).
+    // ignore
   }
 }
 
@@ -167,8 +182,38 @@ function clearPersistedSession(threadKey: string): void {
   try {
     window.localStorage.removeItem(getStorageKey(threadKey));
   } catch {
-    // Ignore storage failures.
+    // ignore
   }
+}
+
+function notifySessionListeners(): void {
+  sessionRecordsSnapshot = Array.from(sessionRecords.values()).sort(
+    (a, b) => b.lastUpdatedAt - a.lastUpdatedAt,
+  );
+  for (const listener of sessionListeners) {
+    listener();
+  }
+}
+
+function upsertSessionRecord(
+  threadKey: string,
+  sessionId: string,
+  patch: Partial<ClaudeSessionRecord>,
+): void {
+  const current = sessionRecords.get(threadKey);
+  const next: ClaudeSessionRecord = {
+    threadKey,
+    sessionId,
+    status: current?.status ?? "unknown",
+    localCache: current?.localCache ?? "unknown",
+    strategy: current?.strategy ?? "none",
+    lastCheckedAt: current?.lastCheckedAt ?? null,
+    lastUpdatedAt: Date.now(),
+    lastError: current?.lastError ?? null,
+    ...patch,
+  };
+  sessionRecords.set(threadKey, next);
+  notifySessionListeners();
 }
 
 function getSessionForThread(threadKey: string): string | null {
@@ -201,6 +246,28 @@ function setSessionForThread(threadKey: string, id: string): void {
   if (threadKey !== GLOBAL_THREAD_KEY && !sessionByThread.has(GLOBAL_THREAD_KEY)) {
     sessionByThread.set(GLOBAL_THREAD_KEY, id);
     persistSession(GLOBAL_THREAD_KEY, id);
+  }
+
+  upsertSessionRecord(threadKey, id, {
+    status: "unknown",
+    localCache: "unknown",
+    strategy: "none",
+    lastError: null,
+  });
+}
+
+function clearSessionForThread(threadKey: string): void {
+  const prior = sessionByThread.get(threadKey) ?? readPersistedSession(threadKey) ?? null;
+
+  sessionByThread.delete(threadKey);
+  clearPersistedSession(threadKey);
+
+  const global =
+    sessionByThread.get(GLOBAL_THREAD_KEY) ?? readPersistedSession(GLOBAL_THREAD_KEY) ?? null;
+
+  if (threadKey === GLOBAL_THREAD_KEY || (prior && global === prior)) {
+    sessionByThread.delete(GLOBAL_THREAD_KEY);
+    clearPersistedSession(GLOBAL_THREAD_KEY);
   }
 }
 
@@ -275,6 +342,79 @@ export function clearClaudeDevSnapshot(): void {
   notifyDevListeners();
 }
 
+export function getClaudeSessionRecords(): ClaudeSessionRecord[] {
+  return sessionRecordsSnapshot;
+}
+
+export function subscribeClaudeSessionRecords(listener: () => void): () => void {
+  sessionListeners.add(listener);
+  return () => {
+    sessionListeners.delete(listener);
+  };
+}
+
+async function checkSessionExistsInLocalCache(sessionId: string, cwd: string): Promise<boolean> {
+  const shellEscape = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const script = [
+    `sid=${shellEscape(sessionId)}`,
+    `dir=${shellEscape(cwd)}`,
+    'while [ "$dir" != "/" ] && [ -n "$dir" ]; do',
+    '  key=$(printf "%s" "$dir" | sed "s#/#-#g")',
+    '  path="$HOME/.claude/projects/$key/$sid.jsonl"',
+    '  if [ -f "$path" ]; then',
+    '    echo "present"',
+    "    exit 0",
+    "  fi",
+    '  parent=$(dirname "$dir")',
+    '  if [ "$parent" = "$dir" ]; then',
+    "    break",
+    "  fi",
+    '  dir="$parent"',
+    "done",
+    'echo "missing"',
+  ].join("\n");
+
+  return await new Promise<boolean>((resolve) => {
+    let output = "";
+    const cmd = Command.create("sh", ["-c", script]);
+    cmd.stdout.on("data", (line: string) => {
+      output += line;
+    });
+    cmd.stderr.on("data", () => {
+      // ignore
+    });
+    cmd.on("close", () => {
+      resolve(output.includes("present"));
+    });
+    cmd.on("error", () => {
+      resolve(false);
+    });
+    cmd.spawn().catch(() => resolve(false));
+  });
+}
+
+export async function refreshClaudeSessionRecords(): Promise<void> {
+  const entries = Array.from(sessionRecords.values());
+  for (const record of entries) {
+    const cwd = cwdByThread.get(record.threadKey);
+    if (!cwd) {
+      upsertSessionRecord(record.threadKey, record.sessionId, {
+        localCache: "unknown",
+        lastCheckedAt: Date.now(),
+      });
+      continue;
+    }
+
+    const exists = await checkSessionExistsInLocalCache(record.sessionId, cwd);
+    upsertSessionRecord(record.threadKey, record.sessionId, {
+      localCache: exists ? "present" : "missing",
+      status: exists ? record.status : "stale",
+      lastCheckedAt: Date.now(),
+      lastError: exists ? record.lastError : "Session missing from local cache index",
+    });
+  }
+}
+
 async function acquireThreadRunLock(threadKey: string): Promise<void> {
   if (!activeThreadRuns.has(threadKey)) {
     activeThreadRuns.add(threadKey);
@@ -301,10 +441,6 @@ function releaseThreadRunLock(threadKey: string): void {
   activeThreadRuns.delete(threadKey);
 }
 
-/**
- * Extracts the text content from the last user message in assistant-ui's
- * ThreadMessage format, concatenating all text parts.
- */
 function extractUserPrompt(
   messages: Parameters<ChatModelAdapter["run"]>[0]["messages"],
 ): string {
@@ -317,17 +453,8 @@ function extractUserPrompt(
     .join("\n");
 }
 
-/**
- * Item type for the async bridge queue between Tauri's event-based
- * stdout and the generator's pull-based consumption.
- */
 type QueueItem = { text: string } | { done: true } | { error: Error };
 
-/**
- * Creates a simple push/pull async queue.
- * The producer (stdout event handler) pushes items,
- * the consumer (async generator) pulls them.
- */
 function createAsyncQueue() {
   const buffer: QueueItem[] = [];
   let waiting: ((item: QueueItem) => void) | null = null;
@@ -354,135 +481,237 @@ function createAsyncQueue() {
   return { push, pull };
 }
 
-/**
- * ChatModelAdapter that bridges the Claude CLI (via Tauri shell plugin)
- * into assistant-ui's LocalRuntime streaming interface.
- *
- * - Spawns `claude -p <prompt> --output-format stream-json`
- * - Uses `--resume <session_id>` for conversation continuity
- * - Parses newline-delimited JSON events from stdout
- * - Yields incremental text content to the runtime
- * - Supports cancellation via AbortSignal → child.kill()
- */
-export const claudeAdapter: ChatModelAdapter = {
-  async *run(options) {
-    const { messages, abortSignal } = options;
-    const threadId = (options as { unstable_threadId?: string }).unstable_threadId ?? null;
-    const threadKey = getThreadKey(threadId);
-    await acquireThreadRunLock(threadKey);
+function chooseSessionStrategy(threadKey: string, sessionId: string | null): {
+  strategy: "resume" | "session-id" | "none";
+  sessionId: string | null;
+} {
+  if (!sessionId) {
+    return { strategy: "none", sessionId: null };
+  }
 
-    try {
-      // First invocation: dump PATH, which claude, and claude --version
-      await runDiagnostics();
+  const record = sessionRecords.get(threadKey);
+  if (record?.localCache === "missing" || record?.status === "stale") {
+    return { strategy: "session-id", sessionId };
+  }
 
-      const prompt = extractUserPrompt(messages);
-      if (!prompt.trim()) return;
+  return { strategy: "resume", sessionId };
+}
 
-      // Spawn through `sh -c` — Tauri's direct process spawning (no shell/PTY)
-      // causes Claude CLI to hang silently. Running via shell resolves this.
-      const shellEscape = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-      const existingSessionId = getSessionForThread(threadKey);
-      const cmdParts = ["claude", "-p", shellEscape(prompt), "--output-format", "stream-json", "--verbose"];
-      if (existingSessionId) {
-        // Reattach to the previous conversation for this thread.
-        cmdParts.push("--resume", shellEscape(existingSessionId));
-      }
-      // H1a fix: redirect stdin from /dev/null to prevent Claude CLI from
-      // blocking on an open stdin pipe (Tauri shell plugin keeps stdin open).
-      const shellCmd = cmdParts.join(" ") + " < /dev/null";
+export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): ChatModelAdapter {
+  return {
+    async *run(options) {
+      const { messages, abortSignal } = options;
+      const threadId = (options as { unstable_threadId?: string }).unstable_threadId ?? null;
+      const threadKey = adapterOptions?.threadKey ?? getThreadKey(threadId);
+      await acquireThreadRunLock(threadKey);
 
-      console.log("[claude-adapter] spawning:", shellCmd);
-      const command = Command.create("sh", ["-c", shellCmd]);
-      const { push, pull } = createAsyncQueue();
+      try {
+        await runDiagnostics();
 
-      // --- Wire up stdout event parsing (mirrors useClaude.ts logic) ---
-      const handleStreamLine = (line: string) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
+        const prompt = extractUserPrompt(messages);
+        if (!prompt.trim()) return;
+        adapterOptions?.onUserPrompt?.(prompt);
 
-        try {
-          const event: ClaudeStreamEvent = JSON.parse(trimmed);
-          pushDevEvent(trimmed, event, threadKey);
-          if (event.session_id?.trim()) {
-            setSessionForThread(threadKey, event.session_id);
+        const shellEscape = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+
+        let knownSessionId = getSessionForThread(threadKey);
+        let lastAttempt = 0;
+
+        while (lastAttempt < 3) {
+          lastAttempt += 1;
+
+          const { strategy, sessionId } = chooseSessionStrategy(threadKey, knownSessionId);
+          const cmdParts = ["claude", "-p", shellEscape(prompt), "--output-format", "stream-json", "--verbose"];
+
+          if (strategy === "resume" && sessionId) {
+            cmdParts.push("--resume", shellEscape(sessionId));
+          } else if (strategy === "session-id" && sessionId) {
+            cmdParts.push("--session-id", shellEscape(sessionId));
           }
 
-          if (event.type === "assistant" && event.message?.content) {
-            for (const block of event.message.content) {
-              if (block.type === "text" && block.text) {
-                push({ text: block.text });
+          const shellCmd = cmdParts.join(" ") + " < /dev/null";
+          console.log("[claude-adapter] spawning:", shellCmd);
+
+          const command = Command.create("sh", ["-c", shellCmd]);
+          const { push, pull } = createAsyncQueue();
+
+          let missingConversation = false;
+          let sessionInUse = false;
+
+          const handleStreamLine = (line: string) => {
+            const trimmed = line.trim();
+            if (!trimmed) return;
+
+            try {
+              const event: ClaudeStreamEvent = JSON.parse(trimmed);
+              pushDevEvent(trimmed, event, threadKey);
+
+              if (event.type === "system" && event.subtype === "init" && typeof event.cwd === "string") {
+                cwdByThread.set(threadKey, event.cwd);
+              }
+
+              if (event.session_id?.trim()) {
+                setSessionForThread(threadKey, event.session_id);
+                knownSessionId = event.session_id;
+              }
+
+              if (
+                event.type === "result" &&
+                event.subtype === "error_during_execution" &&
+                event.errors?.some((e) => e.includes("No conversation found with session ID"))
+              ) {
+                missingConversation = true;
+                if (knownSessionId) {
+                  upsertSessionRecord(threadKey, knownSessionId, {
+                    status: "stale",
+                    localCache: "missing",
+                    strategy,
+                    lastCheckedAt: Date.now(),
+                    lastError: "No conversation found with session ID",
+                  });
+                }
+              }
+
+              if (event.type === "assistant" && event.message?.content) {
+                for (const block of event.message.content) {
+                  if (block.type === "text" && block.text) {
+                    push({ text: block.text });
+                  }
+                }
+              } else if (event.type === "result" && event.result) {
+                push({ text: event.result });
+              }
+            } catch {
+              // ignore parse errors
+            }
+          };
+
+          let stdoutBuffer = "";
+          command.stdout.on("data", (chunk: string) => {
+            console.log("[claude-adapter] stdout:", chunk);
+            stdoutBuffer += chunk;
+            const lines = stdoutBuffer.split(/\r?\n/);
+            stdoutBuffer = lines.pop() ?? "";
+            for (const line of lines) {
+              handleStreamLine(line);
+            }
+          });
+
+          command.stderr.on("data", (line: string) => {
+            console.warn("[claude-adapter] stderr:", line);
+            if (line.includes("No conversation found with session ID")) {
+              missingConversation = true;
+              if (knownSessionId) {
+                upsertSessionRecord(threadKey, knownSessionId, {
+                  status: "stale",
+                  localCache: "missing",
+                  strategy,
+                  lastCheckedAt: Date.now(),
+                  lastError: "No conversation found with session ID",
+                });
               }
             }
-          } else if (event.type === "result" && event.result) {
-            push({ text: event.result });
+            if (line.includes("already in use")) {
+              sessionInUse = true;
+              if (knownSessionId) {
+                upsertSessionRecord(threadKey, knownSessionId, {
+                  status: "in_use",
+                  strategy,
+                  lastCheckedAt: Date.now(),
+                  lastError: line.trim(),
+                });
+              }
+            }
+          });
+
+          command.on("close", (data) => {
+            if (stdoutBuffer.trim()) {
+              handleStreamLine(stdoutBuffer);
+            }
+            stdoutBuffer = "";
+            console.log("[claude-adapter] process closed:", JSON.stringify(data));
+            push({ done: true });
+          });
+
+          command.on("error", (err: string) => {
+            console.error("[claude-adapter] process error:", err);
+            push({ error: new Error(`Claude CLI error: ${err}`) });
+          });
+
+          let child;
+          try {
+            child = await command.spawn();
+            console.log("[claude-adapter] spawned pid:", child.pid);
+          } catch (err) {
+            console.error("[claude-adapter] spawn failed:", err);
+            throw err;
           }
-        } catch {
-          // Skip unparseable lines (e.g. partial JSON)
-        }
-      };
 
-      let stdoutBuffer = "";
-      command.stdout.on("data", (chunk: string) => {
-        console.log("[claude-adapter] stdout:", chunk);
-        stdoutBuffer += chunk;
-        const lines = stdoutBuffer.split(/\r?\n/);
-        stdoutBuffer = lines.pop() ?? "";
-        for (const line of lines) {
-          handleStreamLine(line);
-        }
-      });
-
-      // Capture stderr — Claude CLI may log errors/prompts here
-      command.stderr.on("data", (line: string) => {
-        console.warn("[claude-adapter] stderr:", line);
-      });
-
-      command.on("close", (data) => {
-        if (stdoutBuffer.trim()) {
-          handleStreamLine(stdoutBuffer);
-        }
-        stdoutBuffer = "";
-        console.log("[claude-adapter] process closed:", JSON.stringify(data));
-        push({ done: true });
-      });
-      command.on("error", (err: string) => {
-        console.error("[claude-adapter] process error:", err);
-        push({ error: new Error(`Claude CLI error: ${err}`) });
-      });
-
-      // Spawn the process
-      let child;
-      try {
-        child = await command.spawn();
-        console.log("[claude-adapter] spawned pid:", child.pid);
-      } catch (err) {
-        console.error("[claude-adapter] spawn failed:", err);
-        throw err;
-      }
-
-      // Handle user cancellation (cancel button / Escape key)
-      const onAbort = () => {
-        child.kill();
-        push({ done: true });
-      };
-      abortSignal.addEventListener("abort", onAbort, { once: true });
-
-      try {
-        // Pull from the queue and yield to LocalRuntime
-        while (true) {
-          const item = await pull();
-          if ("done" in item) break;
-          if ("error" in item) throw item.error;
-
-          yield {
-            content: [{ type: "text" as const, text: item.text }],
+          const onAbort = () => {
+            child.kill();
+            push({ done: true });
           };
+          abortSignal.addEventListener("abort", onAbort, { once: true });
+
+          try {
+            while (true) {
+              const item = await pull();
+              if ("done" in item) break;
+              if ("error" in item) throw item.error;
+
+              yield {
+                content: [{ type: "text" as const, text: item.text }],
+              };
+            }
+          } finally {
+            abortSignal.removeEventListener("abort", onAbort);
+          }
+
+          if (knownSessionId) {
+            upsertSessionRecord(threadKey, knownSessionId, {
+              status:
+                strategy === "resume"
+                  ? "resume_ok"
+                  : strategy === "session-id"
+                    ? "session_id_ok"
+                    : "fallback_new",
+              strategy,
+              localCache:
+                strategy === "session-id"
+                  ? "present"
+                  : sessionRecords.get(threadKey)?.localCache ?? "unknown",
+              lastCheckedAt: Date.now(),
+              lastError: null,
+            });
+          }
+
+          if (missingConversation && strategy === "resume" && knownSessionId) {
+            clearSessionForThread(threadKey);
+            sessionByThread.set(threadKey, knownSessionId);
+            persistSession(threadKey, knownSessionId);
+            upsertSessionRecord(threadKey, knownSessionId, {
+              status: "stale",
+              localCache: "missing",
+              strategy: "session-id",
+              lastCheckedAt: Date.now(),
+              lastError: "Resume failed; retrying with --session-id",
+            });
+            continue;
+          }
+
+          if (sessionInUse && strategy === "session-id") {
+            clearSessionForThread(threadKey);
+            knownSessionId = null;
+            continue;
+          }
+
+          break;
         }
       } finally {
-        abortSignal.removeEventListener("abort", onAbort);
+        releaseThreadRunLock(threadKey);
       }
-    } finally {
-      releaseThreadRunLock(threadKey);
-    }
-  },
-};
+    },
+  };
+}
+
+export const claudeAdapter: ChatModelAdapter = createClaudeAdapter();

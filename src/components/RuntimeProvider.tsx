@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { claudeAdapter } from "@/lib/claude-adapter";
+import { createClaudeAdapter } from "@/lib/claude-adapter";
 
 /**
  * Provides the assistant-ui runtime context, connecting
@@ -16,10 +17,27 @@ import { claudeAdapter } from "@/lib/claude-adapter";
  */
 export function RuntimeProvider({
   children,
+  threadKey,
+  onUserPrompt,
 }: Readonly<{
   children: ReactNode;
+  threadKey?: string;
+  onUserPrompt?: (prompt: string) => void;
 }>) {
-  const runtime = useLocalRuntime(claudeAdapter);
+  const onUserPromptRef = useRef(onUserPrompt);
+  useEffect(() => {
+    onUserPromptRef.current = onUserPrompt;
+  }, [onUserPrompt]);
+
+  const adapter = useMemo(
+    () =>
+      createClaudeAdapter({
+        threadKey,
+        onUserPrompt: (prompt) => onUserPromptRef.current?.(prompt),
+      }),
+    [threadKey],
+  );
+  const runtime = useLocalRuntime(adapter);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>

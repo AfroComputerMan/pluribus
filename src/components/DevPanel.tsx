@@ -5,7 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   clearClaudeDevSnapshot,
   getClaudeDevSnapshot,
+  getClaudeSessionRecords,
+  refreshClaudeSessionRecords,
   subscribeClaudeDevSnapshot,
+  subscribeClaudeSessionRecords,
   type ClaudeDevEvent,
   type ClaudeDevEventCategory,
 } from "@/lib/claude-adapter";
@@ -94,8 +97,10 @@ function summarizeEvent(event: ClaudeDevEvent): string {
 
 export function DevPanel() {
   const snapshot = useSyncExternalStore(subscribeClaudeDevSnapshot, getClaudeDevSnapshot);
+  const sessionRecords = useSyncExternalStore(subscribeClaudeSessionRecords, getClaudeSessionRecords);
   const [open, setOpen] = useState(true);
   const [mode, setMode] = useState<ViewMode>("organized");
+  const [refreshingSessions, setRefreshingSessions] = useState(false);
 
   const grouped = useMemo(() => {
     const map = new Map<ClaudeDevEventCategory, ClaudeDevEvent[]>();
@@ -190,6 +195,21 @@ export function DevPanel() {
         >
           Raw JSON
         </Button>
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={refreshingSessions}
+          onClick={async () => {
+            setRefreshingSessions(true);
+            try {
+              await refreshClaudeSessionRecords();
+            } finally {
+              setRefreshingSessions(false);
+            }
+          }}
+        >
+          {refreshingSessions ? "Refreshing..." : "Refresh Sessions"}
+        </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -242,6 +262,36 @@ export function DevPanel() {
                   {contextTotal ? formatPercent(cacheCreation / contextTotal) : "0.0%"}
                 </div>
               </div>
+              </CardContent>
+            </Card>
+
+            <Card className="gap-3 py-4">
+              <CardHeader className="px-3">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <DatabaseIcon className="size-4" />
+                  Session Registry
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 px-3 text-xs">
+                {sessionRecords.length === 0 ? (
+                  <div className="text-muted-foreground">No sessions recorded yet.</div>
+                ) : (
+                  sessionRecords.slice(0, 20).map((record) => (
+                    <div key={record.threadKey} className="rounded border p-2">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <Badge variant="secondary">{record.status}</Badge>
+                        <Badge variant="outline">{record.localCache}</Badge>
+                      </div>
+                      <div className="font-mono text-[11px]">{record.sessionId}</div>
+                      <div className="mt-1 text-muted-foreground">
+                        strategy={record.strategy} • updated {formatTs(record.lastUpdatedAt)}
+                      </div>
+                      {record.lastError && (
+                        <div className="mt-1 text-destructive">{record.lastError}</div>
+                      )}
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
 
