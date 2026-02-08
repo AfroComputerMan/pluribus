@@ -224,8 +224,9 @@ async fn wait_for_exit(state: &AppState, session_id: &str) -> AppResult<()> {
         let state_cleanup = state.clone();
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            let mut processes = state_cleanup.processes.lock().unwrap();
-            processes.remove(&session_id_cleanup);
+            if let Ok(mut processes) = state_cleanup.processes.lock() {
+                processes.remove(&session_id_cleanup);
+            }
         });
     }
 
@@ -366,25 +367,13 @@ pub async fn resume_session(state: &AppState, session_id: &str) -> AppResult<()>
 }
 
 fn persist_session_status_in_db(state: &AppState, session_id: &str, status: &SessionStatus) -> AppResult<()> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let conn = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
-
-    let status_str = match status {
-        SessionStatus::Created => "created",
-        SessionStatus::Running => "running",
-        SessionStatus::Completed => "completed",
-        SessionStatus::Failed => "failed",
-        SessionStatus::Killed => "killed",
-        SessionStatus::Paused => "paused",
-    };
-
-    conn.execute(
-        "UPDATE sessions SET status = ?1 WHERE id = ?2",
-        rusqlite::params![status_str, session_id],
-    ).map_err(|e| AppError::Database(format!("Failed to persist session status: {}", e)))?;
-    Ok(())
+    state.with_db(|conn| {
+        conn.execute(
+            "UPDATE sessions SET status = ?1 WHERE id = ?2",
+            rusqlite::params![status.as_str(), session_id],
+        ).map_err(|e| AppError::Database(format!("Failed to persist session status: {}", e)))?;
+        Ok(())
+    })
 }
 
 #[cfg(test)]

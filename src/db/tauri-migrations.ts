@@ -108,6 +108,14 @@ const MIGRATIONS: Migration[] = [
         value TEXT NOT NULL
       );
     `
+  },
+  {
+    version: 2,
+    description: 'Add missing indexes for tasks and usage_records',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team_id);
+      CREATE INDEX IF NOT EXISTS idx_usage_records_session ON usage_records(session_id);
+    `
   }
 ];
 
@@ -121,6 +129,12 @@ const MIGRATIONS: Migration[] = [
  */
 export async function runMigrations(): Promise<void> {
   try {
+    // Ensure foreign key enforcement is enabled (SQLite defaults to OFF)
+    await invoke('execute_sql', {
+      sql: 'PRAGMA foreign_keys = ON',
+      params: []
+    });
+
     // Create migrations table if not exists
     await invoke('execute_sql', {
       sql: 'CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime(\'now\')))',

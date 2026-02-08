@@ -231,27 +231,24 @@ pub async fn create_session(
     }
 
     // Insert into SQLite
-    {
-        let db = state.db.lock()
-            .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-        if let Some(db) = db.as_ref() {
-            db.execute(
-                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, max_turns, max_budget_usd, system_prompt_append, allowed_tools) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                rusqlite::params![
-                    &session_id,
-                    &project_id,
-                    &name,
-                    "created",
-                    &model,
-                    &autonomy_level,
-                    max_turns,
-                    max_budget_usd,
-                    system_prompt_append,
-                    allowed_tools,
-                ],
-            ).map_err(|e| AppError::Database(format!("Failed to insert session: {}", e)))?;
-        }
-    }
+    state.with_db(|conn| {
+        conn.execute(
+            "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, max_turns, max_budget_usd, system_prompt_append, allowed_tools) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                &session_id,
+                &project_id,
+                &name,
+                "created",
+                &model,
+                &autonomy_level,
+                max_turns,
+                max_budget_usd,
+                system_prompt_append,
+                allowed_tools,
+            ],
+        ).map_err(|e| AppError::Database(format!("Failed to insert session: {}", e)))?;
+        Ok(())
+    })?;
 
     Ok(session)
 }
@@ -287,14 +284,11 @@ pub async fn delete_session(
     }
 
     // Delete from SQLite
-    {
-        let db = state.db.lock()
-            .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-        if let Some(db) = db.as_ref() {
-            db.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![&id])
-                .map_err(|e| AppError::Database(format!("Failed to delete session: {}", e)))?;
-        }
-    }
+    state.with_db(|conn| {
+        conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params![&id])
+            .map_err(|e| AppError::Database(format!("Failed to delete session: {}", e)))?;
+        Ok(())
+    })?;
 
     Ok(())
 }
@@ -434,27 +428,31 @@ fn session_row_mapper(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionHandle
 
 fn load_sessions_from_db(state: &AppState, project_id: Option<&str>) -> Result<Vec<SessionHandle>, AppError> {
     state.with_db(|conn| {
-        let (sql, params): (&str, Vec<&dyn rusqlite::types::ToSql>) = if let Some(pid) = project_id {
-            (
+        let mut sessions = Vec::new();
+        if let Some(pid) = project_id {
+            let mut stmt = conn.prepare(
                 "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
-                 FROM sessions WHERE project_id = ?1 ORDER BY created_at DESC",
-                vec![&pid as &dyn rusqlite::types::ToSql],
-            )
+                 FROM sessions WHERE project_id = ?1 ORDER BY created_at DESC"
+            ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
+
+            let rows = stmt.query_map([pid], session_row_mapper)
+                .map_err(|e| AppError::Database(format!("Failed to query sessions: {}", e)))?;
+            for row in rows {
+                sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
+            }
         } else {
-            (
+            let mut stmt = conn.prepare(
                 "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
-                 FROM sessions ORDER BY created_at DESC",
-                vec![],
-            )
-        };
+                 FROM sessions ORDER BY created_at DESC"
+            ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
 
-        let mut stmt = conn.prepare(sql)
-            .map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
-        let rows = stmt.query_map(params.as_slice(), session_row_mapper)
-            .map_err(|e| AppError::Database(format!("Failed to query sessions: {}", e)))?;
-
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))
+            let rows = stmt.query_map([], session_row_mapper)
+                .map_err(|e| AppError::Database(format!("Failed to query sessions: {}", e)))?;
+            for row in rows {
+                sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
+            }
+        }
+        Ok(sessions)
     })
 }
 
