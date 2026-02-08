@@ -133,14 +133,14 @@ async function threadsGet(id: string): Promise<ThreadRow | null> {
   return rows[0] ?? null;
 }
 
-async function threadsCreate(id: string): Promise<ThreadRow> {
+async function threadsCreate(id: string, cwd?: string): Promise<ThreadRow> {
   const conn = await getDb();
   const now = new Date().toISOString();
   await conn.execute(
-    `INSERT INTO threads (id, remote_id, status, created_at, updated_at)
-     VALUES ($1, $1, 'regular', $2, $2)
+    `INSERT INTO threads (id, remote_id, status, cwd, created_at, updated_at)
+     VALUES ($1, $1, 'regular', $2, $3, $3)
      ON CONFLICT (id) DO NOTHING`,
-    [id, now],
+    [id, cwd ?? null, now],
   );
   const row = await threadsGet(id);
   if (!row) throw new Error(`Failed to create thread: ${id}`);

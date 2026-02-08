@@ -602,6 +602,14 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
       try {
         await runDiagnostics();
 
+        if (!cwdByThread.has(threadKey)) {
+          const thread = await db.threads.get(threadKey);
+          const storedCwd = thread?.cwd?.trim();
+          if (storedCwd) {
+            cwdByThread.set(threadKey, storedCwd);
+          }
+        }
+
         const prompt = extractUserPrompt(messages);
         if (!prompt.trim()) return;
         adapterOptions?.onUserPrompt?.(prompt);
@@ -622,8 +630,11 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
             debugArgs.push("--session-id", sessionId);
           }
 
+          const configuredCwd = cwdByThread.get(threadKey);
+
           devLog("[claude-adapter] spawning:", ["claude", ...debugArgs].join(" "));
           const command = Command.create("claude-stream-sh", ["-c", CLAUDE_SHELL_SCRIPT], {
+            cwd: configuredCwd,
             env: {
               CLAUDE_MODE: sessionMode,
               CLAUDE_PROMPT: prompt,

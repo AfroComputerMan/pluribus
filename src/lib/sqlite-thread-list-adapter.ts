@@ -13,6 +13,17 @@ type RemoteThreadMetadata = {
   externalId?: string;
 };
 
+const pendingThreadCwdById = new Map<string, string>();
+
+export function setPendingThreadCwd(threadId: string, cwd: string): void {
+  const normalized = cwd.trim();
+  if (!normalized) {
+    pendingThreadCwdById.delete(threadId);
+    return;
+  }
+  pendingThreadCwdById.set(threadId, normalized);
+}
+
 function threadRowToMetadata(row: ThreadRow): RemoteThreadMetadata {
   return {
     remoteId: row.remote_id,
@@ -30,7 +41,9 @@ export function createSQLiteThreadListAdapter(): RemoteThreadListAdapter {
     },
 
     async initialize(threadId: string) {
-      const row = await db.threads.create(threadId);
+      const pendingCwd = pendingThreadCwdById.get(threadId);
+      const row = await db.threads.create(threadId, pendingCwd);
+      pendingThreadCwdById.delete(threadId);
       return { remoteId: row.remote_id, externalId: row.id };
     },
 
