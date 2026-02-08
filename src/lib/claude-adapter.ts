@@ -4,6 +4,7 @@ import type { ChatModelAdapter } from "@assistant-ui/react";
 interface ClaudeStreamEvent {
   type: string;
   subtype?: string;
+  is_error?: boolean;
   message?: { content: Array<{ type: string; text?: string }> };
   result?: string;
   cost_usd?: number;
@@ -41,6 +42,8 @@ const STORAGE_KEY_PREFIX = "claude-adapter:session:";
 const activeThreadRuns = new Set<string>();
 const pendingThreadRunWaiters = new Map<string, Array<() => void>>();
 const MAX_DEV_EVENTS = 500;
+const THREAD_LOCK_TIMEOUT_MS = 60_000;
+const DEV_LOGS = import.meta.env.DEV;
 
 export type ClaudeDevEventCategory =
   | "hooks"
@@ -96,7 +99,20 @@ export interface ClaudeSessionRecord {
 
 const devListeners = new Set<() => void>();
 let devEventSeq = 0;
-let devSnapshot: ClaudeDevSnapshot = {
+let devSnapshot: Omit<ClaudeDevSnapshot, "events"> = {
+  latestInitEvent: null,
+  latestUsageEvent: null,
+  latestSessionId: null,
+};
+const devEventsBuffer: Array<ClaudeDevEvent | undefined> = new Array(MAX_DEV_EVENTS);
+let devEventsHead = 0;
+let devEventsCount = 0;
+let devEventsVersion = 0;
+let devEventsSnapshotVersion = -1;
+let devEventsSnapshot: ClaudeDevEvent[] = [];
+let devSnapshotVersion = 0;
+let cachedDevSnapshotVersion = -1;
+let cachedDevSnapshot: ClaudeDevSnapshot = {
   events: [],
   latestInitEvent: null,
   latestUsageEvent: null,
@@ -110,11 +126,27 @@ let sessionRecordsSnapshot: ClaudeSessionRecord[] = [];
 
 let diagRan = false;
 
+function devLog(...args: unknown[]): void {
+  if (DEV_LOGS) {
+    console.log(...args);
+  }
+}
+
+function devWarn(...args: unknown[]): void {
+  if (DEV_LOGS) {
+    console.warn(...args);
+  }
+}
+
+function devError(...args: unknown[]): void {
+  console.error(...args);
+}
+
 async function runDiagnostics(): Promise<void> {
-  if (diagRan) return;
+  if (!DEV_LOGS || diagRan) return;
   diagRan = true;
 
-  console.log("[claude-diag] Running environment diagnostics...");
+  devLog("[claude-diag] Running environment diagnostics...");
 
   const pathCmd = Command.create("sh", [
     "-c",
@@ -122,22 +154,22 @@ async function runDiagnostics(): Promise<void> {
   ]);
 
   pathCmd.stdout.on("data", (line: string) => {
-    console.log("[claude-diag] stdout:", line);
+    devLog("[claude-diag] stdout:", line);
   });
   pathCmd.stderr.on("data", (line: string) => {
-    console.warn("[claude-diag] stderr:", line);
+    devWarn("[claude-diag] stderr:", line);
   });
   pathCmd.on("close", (data) => {
-    console.log("[claude-diag] closed:", JSON.stringify(data));
+    devLog("[claude-diag] closed:", JSON.stringify(data));
   });
   pathCmd.on("error", (err: string) => {
-    console.error("[claude-diag] error:", err);
+    devError("[claude-diag] error:", err);
   });
 
   try {
     await pathCmd.spawn();
   } catch (err) {
-    console.error("[claude-diag] spawn failed:", err);
+    devError("[claude-diag] spawn failed:", err);
   }
 }
 
@@ -287,6 +319,32 @@ function notifyDevListeners(): void {
   }
 }
 
+function pushDevEventToBuffer(event: ClaudeDevEvent): void {
+  if (devEventsCount < MAX_DEV_EVENTS) {
+    const index = (devEventsHead + devEventsCount) % MAX_DEV_EVENTS;
+    devEventsBuffer[index] = event;
+    devEventsCount += 1;
+  } else {
+    devEventsBuffer[devEventsHead] = event;
+    devEventsHead = (devEventsHead + 1) % MAX_DEV_EVENTS;
+  }
+  devEventsVersion += 1;
+}
+
+function getDevEventsSnapshot(): ClaudeDevEvent[] {
+  if (devEventsSnapshotVersion === devEventsVersion) {
+    return devEventsSnapshot;
+  }
+
+  const next: ClaudeDevEvent[] = new Array(devEventsCount);
+  for (let i = 0; i < devEventsCount; i += 1) {
+    next[i] = devEventsBuffer[(devEventsHead + i) % MAX_DEV_EVENTS]!;
+  }
+  devEventsSnapshot = next;
+  devEventsSnapshotVersion = devEventsVersion;
+  return next;
+}
+
 function pushDevEvent(raw: string, parsed: ClaudeStreamEvent, threadKey: string): void {
   const category = getEventCategory(parsed);
   const event: ClaudeDevEvent = {
@@ -298,13 +356,9 @@ function pushDevEvent(raw: string, parsed: ClaudeStreamEvent, threadKey: string)
     category,
   };
 
-  const nextEvents =
-    devSnapshot.events.length >= MAX_DEV_EVENTS
-      ? [...devSnapshot.events.slice(1), event]
-      : [...devSnapshot.events, event];
+  pushDevEventToBuffer(event);
 
   devSnapshot = {
-    events: nextEvents,
     latestInitEvent:
       parsed.type === "system" && parsed.subtype === "init"
         ? event
@@ -317,12 +371,21 @@ function pushDevEvent(raw: string, parsed: ClaudeStreamEvent, threadKey: string)
           : devSnapshot.latestUsageEvent,
     latestSessionId: parsed.session_id ?? devSnapshot.latestSessionId,
   };
+  devSnapshotVersion += 1;
 
   notifyDevListeners();
 }
 
 export function getClaudeDevSnapshot(): ClaudeDevSnapshot {
-  return devSnapshot;
+  if (cachedDevSnapshotVersion === devSnapshotVersion) {
+    return cachedDevSnapshot;
+  }
+  cachedDevSnapshot = {
+    ...devSnapshot,
+    events: getDevEventsSnapshot(),
+  };
+  cachedDevSnapshotVersion = devSnapshotVersion;
+  return cachedDevSnapshot;
 }
 
 export function subscribeClaudeDevSnapshot(listener: () => void): () => void {
@@ -333,12 +396,15 @@ export function subscribeClaudeDevSnapshot(listener: () => void): () => void {
 }
 
 export function clearClaudeDevSnapshot(): void {
+  devEventsHead = 0;
+  devEventsCount = 0;
+  devEventsVersion += 1;
   devSnapshot = {
-    events: [],
     latestInitEvent: null,
     latestUsageEvent: null,
     latestSessionId: null,
   };
+  devSnapshotVersion += 1;
   notifyDevListeners();
 }
 
@@ -421,9 +487,30 @@ async function acquireThreadRunLock(threadKey: string): Promise<void> {
     return;
   }
 
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     const waiters = pendingThreadRunWaiters.get(threadKey) ?? [];
-    waiters.push(resolve);
+
+    let settled = false;
+    const release = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve();
+    };
+
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const currentWaiters = pendingThreadRunWaiters.get(threadKey);
+      if (currentWaiters) {
+        const idx = currentWaiters.indexOf(release);
+        if (idx >= 0) currentWaiters.splice(idx, 1);
+        if (!currentWaiters.length) pendingThreadRunWaiters.delete(threadKey);
+      }
+      reject(new Error(`Timed out waiting for thread lock: ${threadKey}`));
+    }, THREAD_LOCK_TIMEOUT_MS);
+
+    waiters.push(release);
     pendingThreadRunWaiters.set(threadKey, waiters);
   });
 }
@@ -457,12 +544,11 @@ type QueueItem = { text: string } | { done: true } | { error: Error };
 
 function createAsyncQueue() {
   const buffer: QueueItem[] = [];
-  let waiting: ((item: QueueItem) => void) | null = null;
+  const waiters: Array<(item: QueueItem) => void> = [];
 
   const push = (item: QueueItem) => {
-    if (waiting) {
-      const resolve = waiting;
-      waiting = null;
+    const resolve = waiters.shift();
+    if (resolve) {
       resolve(item);
     } else {
       buffer.push(item);
@@ -474,7 +560,7 @@ function createAsyncQueue() {
       return Promise.resolve(buffer.shift()!);
     }
     return new Promise((resolve) => {
-      waiting = resolve;
+      waiters.push(resolve);
     });
   };
 
@@ -521,6 +607,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           lastAttempt += 1;
 
           const { strategy, sessionId } = chooseSessionStrategy(threadKey, knownSessionId);
+          const attemptedSessionId = sessionId;
           const cmdParts = ["claude", "-p", shellEscape(prompt), "--output-format", "stream-json", "--verbose"];
 
           if (strategy === "resume" && sessionId) {
@@ -530,13 +617,14 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           }
 
           const shellCmd = cmdParts.join(" ") + " < /dev/null";
-          console.log("[claude-adapter] spawning:", shellCmd);
+          devLog("[claude-adapter] spawning:", shellCmd);
 
           const command = Command.create("sh", ["-c", shellCmd]);
           const { push, pull } = createAsyncQueue();
 
           let missingConversation = false;
           let sessionInUse = false;
+          let latestSessionId: string | null = null;
 
           const handleStreamLine = (line: string) => {
             const trimmed = line.trim();
@@ -551,8 +639,8 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               }
 
               if (event.session_id?.trim()) {
-                setSessionForThread(threadKey, event.session_id);
                 knownSessionId = event.session_id;
+                latestSessionId = event.session_id;
               }
 
               if (
@@ -561,8 +649,9 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
                 event.errors?.some((e) => e.includes("No conversation found with session ID"))
               ) {
                 missingConversation = true;
-                if (knownSessionId) {
-                  upsertSessionRecord(threadKey, knownSessionId, {
+                const staleSessionId = attemptedSessionId ?? knownSessionId;
+                if (staleSessionId) {
+                  upsertSessionRecord(threadKey, staleSessionId, {
                     status: "stale",
                     localCache: "missing",
                     strategy,
@@ -588,7 +677,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
 
           let stdoutBuffer = "";
           command.stdout.on("data", (chunk: string) => {
-            console.log("[claude-adapter] stdout:", chunk);
+            devLog("[claude-adapter] stdout:", chunk);
             stdoutBuffer += chunk;
             const lines = stdoutBuffer.split(/\r?\n/);
             stdoutBuffer = lines.pop() ?? "";
@@ -598,11 +687,12 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           });
 
           command.stderr.on("data", (line: string) => {
-            console.warn("[claude-adapter] stderr:", line);
+            devWarn("[claude-adapter] stderr:", line);
             if (line.includes("No conversation found with session ID")) {
               missingConversation = true;
-              if (knownSessionId) {
-                upsertSessionRecord(threadKey, knownSessionId, {
+              const staleSessionId = attemptedSessionId ?? knownSessionId;
+              if (staleSessionId) {
+                upsertSessionRecord(threadKey, staleSessionId, {
                   status: "stale",
                   localCache: "missing",
                   strategy,
@@ -629,21 +719,24 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               handleStreamLine(stdoutBuffer);
             }
             stdoutBuffer = "";
-            console.log("[claude-adapter] process closed:", JSON.stringify(data));
+            if (data.code === 0 && latestSessionId && !missingConversation && !sessionInUse) {
+              setSessionForThread(threadKey, latestSessionId);
+            }
+            devLog("[claude-adapter] process closed:", JSON.stringify(data));
             push({ done: true });
           });
 
           command.on("error", (err: string) => {
-            console.error("[claude-adapter] process error:", err);
+            devError("[claude-adapter] process error:", err);
             push({ error: new Error(`Claude CLI error: ${err}`) });
           });
 
           let child;
           try {
             child = await command.spawn();
-            console.log("[claude-adapter] spawned pid:", child.pid);
+            devLog("[claude-adapter] spawned pid:", child.pid);
           } catch (err) {
-            console.error("[claude-adapter] spawn failed:", err);
+            devError("[claude-adapter] spawn failed:", err);
             throw err;
           }
 
@@ -667,7 +760,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
             abortSignal.removeEventListener("abort", onAbort);
           }
 
-          if (knownSessionId) {
+          if (knownSessionId && !missingConversation && !sessionInUse) {
             upsertSessionRecord(threadKey, knownSessionId, {
               status:
                 strategy === "resume"
@@ -685,21 +778,29 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
             });
           }
 
-          if (missingConversation && strategy === "resume" && knownSessionId) {
+          if (missingConversation && strategy === "resume") {
+            const staleSessionId = attemptedSessionId ?? knownSessionId;
             clearSessionForThread(threadKey);
-            sessionByThread.set(threadKey, knownSessionId);
-            persistSession(threadKey, knownSessionId);
-            upsertSessionRecord(threadKey, knownSessionId, {
-              status: "stale",
-              localCache: "missing",
-              strategy: "session-id",
-              lastCheckedAt: Date.now(),
-              lastError: "Resume failed; retrying with --session-id",
-            });
+            if (staleSessionId) {
+              upsertSessionRecord(threadKey, staleSessionId, {
+                status: "stale",
+                localCache: "missing",
+                strategy: "none",
+                lastCheckedAt: Date.now(),
+                lastError: "Resume failed; retrying with a fresh session",
+              });
+            }
+            knownSessionId = null;
             continue;
           }
 
-          if (sessionInUse && strategy === "session-id") {
+          if (missingConversation && strategy === "session-id") {
+            clearSessionForThread(threadKey);
+            knownSessionId = null;
+            continue;
+          }
+
+          if (sessionInUse && (strategy === "session-id" || strategy === "resume")) {
             clearSessionForThread(threadKey);
             knownSessionId = null;
             continue;

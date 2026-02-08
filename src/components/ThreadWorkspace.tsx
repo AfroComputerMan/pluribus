@@ -78,6 +78,12 @@ export function ThreadWorkspace() {
     );
   }, []);
 
+  const onActiveThreadPrompt = useMemo(() => {
+    if (!activeThread) return undefined;
+    const threadId = activeThread.id;
+    return (prompt: string) => handleUserPrompt(threadId, prompt);
+  }, [activeThread, handleUserPrompt]);
+
   return (
     <div className="flex h-full w-full">
       <aside className="flex h-full w-72 shrink-0 flex-col border-r bg-card/60">
@@ -128,19 +134,17 @@ export function ThreadWorkspace() {
       </aside>
 
       <section className="relative h-full min-w-0 flex-1">
-        {threads.map((thread) => (
-          <div
-            key={thread.id}
-            className={cn("absolute inset-0", thread.id === activeThread?.id ? "block" : "hidden")}
-          >
+        {activeThread ? (
+          <div className="absolute inset-0">
             <RuntimeProvider
-              threadKey={`local-thread:${thread.id}`}
-              onUserPrompt={(prompt) => handleUserPrompt(thread.id, prompt)}
+              key={activeThread.id}
+              threadKey={`local-thread:${activeThread.id}`}
+              onUserPrompt={onActiveThreadPrompt}
             >
               <Thread />
             </RuntimeProvider>
           </div>
-        ))}
+        ) : null}
       </section>
     </div>
   );
