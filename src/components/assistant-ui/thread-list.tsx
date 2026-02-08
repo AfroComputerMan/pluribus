@@ -1,10 +1,22 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { setPendingThreadCwd } from "@/lib/sqlite-thread-list-adapter";
+import { invoke } from "@tauri-apps/api/core";
 import {
   AuiIf,
   ThreadListItemMorePrimitive,
   ThreadListItemPrimitive,
   ThreadListPrimitive,
+  useAui,
+  useAuiState,
 } from "@assistant-ui/react";
 import {
   ArchiveIcon,
@@ -13,6 +25,7 @@ import {
   TrashIcon,
 } from "lucide-react";
 import type { FC } from "react";
+import { useCallback, useState } from "react";
 
 export const ThreadList: FC = () => {
   return (
@@ -29,16 +42,136 @@ export const ThreadList: FC = () => {
 };
 
 const ThreadListNew: FC = () => {
+  const aui = useAui();
+  const isMainNew = useAuiState(
+    ({ threads }) => threads.newThreadId === threads.mainThreadId,
+  );
+  const [open, setOpen] = useState(false);
+  const [cwd, setCwd] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isBrowsing, setIsBrowsing] = useState(false);
+
+  const browseDirectory = useCallback(async () => {
+    setError(null);
+    setIsBrowsing(true);
+    try {
+      const selected = await invoke<string | string[] | null>("plugin:dialog|open", {
+        options: {
+          directory: true,
+          multiple: false,
+        },
+      });
+
+      const selectedPath =
+        typeof selected === "string"
+          ? selected
+          : Array.isArray(selected)
+            ? selected[0]
+            : null;
+      if (selectedPath) {
+        setCwd(selectedPath);
+      }
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to open directory picker.";
+      setError(message);
+    } finally {
+      setIsBrowsing(false);
+    }
+  }, []);
+
+  const createThread = useCallback(async () => {
+    const normalizedCwd = cwd.trim();
+    if (!normalizedCwd) {
+      setError("Enter a directory path.");
+      return;
+    }
+
+    setError(null);
+    setIsCreating(true);
+    try {
+      await aui.threads().switchToNewThread();
+      const threadId = aui.threads().getState().mainThreadId;
+      setPendingThreadCwd(threadId, normalizedCwd);
+      setOpen(false);
+      setCwd("");
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to create thread.";
+      setError(message);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [aui, cwd]);
+
   return (
-    <ThreadListPrimitive.New asChild>
+    <>
       <Button
         variant="outline"
         className="aui-thread-list-new h-9 justify-start gap-2 rounded-lg px-3 text-sm hover:bg-muted data-active:bg-muted"
+        data-active={isMainNew ? "true" : undefined}
+        aria-current={isMainNew ? "true" : undefined}
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
       >
         <PlusIcon className="size-4" />
         New Thread
       </Button>
-    </ThreadListPrimitive.New>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New Thread Directory</DialogTitle>
+            <DialogDescription>
+              Set the working directory for this thread.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <label htmlFor="thread-cwd-input" className="text-sm font-medium">
+              Directory path
+            </label>
+            <input
+              id="thread-cwd-input"
+              value={cwd}
+              onChange={(event) => setCwd(event.target.value)}
+              placeholder="/path/to/project"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void createThread();
+                }
+              }}
+              disabled={isCreating || isBrowsing}
+              autoFocus
+            />
+            <Button
+              variant="outline"
+              onClick={() => void browseDirectory()}
+              disabled={isCreating || isBrowsing}
+              className="justify-start"
+            >
+              Browse...
+            </Button>
+            {error ? <p className="text-destructive text-xs">{error}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={isCreating || isBrowsing}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void createThread()} disabled={isCreating || isBrowsing}>
+              Create Thread
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
