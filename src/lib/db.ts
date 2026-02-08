@@ -1,0 +1,614 @@
+import Database from "@tauri-apps/plugin-sql";
+
+// ---------------------------------------------------------------------------
+// Connection singleton
+// ---------------------------------------------------------------------------
+
+const DB_URL = "sqlite:pluribus.db";
+
+let dbInstance: Database | null = null;
+let dbPromise: Promise<Database> | null = null;
+let ensureMcpInvocationsTablePromise: Promise<void> | null = null;
+
+/** Get or initialize the database singleton. Thread-safe via promise dedup. */
+export async function getDb(): Promise<Database> {
+  if (dbInstance) return dbInstance;
+  if (!dbPromise) {
+    dbPromise = Database.load(DB_URL).then((d) => {
+      dbInstance = d;
+      return d;
+    });
+  }
+  return dbPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Row types — mirror the database schema
+// ---------------------------------------------------------------------------
+
+export interface ThreadRow {
+  id: string;
+  remote_id: string;
+  title: string | null;
+  status: "regular" | "archived";
+  session_id: string | null;
+  cwd: string | null;
+  dev_panel_open: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MessageRow {
+  id: string;
+  thread_id: string;
+  parent_id: string | null;
+  role: "system" | "user" | "assistant";
+  content: string;
+  status: string | null;
+  metadata: string | null;
+  run_config: string | null;
+  created_at: string;
+}
+
+export interface SessionRow {
+  thread_id: string;
+  session_id: string;
+  status: string;
+  local_cache: string;
+  strategy: string;
+  last_checked_at: string | null;
+  last_updated_at: string;
+  last_error: string | null;
+}
+
+export interface DevEventRow {
+  id: string;
+  thread_id: string;
+  seq: number;
+  category: string;
+  raw: string;
+  created_at: string;
+}
+
+export interface McpSnapshotRow {
+  id: string;
+  thread_id: string;
+  session_id: string | null;
+  servers: string;
+  tools: string;
+  mcp_tools: string;
+  builtin_tools: string;
+  skills: string | null;
+  slash_commands: string | null;
+  captured_at: string;
+}
+
+export interface McpInvocationRow {
+  id: string;
+  thread_id: string;
+  session_id: string | null;
+  tool_name: string;
+  server_name: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  success: number;
+  error: string | null;
+  created_at: string;
+}
+
+export interface UsageSnapshotRow {
+  id: string;
+  thread_id: string;
+  session_id: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  total_cost_usd: number | null;
+  model_id: string | null;
+  context_window: number | null;
+  captured_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// threads
+// ---------------------------------------------------------------------------
+
+async function threadsList(): Promise<ThreadRow[]> {
+  const conn = await getDb();
+  return conn.select<ThreadRow[]>(
+    "SELECT * FROM threads WHERE status = $1 ORDER BY updated_at DESC",
+    ["regular"],
+  );
+}
+
+async function threadsGet(id: string): Promise<ThreadRow | null> {
+  const conn = await getDb();
+  const rows = await conn.select<ThreadRow[]>(
+    "SELECT * FROM threads WHERE id = $1",
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
+async function threadsCreate(id: string): Promise<ThreadRow> {
+  const conn = await getDb();
+  const now = new Date().toISOString();
+  await conn.execute(
+    `INSERT INTO threads (id, remote_id, status, created_at, updated_at)
+     VALUES ($1, $1, 'regular', $2, $2)
+     ON CONFLICT (id) DO NOTHING`,
+    [id, now],
+  );
+  const row = await threadsGet(id);
+  if (!row) throw new Error(`Failed to create thread: ${id}`);
+  return row;
+}
+
+async function threadsRename(id: string, title: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET title = $1, updated_at = $2 WHERE id = $3",
+    [title, new Date().toISOString(), id],
+  );
+}
+
+async function threadsArchive(id: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET status = 'archived', updated_at = $1 WHERE id = $2",
+    [new Date().toISOString(), id],
+  );
+}
+
+async function threadsUnarchive(id: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET status = 'regular', updated_at = $1 WHERE id = $2",
+    [new Date().toISOString(), id],
+  );
+}
+
+async function threadsDelete(id: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute("DELETE FROM threads WHERE id = $1", [id]);
+}
+
+async function threadsUpdateSessionId(
+  id: string,
+  sessionId: string,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET session_id = $1, updated_at = $2 WHERE id = $3",
+    [sessionId, new Date().toISOString(), id],
+  );
+}
+
+async function threadsUpdateCwd(id: string, cwd: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET cwd = $1, updated_at = $2 WHERE id = $3",
+    [cwd, new Date().toISOString(), id],
+  );
+}
+
+async function threadsGetDevPanelOpen(id: string): Promise<boolean> {
+  const row = await threadsGet(id);
+  return row?.dev_panel_open === 1;
+}
+
+async function threadsSetDevPanelOpen(id: string, open: boolean): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET dev_panel_open = $1, updated_at = $2 WHERE id = $3",
+    [open ? 1 : 0, new Date().toISOString(), id],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// messages
+// ---------------------------------------------------------------------------
+
+async function messagesLoadByThread(threadId: string): Promise<MessageRow[]> {
+  const conn = await getDb();
+  return conn.select<MessageRow[]>(
+    "SELECT * FROM messages WHERE thread_id = $1 ORDER BY created_at",
+    [threadId],
+  );
+}
+
+async function messagesAppend(row: MessageRow): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    `INSERT INTO messages (id, thread_id, parent_id, role, content, status, metadata, run_config, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      row.id,
+      row.thread_id,
+      row.parent_id,
+      row.role,
+      row.content,
+      row.status,
+      row.metadata,
+      row.run_config,
+      row.created_at,
+    ],
+  );
+}
+
+async function messagesDeleteByThread(threadId: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute("DELETE FROM messages WHERE thread_id = $1", [threadId]);
+}
+
+// ---------------------------------------------------------------------------
+// sessions
+// ---------------------------------------------------------------------------
+
+async function sessionsGet(threadId: string): Promise<SessionRow | null> {
+  const conn = await getDb();
+  const rows = await conn.select<SessionRow[]>(
+    "SELECT * FROM sessions WHERE thread_id = $1",
+    [threadId],
+  );
+  return rows[0] ?? null;
+}
+
+async function sessionsUpsert(row: SessionRow): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    `INSERT INTO sessions (thread_id, session_id, status, local_cache, strategy, last_checked_at, last_updated_at, last_error)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (thread_id) DO UPDATE SET
+       session_id = $2,
+       status = $3,
+       local_cache = $4,
+       strategy = $5,
+       last_checked_at = $6,
+       last_updated_at = $7,
+       last_error = $8`,
+    [
+      row.thread_id,
+      row.session_id,
+      row.status,
+      row.local_cache,
+      row.strategy,
+      row.last_checked_at,
+      row.last_updated_at,
+      row.last_error,
+    ],
+  );
+}
+
+async function sessionsDelete(threadId: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute("DELETE FROM sessions WHERE thread_id = $1", [threadId]);
+}
+
+// ---------------------------------------------------------------------------
+// dev_events
+// ---------------------------------------------------------------------------
+
+async function devEventsInsertBatch(events: DevEventRow[]): Promise<void> {
+  if (events.length === 0) return;
+  const conn = await getDb();
+
+  const placeholders = events
+    .map((_, i) => {
+      const b = i * 6;
+      return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`;
+    })
+    .join(", ");
+
+  const values = events.flatMap((e) => [
+    e.id,
+    e.thread_id,
+    e.seq,
+    e.category,
+    e.raw,
+    e.created_at,
+  ]);
+
+  await conn.execute(
+    `INSERT OR IGNORE INTO dev_events (id, thread_id, seq, category, raw, created_at) VALUES ${placeholders}`,
+    values,
+  );
+}
+
+async function devEventsQueryByThread(
+  threadId: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<DevEventRow[]> {
+  const conn = await getDb();
+  const limit = opts?.limit ?? 1000;
+  const offset = opts?.offset ?? 0;
+  return conn.select<DevEventRow[]>(
+    "SELECT * FROM dev_events WHERE thread_id = $1 ORDER BY seq DESC LIMIT $2 OFFSET $3",
+    [threadId, limit, offset],
+  );
+}
+
+async function devEventsQueryByCategory(
+  category: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<DevEventRow[]> {
+  const conn = await getDb();
+  const limit = opts?.limit ?? 1000;
+  const offset = opts?.offset ?? 0;
+  return conn.select<DevEventRow[]>(
+    "SELECT * FROM dev_events WHERE category = $1 ORDER BY seq DESC LIMIT $2 OFFSET $3",
+    [category, limit, offset],
+  );
+}
+
+async function devEventsCount(): Promise<number> {
+  const conn = await getDb();
+  const rows = await conn.select<Array<{ count: number }>>(
+    "SELECT COUNT(*) as count FROM dev_events",
+    [],
+  );
+  return rows[0]?.count ?? 0;
+}
+
+async function devEventsPrune(keepCount: number): Promise<number> {
+  const conn = await getDb();
+  const result = await conn.execute(
+    `DELETE FROM dev_events WHERE id NOT IN (
+       SELECT id FROM dev_events ORDER BY seq DESC LIMIT $1
+     )`,
+    [keepCount],
+  );
+  return result.rowsAffected;
+}
+
+// ---------------------------------------------------------------------------
+// mcp_snapshots
+// ---------------------------------------------------------------------------
+
+async function mcpSnapshotsInsert(row: McpSnapshotRow): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    `INSERT INTO mcp_snapshots (id, thread_id, session_id, servers, tools, mcp_tools, builtin_tools, skills, slash_commands, captured_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      row.id,
+      row.thread_id,
+      row.session_id,
+      row.servers,
+      row.tools,
+      row.mcp_tools,
+      row.builtin_tools,
+      row.skills,
+      row.slash_commands,
+      row.captured_at,
+    ],
+  );
+}
+
+async function mcpSnapshotsGetByThread(
+  threadId: string,
+): Promise<McpSnapshotRow[]> {
+  const conn = await getDb();
+  return conn.select<McpSnapshotRow[]>(
+    "SELECT * FROM mcp_snapshots WHERE thread_id = $1 ORDER BY captured_at DESC",
+    [threadId],
+  );
+}
+
+async function mcpSnapshotsGetLatest(
+  threadId: string,
+): Promise<McpSnapshotRow | null> {
+  const conn = await getDb();
+  const rows = await conn.select<McpSnapshotRow[]>(
+    "SELECT * FROM mcp_snapshots WHERE thread_id = $1 ORDER BY captured_at DESC LIMIT 1",
+    [threadId],
+  );
+  return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// mcp_invocations
+// ---------------------------------------------------------------------------
+
+async function mcpInvocationsInsert(row: McpInvocationRow): Promise<void> {
+  const conn = await getDb();
+  const values = [
+    row.id,
+    row.thread_id,
+    row.session_id,
+    row.tool_name,
+    row.server_name,
+    row.input_tokens,
+    row.output_tokens,
+    row.cost_usd,
+    row.duration_ms,
+    row.success,
+    row.error,
+    row.created_at,
+  ];
+
+  try {
+    await conn.execute(
+      `INSERT INTO mcp_invocations (id, thread_id, session_id, tool_name, server_name, input_tokens, output_tokens, cost_usd, duration_ms, success, error, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      values,
+    );
+  } catch (error) {
+    if (!isMissingTableError(error, "mcp_invocations")) throw error;
+    await ensureMcpInvocationsTable();
+    await conn.execute(
+      `INSERT INTO mcp_invocations (id, thread_id, session_id, tool_name, server_name, input_tokens, output_tokens, cost_usd, duration_ms, success, error, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      values,
+    );
+  }
+}
+
+function isMissingTableError(error: unknown, table: string): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes(`no such table: ${table}`);
+}
+
+async function ensureMcpInvocationsTable(): Promise<void> {
+  if (!ensureMcpInvocationsTablePromise) {
+    ensureMcpInvocationsTablePromise = (async () => {
+      const conn = await getDb();
+      await conn.execute(
+        `CREATE TABLE IF NOT EXISTS mcp_invocations (
+           id              TEXT PRIMARY KEY,
+           thread_id       TEXT NOT NULL,
+           session_id      TEXT,
+           tool_name       TEXT NOT NULL,
+           server_name     TEXT,
+           input_tokens    INTEGER,
+           output_tokens   INTEGER,
+           cost_usd        REAL,
+           duration_ms     INTEGER,
+           success         INTEGER NOT NULL DEFAULT 1,
+           error           TEXT,
+           created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+           FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+         )`,
+        [],
+      );
+      await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mcp_invocations_thread ON mcp_invocations(thread_id)",
+        [],
+      );
+      await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mcp_invocations_tool ON mcp_invocations(tool_name)",
+        [],
+      );
+    })().catch((error) => {
+      ensureMcpInvocationsTablePromise = null;
+      throw error;
+    });
+  }
+
+  await ensureMcpInvocationsTablePromise;
+}
+
+async function mcpInvocationsGetByThread(
+  threadId: string,
+): Promise<McpInvocationRow[]> {
+  const conn = await getDb();
+  return conn.select<McpInvocationRow[]>(
+    "SELECT * FROM mcp_invocations WHERE thread_id = $1 ORDER BY created_at DESC",
+    [threadId],
+  );
+}
+
+async function mcpInvocationsGetByTool(
+  toolName: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<McpInvocationRow[]> {
+  const conn = await getDb();
+  const limit = opts?.limit ?? 1000;
+  const offset = opts?.offset ?? 0;
+  return conn.select<McpInvocationRow[]>(
+    "SELECT * FROM mcp_invocations WHERE tool_name = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+    [toolName, limit, offset],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// usage_snapshots
+// ---------------------------------------------------------------------------
+
+async function usageSnapshotsInsert(row: UsageSnapshotRow): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    `INSERT INTO usage_snapshots (id, thread_id, session_id, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_cost_usd, model_id, context_window, captured_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      row.id,
+      row.thread_id,
+      row.session_id,
+      row.input_tokens,
+      row.output_tokens,
+      row.cache_creation_input_tokens,
+      row.cache_read_input_tokens,
+      row.total_cost_usd,
+      row.model_id,
+      row.context_window,
+      row.captured_at,
+    ],
+  );
+}
+
+async function usageSnapshotsGetByThread(
+  threadId: string,
+): Promise<UsageSnapshotRow[]> {
+  const conn = await getDb();
+  return conn.select<UsageSnapshotRow[]>(
+    "SELECT * FROM usage_snapshots WHERE thread_id = $1 ORDER BY captured_at DESC",
+    [threadId],
+  );
+}
+
+async function usageSnapshotsGetLatest(
+  threadId: string,
+): Promise<UsageSnapshotRow | null> {
+  const conn = await getDb();
+  const rows = await conn.select<UsageSnapshotRow[]>(
+    "SELECT * FROM usage_snapshots WHERE thread_id = $1 ORDER BY captured_at DESC LIMIT 1",
+    [threadId],
+  );
+  return rows[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Public API — namespaced for clean imports
+// ---------------------------------------------------------------------------
+
+export const db = {
+  threads: {
+    list: threadsList,
+    get: threadsGet,
+    create: threadsCreate,
+    rename: threadsRename,
+    archive: threadsArchive,
+    unarchive: threadsUnarchive,
+    delete: threadsDelete,
+    updateSessionId: threadsUpdateSessionId,
+    updateCwd: threadsUpdateCwd,
+    getDevPanelOpen: threadsGetDevPanelOpen,
+    setDevPanelOpen: threadsSetDevPanelOpen,
+  },
+  messages: {
+    loadByThread: messagesLoadByThread,
+    append: messagesAppend,
+    deleteByThread: messagesDeleteByThread,
+  },
+  sessions: {
+    get: sessionsGet,
+    upsert: sessionsUpsert,
+    delete: sessionsDelete,
+  },
+  devEvents: {
+    insertBatch: devEventsInsertBatch,
+    queryByThread: devEventsQueryByThread,
+    queryByCategory: devEventsQueryByCategory,
+    count: devEventsCount,
+    prune: devEventsPrune,
+  },
+  mcpSnapshots: {
+    insert: mcpSnapshotsInsert,
+    getByThread: mcpSnapshotsGetByThread,
+    getLatest: mcpSnapshotsGetLatest,
+  },
+  mcpInvocations: {
+    insert: mcpInvocationsInsert,
+    getByThread: mcpInvocationsGetByThread,
+    getByTool: mcpInvocationsGetByTool,
+  },
+  usageSnapshots: {
+    insert: usageSnapshotsInsert,
+    getByThread: usageSnapshotsGetByThread,
+    getLatest: usageSnapshotsGetLatest,
+  },
+} as const;

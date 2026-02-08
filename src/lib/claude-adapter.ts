@@ -1,10 +1,22 @@
 import { Command, type Child } from "@tauri-apps/plugin-shell";
 import type { ChatModelAdapter } from "@assistant-ui/react";
+import { db } from "@/lib/db";
+import { queueDevEventForArchive } from "@/lib/dev-event-batcher";
 
 type ClaudeStreamEventBase = {
   subtype?: string;
   is_error?: boolean;
-  message?: { content: Array<{ type: string; text?: string }> };
+  message?: {
+    content: Array<{
+      type: string;
+      text?: string;
+      id?: string;
+      name?: string;
+      tool_name?: string;
+      is_error?: boolean;
+      error?: string;
+    }>;
+  };
   result?: string;
   cost_usd?: number;
   session_id?: string;
@@ -41,7 +53,7 @@ type ClaudeSystemEvent = ClaudeStreamEventBase & {
 
 type ClaudeAssistantEvent = ClaudeStreamEventBase & {
   type: "assistant";
-  message?: { content: Array<{ type: string; text?: string }> };
+  message?: ClaudeStreamEventBase["message"];
 };
 
 type ClaudeResultEvent = ClaudeStreamEventBase & {
@@ -53,7 +65,6 @@ type ClaudeStreamEvent = ClaudeSystemEvent | ClaudeAssistantEvent | ClaudeResult
 
 const sessionByThread = new Map<string, string>();
 const GLOBAL_THREAD_KEY = "__global__";
-const STORAGE_KEY_PREFIX = "claude-adapter:session:";
 const activeThreadRuns = new Set<string>();
 const pendingThreadRunWaiters = new Map<string, Array<() => void>>();
 const MAX_DEV_EVENTS = 500;
@@ -140,6 +151,7 @@ let cachedDevSnapshot: ClaudeDevSnapshot = {
 const sessionRecords = new Map<string, ClaudeSessionRecord>();
 const sessionListeners = new Set<() => void>();
 const cwdByThread = new Map<string, string>();
+const seenMcpToolUseIds = new Set<string>();
 let sessionRecordsSnapshot: ClaudeSessionRecord[] = [];
 
 let diagRan = false;
@@ -189,58 +201,27 @@ async function runDiagnostics(): Promise<void> {
 }
 
 export function resetClaudeSession(): void {
-  if (canUseStorage()) {
-    try {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < window.localStorage.length; i += 1) {
-        const key = window.localStorage.key(i);
-        if (key?.startsWith(STORAGE_KEY_PREFIX)) {
-          keysToRemove.push(key);
-        }
-      }
-      for (const key of keysToRemove) {
-        window.localStorage.removeItem(key);
-      }
-    } catch {
-      // ignore
-    }
-  }
   sessionByThread.clear();
 }
 
-function canUseStorage(): boolean {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
-
-function getStorageKey(threadKey: string): string {
-  return `${STORAGE_KEY_PREFIX}${threadKey}`;
-}
-
-function readPersistedSession(threadKey: string): string | null {
-  if (!canUseStorage()) return null;
-  try {
-    const value = window.localStorage.getItem(getStorageKey(threadKey));
-    return value?.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function persistSession(threadKey: string, id: string): void {
-  if (!canUseStorage()) return;
-  try {
-    window.localStorage.setItem(getStorageKey(threadKey), id);
-  } catch {
-    // ignore
-  }
-}
-
-function clearPersistedSession(threadKey: string): void {
-  if (!canUseStorage()) return;
-  try {
-    window.localStorage.removeItem(getStorageKey(threadKey));
-  } catch {
-    // ignore
+/** Hydrate the in-memory session cache from SQLite for a given thread. */
+async function hydrateSessionCache(threadKey: string): Promise<void> {
+  if (sessionByThread.has(threadKey)) return;
+  const row = await db.sessions.get(threadKey);
+  if (row) {
+    sessionByThread.set(threadKey, row.session_id);
+    sessionRecords.set(threadKey, {
+      threadKey,
+      sessionId: row.session_id,
+      status: row.status as ClaudeSessionStatus,
+      localCache: row.local_cache as ClaudeSessionLocalCache,
+      strategy: row.strategy as "resume" | "session-id" | "none",
+      lastCheckedAt: row.last_checked_at
+        ? new Date(row.last_checked_at).getTime()
+        : null,
+      lastUpdatedAt: new Date(row.last_updated_at).getTime(),
+      lastError: row.last_error,
+    });
   }
 }
 
@@ -272,24 +253,28 @@ function upsertSessionRecord(
   };
   sessionRecords.set(threadKey, next);
   notifySessionListeners();
+
+  // Write-through to SQLite (fire-and-forget)
+  void db.sessions.upsert({
+    thread_id: threadKey,
+    session_id: sessionId,
+    status: next.status,
+    local_cache: next.localCache,
+    strategy: next.strategy,
+    last_checked_at: next.lastCheckedAt
+      ? new Date(next.lastCheckedAt).toISOString()
+      : null,
+    last_updated_at: new Date(next.lastUpdatedAt).toISOString(),
+    last_error: next.lastError,
+  });
 }
 
 function getSessionForThread(threadKey: string): string | null {
-  const inMemory = sessionByThread.get(threadKey);
-  if (inMemory) return inMemory;
-
-  const persisted = readPersistedSession(threadKey);
-  if (persisted) {
-    sessionByThread.set(threadKey, persisted);
-    return persisted;
-  }
-
-  return null;
+  return sessionByThread.get(threadKey) ?? null;
 }
 
 function setSessionForThread(threadKey: string, id: string): void {
   sessionByThread.set(threadKey, id);
-  persistSession(threadKey, id);
 
   upsertSessionRecord(threadKey, id, {
     status: "unknown",
@@ -301,7 +286,7 @@ function setSessionForThread(threadKey: string, id: string): void {
 
 function clearSessionForThread(threadKey: string): void {
   sessionByThread.delete(threadKey);
-  clearPersistedSession(threadKey);
+  void db.sessions.delete(threadKey);
 }
 
 function getEventCategory(event: ClaudeStreamEvent): ClaudeDevEventCategory {
@@ -348,8 +333,9 @@ function getDevEventsSnapshot(): ClaudeDevEvent[] {
 
 function pushDevEvent(raw: string, parsed: ClaudeStreamEvent, threadKey: string): void {
   const category = getEventCategory(parsed);
+  const seq = devEventSeq++;
   const event: ClaudeDevEvent = {
-    id: `${Date.now()}-${devEventSeq++}`,
+    id: `${Date.now()}-${seq}`,
     at: Date.now(),
     threadKey,
     raw,
@@ -375,6 +361,68 @@ function pushDevEvent(raw: string, parsed: ClaudeStreamEvent, threadKey: string)
   devSnapshotVersion += 1;
 
   notifyDevListeners();
+
+  // Archive to SQLite via batch queue
+  queueDevEventForArchive({
+    id: event.id,
+    thread_id: threadKey,
+    seq,
+    category,
+    raw,
+    created_at: new Date(event.at).toISOString(),
+  });
+}
+
+function extractMcpServerName(toolName: string): string | null {
+  if (!toolName.startsWith("mcp__")) return null;
+  const afterPrefix = toolName.slice("mcp__".length);
+  const splitAt = afterPrefix.indexOf("__");
+  if (splitAt <= 0) return null;
+  return afterPrefix.slice(0, splitAt);
+}
+
+function persistMcpInvocationsFromEvent(
+  event: ClaudeStreamEvent,
+  threadKey: string,
+  sessionId: string | null,
+): void {
+  if (event.type !== "assistant") return;
+  const blocks = event.message?.content ?? [];
+
+  for (const block of blocks) {
+    if (block.type !== "tool_use") continue;
+
+    const toolName =
+      typeof block.name === "string"
+        ? block.name
+        : typeof block.tool_name === "string"
+          ? block.tool_name
+          : null;
+    if (!toolName || !toolName.startsWith("mcp__")) continue;
+
+    if (typeof block.id === "string") {
+      const dedupeKey = `${threadKey}:${sessionId ?? "none"}:${block.id}`;
+      if (seenMcpToolUseIds.has(dedupeKey)) continue;
+      seenMcpToolUseIds.add(dedupeKey);
+    }
+
+    void db.mcpInvocations.insert({
+      id: crypto.randomUUID(),
+      thread_id: threadKey,
+      session_id: sessionId,
+      tool_name: toolName,
+      server_name: extractMcpServerName(toolName),
+      input_tokens: null,
+      output_tokens: null,
+      cost_usd: typeof event.cost_usd === "number" ? event.cost_usd : null,
+      duration_ms: null,
+      success: block.is_error ? 0 : 1,
+      error: block.is_error ? (typeof block.error === "string" ? block.error : "tool_use_error") : null,
+      created_at: new Date().toISOString(),
+    }).catch((error) => {
+      console.error("[mcp-invocation] insert failed:", error);
+    });
+  }
 }
 
 export function getClaudeDevSnapshot(): ClaudeDevSnapshot {
@@ -548,6 +596,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
       const { messages, abortSignal } = options;
       const threadKey =
         adapterOptions?.threadKey ?? options.unstable_threadId?.trim() ?? GLOBAL_THREAD_KEY;
+      await hydrateSessionCache(threadKey);
       await acquireThreadRunLock(threadKey);
 
       try {
@@ -600,9 +649,52 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               const event: ClaudeStreamEvent = JSON.parse(trimmed);
               pushDevEvent(trimmed, event, threadKey);
 
-              if (event.type === "system" && event.subtype === "init" && typeof event.cwd === "string") {
-                cwdByThread.set(threadKey, event.cwd);
+              if (event.type === "system" && event.subtype === "init") {
+                if (typeof event.cwd === "string") {
+                  cwdByThread.set(threadKey, event.cwd);
+                  void db.threads.updateCwd(threadKey, event.cwd);
+                }
+
+                // Capture MCP snapshot
+                const allTools = event.tools ?? [];
+                const mcpTools = allTools.filter((t) => t.startsWith("mcp__"));
+                const builtinTools = allTools.filter((t) => !t.startsWith("mcp__"));
+                void db.mcpSnapshots.insert({
+                  id: crypto.randomUUID(),
+                  thread_id: threadKey,
+                  session_id: event.session_id ?? latestSessionId,
+                  servers: JSON.stringify(event.mcp_servers ?? []),
+                  tools: JSON.stringify(allTools),
+                  mcp_tools: JSON.stringify(mcpTools),
+                  builtin_tools: JSON.stringify(builtinTools),
+                  skills: event.skills ? JSON.stringify(event.skills) : null,
+                  slash_commands: event.slash_commands ? JSON.stringify(event.slash_commands) : null,
+                  captured_at: new Date().toISOString(),
+                });
               }
+
+              // Capture usage snapshots
+              if (event.usage || event.modelUsage) {
+                const usage = event.usage;
+                const modelEntry = event.modelUsage
+                  ? Object.entries(event.modelUsage)[0]
+                  : undefined;
+                void db.usageSnapshots.insert({
+                  id: crypto.randomUUID(),
+                  thread_id: threadKey,
+                  session_id: latestSessionId,
+                  input_tokens: usage?.input_tokens ?? modelEntry?.[1]?.inputTokens ?? null,
+                  output_tokens: usage?.output_tokens ?? modelEntry?.[1]?.outputTokens ?? null,
+                  cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? null,
+                  cache_read_input_tokens: usage?.cache_read_input_tokens ?? null,
+                  total_cost_usd: event.total_cost_usd ?? modelEntry?.[1]?.costUSD ?? null,
+                  model_id: modelEntry?.[0] ?? null,
+                  context_window: modelEntry?.[1]?.contextWindow ?? null,
+                  captured_at: new Date().toISOString(),
+                });
+              }
+
+              persistMcpInvocationsFromEvent(event, threadKey, event.session_id ?? latestSessionId);
 
               if (event.session_id?.trim()) {
                 knownSessionId = event.session_id;
@@ -813,6 +905,7 @@ if (import.meta.hot) {
     pendingThreadRunWaiters.clear();
     sessionByThread.clear();
     cwdByThread.clear();
+    seenMcpToolUseIds.clear();
     sessionRecords.clear();
     sessionRecordsSnapshot = [];
     devListeners.clear();

@@ -12,12 +12,12 @@ function App() {
     <main className="h-screen w-screen">
       <RuntimeProvider>
         <ThreadWorkspace />
+        {import.meta.env.DEV ? (
+          <Suspense fallback={null}>
+            <DevPanel />
+          </Suspense>
+        ) : null}
       </RuntimeProvider>
-      {import.meta.env.DEV ? (
-        <Suspense fallback={null}>
-          <DevPanel />
-        </Suspense>
-      ) : null}
     </main>
   );
 }

@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { useCallback, useEffect } from "react";
+import { useAuiState } from "@assistant-ui/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +14,7 @@ import {
   type ClaudeDevEvent,
   type ClaudeDevEventCategory,
 } from "@/lib/claude-adapter";
+import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import {
   ActivityIcon,
@@ -98,9 +101,47 @@ function summarizeEvent(event: ClaudeDevEvent): string {
 export function DevPanel() {
   const snapshot = useSyncExternalStore(subscribeClaudeDevSnapshot, getClaudeDevSnapshot);
   const sessionRecords = useSyncExternalStore(subscribeClaudeSessionRecords, getClaudeSessionRecords);
-  const [open, setOpen] = useState(true);
+  const activeThreadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ViewMode>("organized");
   const [refreshingSessions, setRefreshingSessions] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOpenState(): Promise<void> {
+      if (!activeThreadId) {
+        setOpen(false);
+        return;
+      }
+
+      try {
+        const isOpen = await db.threads.getDevPanelOpen(activeThreadId);
+        if (!cancelled) {
+          setOpen(isOpen);
+        }
+      } catch {
+        if (!cancelled) {
+          setOpen(false);
+        }
+      }
+    }
+
+    void loadOpenState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThreadId]);
+
+  const setOpenForActiveThread = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (!activeThreadId) return;
+      void db.threads.setDevPanelOpen(activeThreadId, nextOpen).catch(() => undefined);
+    },
+    [activeThreadId],
+  );
 
   const grouped = useMemo(() => {
     const map = new Map<ClaudeDevEventCategory, ClaudeDevEvent[]>();
@@ -148,7 +189,7 @@ export function DevPanel() {
           variant="secondary"
           size="sm"
           className="gap-2"
-          onClick={() => setOpen(true)}
+          onClick={() => setOpenForActiveThread(true)}
         >
           <BugIcon className="size-4" />
           Dev Panel
@@ -174,7 +215,7 @@ export function DevPanel() {
             <Trash2Icon className="size-3" />
             Clear
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={() => setOpen(false)}>
+          <Button variant="ghost" size="icon-xs" onClick={() => setOpenForActiveThread(false)}>
             <XIcon className="size-3" />
           </Button>
         </div>
