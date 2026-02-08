@@ -13,13 +13,16 @@
 | Phase | Test File | Tests Written | Tests Passing | Coverage |
 |-------|-----------|---------------|---------------|----------|
 | Phase 1 | `ndjson-parser.test.ts` | 42 | 42 | 93.04% lines (target >= 90%) |
-| Phase 1 | `ipc/commands.test.ts` | TBD | TBD | Target 85% |
-| Phase 1 | `ipc/channels.test.ts` | TBD | TBD | Target 85% |
-| Phase 1 | `stores/sessionStore.test.ts` | TBD | TBD | Target 85% |
-| Phase 1 | `stores/chatStore.test.ts` | TBD | TBD | Target 85% |
-| Phase 1 | `ChatPanel.test.tsx` | TBD | TBD | Target 80% |
-| Phase 1 | `MessageBubble.test.tsx` | TBD | TBD | Target 80% |
-| Phase 1 | `ToolCallCard.test.tsx` | TBD | TBD | Target 80% |
+| Phase 1 | `ipc/commands.test.ts` | 32 | 32 | Target 85% |
+| Phase 1 | `ipc/channels.test.ts` | 16 | 16 | Target 85% |
+| Phase 1 | `ipc/events.test.ts` | 8 | 8 | Target 85% |
+| Phase 1 | `stores/settingsStore.test.ts` | 14 | 14 | 100% lines (target >= 85%) |
+| Phase 1 | `stores/sessionStore.test.ts` | 18 | 18 | 100% lines (target >= 85%) |
+| Phase 1 | `stores/chatStore.test.ts` | 37 | 37 | ~95% lines (target >= 85%) |
+| Phase 1 | `ChatPanel.test.tsx` | 8 | 8 | Target 80% |
+| Phase 1 | `MessageBubble.test.tsx` | 9 | 9 | Target 80% |
+| Phase 1 | `ToolCallCard.test.tsx` | 9 | 9 | Target 80% |
+| Phase 1 | `SessionSidebar.test.tsx` | 8 | 8 | Target 80% |
 | Phase 2 | Worktree operations | TBD | TBD | TBD |
 | Phase 2 | Cost tracking | TBD | TBD | TBD |
 | Phase 3 | Team watcher | TBD | TBD | TBD |
