@@ -3,6 +3,7 @@ import type {
   ThreadMessage,
 } from "@assistant-ui/react";
 import { createAssistantStream } from "assistant-stream";
+import { Command } from "@tauri-apps/plugin-shell";
 import { db, type ThreadRow } from "@/lib/db";
 import { SQLiteHistoryProvider } from "@/lib/sqlite-thread-history-adapter";
 
@@ -77,12 +78,33 @@ export function createSQLiteThreadListAdapter(): RemoteThreadListAdapter {
           .map((c) => c.text)
           .join(" ") ?? "New Thread";
 
-      const title = text.length > 50 ? text.slice(0, 47) + "..." : text;
+      const fallback = text.length > 50 ? text.slice(0, 47) + "..." : text;
 
-      // Persist to SQLite (assistant-ui does NOT call rename() after generateTitle)
-      await db.threads.rename(remoteId, title);
+      return createAssistantStream(async (controller) => {
+        let title = fallback;
+        try {
+          const snippet = text.slice(0, 500);
+          const prompt = `Generate a short, descriptive title (max 8 words) for a conversation that starts with this message. Return ONLY the title text, no quotes or punctuation around it.\n\nMessage: ${snippet}`;
+          const result = await Command.create("claude", [
+            "-p",
+            prompt,
+            "--model",
+            "claude-haiku-4-5-20251001",
+            "--output-format",
+            "text",
+          ]).execute();
 
-      return createAssistantStream((controller) => {
+          if (result.code === 0 && result.stdout.trim()) {
+            const generated = result.stdout.trim();
+            if (generated.length >= 1 && generated.length <= 80) {
+              title = generated;
+            }
+          }
+        } catch {
+          // CLI unavailable or failed — use fallback silently
+        }
+
+        await db.threads.rename(remoteId, title);
         controller.appendText(title);
       });
     },
