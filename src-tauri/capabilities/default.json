@@ -16,20 +16,10 @@
           "args": true
         },
         {
-          "name": "exec-sh",
+          "name": "claude-stream-sh",
           "cmd": "sh",
-          "args": [
-            "-c",
-            {
-              "validator": "\\S+"
-            }
-          ],
+          "args": true,
           "sidecar": false
-        },
-        {
-          "name": "sh",
-          "cmd": "sh",
-          "args": true
         }
       ]
     },
@@ -42,20 +32,10 @@
           "args": true
         },
         {
-          "name": "exec-sh",
+          "name": "claude-stream-sh",
           "cmd": "sh",
-          "args": [
-            "-c",
-            {
-              "validator": "\\S+"
-            }
-          ],
+          "args": true,
           "sidecar": false
-        },
-        {
-          "name": "sh",
-          "cmd": "sh",
-          "args": true
         }
       ]
     },

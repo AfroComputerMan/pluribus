@@ -1,8 +1,7 @@
-import { Command } from "@tauri-apps/plugin-shell";
+import { Command, type Child } from "@tauri-apps/plugin-shell";
 import type { ChatModelAdapter } from "@assistant-ui/react";
 
-interface ClaudeStreamEvent {
-  type: string;
+type ClaudeStreamEventBase = {
   subtype?: string;
   is_error?: boolean;
   message?: { content: Array<{ type: string; text?: string }> };
@@ -34,7 +33,23 @@ interface ClaudeStreamEvent {
   >;
   total_cost_usd?: number;
   errors?: string[];
-}
+};
+
+type ClaudeSystemEvent = ClaudeStreamEventBase & {
+  type: "system";
+};
+
+type ClaudeAssistantEvent = ClaudeStreamEventBase & {
+  type: "assistant";
+  message?: { content: Array<{ type: string; text?: string }> };
+};
+
+type ClaudeResultEvent = ClaudeStreamEventBase & {
+  type: "result";
+  result?: string;
+};
+
+type ClaudeStreamEvent = ClaudeSystemEvent | ClaudeAssistantEvent | ClaudeResultEvent;
 
 const sessionByThread = new Map<string, string>();
 const GLOBAL_THREAD_KEY = "__global__";
@@ -43,7 +58,10 @@ const activeThreadRuns = new Set<string>();
 const pendingThreadRunWaiters = new Map<string, Array<() => void>>();
 const MAX_DEV_EVENTS = 500;
 const THREAD_LOCK_TIMEOUT_MS = 60_000;
+const RUN_TIMEOUT_MS = 120_000;
 const DEV_LOGS = import.meta.env.DEV;
+const CLAUDE_SHELL_SCRIPT =
+  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --resume "$CLAUDE_SESSION_ID" < /dev/null; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --session-id "$CLAUDE_SESSION_ID" < /dev/null; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose < /dev/null; fi';
 
 export type ClaudeDevEventCategory =
   | "hooks"
@@ -148,10 +166,7 @@ async function runDiagnostics(): Promise<void> {
 
   devLog("[claude-diag] Running environment diagnostics...");
 
-  const pathCmd = Command.create("sh", [
-    "-c",
-    "echo PATH=$PATH && echo '---' && which claude 2>&1 && echo '---' && claude --version 2>&1",
-  ]);
+  const pathCmd = Command.create("claude", ["--version"]);
 
   pathCmd.stdout.on("data", (line: string) => {
     devLog("[claude-diag] stdout:", line);
@@ -174,12 +189,23 @@ async function runDiagnostics(): Promise<void> {
 }
 
 export function resetClaudeSession(): void {
+  if (canUseStorage()) {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i);
+        if (key?.startsWith(STORAGE_KEY_PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const key of keysToRemove) {
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      // ignore
+    }
+  }
   sessionByThread.clear();
-  clearPersistedSession(GLOBAL_THREAD_KEY);
-}
-
-function getThreadKey(threadId?: string | null): string {
-  return threadId?.trim() || GLOBAL_THREAD_KEY;
 }
 
 function canUseStorage(): boolean {
@@ -258,27 +284,12 @@ function getSessionForThread(threadKey: string): string | null {
     return persisted;
   }
 
-  if (threadKey !== GLOBAL_THREAD_KEY) {
-    const globalInMemory = sessionByThread.get(GLOBAL_THREAD_KEY);
-    if (globalInMemory) return globalInMemory;
-
-    const globalPersisted = readPersistedSession(GLOBAL_THREAD_KEY);
-    if (globalPersisted) {
-      sessionByThread.set(GLOBAL_THREAD_KEY, globalPersisted);
-      return globalPersisted;
-    }
-  }
-
   return null;
 }
 
 function setSessionForThread(threadKey: string, id: string): void {
   sessionByThread.set(threadKey, id);
   persistSession(threadKey, id);
-  if (threadKey !== GLOBAL_THREAD_KEY && !sessionByThread.has(GLOBAL_THREAD_KEY)) {
-    sessionByThread.set(GLOBAL_THREAD_KEY, id);
-    persistSession(GLOBAL_THREAD_KEY, id);
-  }
 
   upsertSessionRecord(threadKey, id, {
     status: "unknown",
@@ -289,18 +300,8 @@ function setSessionForThread(threadKey: string, id: string): void {
 }
 
 function clearSessionForThread(threadKey: string): void {
-  const prior = sessionByThread.get(threadKey) ?? readPersistedSession(threadKey) ?? null;
-
   sessionByThread.delete(threadKey);
   clearPersistedSession(threadKey);
-
-  const global =
-    sessionByThread.get(GLOBAL_THREAD_KEY) ?? readPersistedSession(GLOBAL_THREAD_KEY) ?? null;
-
-  if (threadKey === GLOBAL_THREAD_KEY || (prior && global === prior)) {
-    sessionByThread.delete(GLOBAL_THREAD_KEY);
-    clearPersistedSession(GLOBAL_THREAD_KEY);
-  }
 }
 
 function getEventCategory(event: ClaudeStreamEvent): ClaudeDevEventCategory {
@@ -419,46 +420,6 @@ export function subscribeClaudeSessionRecords(listener: () => void): () => void 
   };
 }
 
-async function checkSessionExistsInLocalCache(sessionId: string, cwd: string): Promise<boolean> {
-  const shellEscape = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-  const script = [
-    `sid=${shellEscape(sessionId)}`,
-    `dir=${shellEscape(cwd)}`,
-    'while [ "$dir" != "/" ] && [ -n "$dir" ]; do',
-    '  key=$(printf "%s" "$dir" | sed "s#/#-#g")',
-    '  path="$HOME/.claude/projects/$key/$sid.jsonl"',
-    '  if [ -f "$path" ]; then',
-    '    echo "present"',
-    "    exit 0",
-    "  fi",
-    '  parent=$(dirname "$dir")',
-    '  if [ "$parent" = "$dir" ]; then',
-    "    break",
-    "  fi",
-    '  dir="$parent"',
-    "done",
-    'echo "missing"',
-  ].join("\n");
-
-  return await new Promise<boolean>((resolve) => {
-    let output = "";
-    const cmd = Command.create("sh", ["-c", script]);
-    cmd.stdout.on("data", (line: string) => {
-      output += line;
-    });
-    cmd.stderr.on("data", () => {
-      // ignore
-    });
-    cmd.on("close", () => {
-      resolve(output.includes("present"));
-    });
-    cmd.on("error", () => {
-      resolve(false);
-    });
-    cmd.spawn().catch(() => resolve(false));
-  });
-}
-
 export async function refreshClaudeSessionRecords(): Promise<void> {
   const entries = Array.from(sessionRecords.values());
   for (const record of entries) {
@@ -470,13 +431,11 @@ export async function refreshClaudeSessionRecords(): Promise<void> {
       });
       continue;
     }
-
-    const exists = await checkSessionExistsInLocalCache(record.sessionId, cwd);
     upsertSessionRecord(record.threadKey, record.sessionId, {
-      localCache: exists ? "present" : "missing",
-      status: exists ? record.status : "stale",
+      localCache: "unknown",
+      status: record.status,
       lastCheckedAt: Date.now(),
-      lastError: exists ? record.lastError : "Session missing from local cache index",
+      lastError: record.lastError,
     });
   }
 }
@@ -587,8 +546,8 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
   return {
     async *run(options) {
       const { messages, abortSignal } = options;
-      const threadId = (options as { unstable_threadId?: string }).unstable_threadId ?? null;
-      const threadKey = adapterOptions?.threadKey ?? getThreadKey(threadId);
+      const threadKey =
+        adapterOptions?.threadKey ?? options.unstable_threadId?.trim() ?? GLOBAL_THREAD_KEY;
       await acquireThreadRunLock(threadKey);
 
       try {
@@ -598,8 +557,6 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
         if (!prompt.trim()) return;
         adapterOptions?.onUserPrompt?.(prompt);
 
-        const shellEscape = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-
         let knownSessionId = getSessionForThread(threadKey);
         let lastAttempt = 0;
 
@@ -608,23 +565,32 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
 
           const { strategy, sessionId } = chooseSessionStrategy(threadKey, knownSessionId);
           const attemptedSessionId = sessionId;
-          const cmdParts = ["claude", "-p", shellEscape(prompt), "--output-format", "stream-json", "--verbose"];
-
-          if (strategy === "resume" && sessionId) {
-            cmdParts.push("--resume", shellEscape(sessionId));
-          } else if (strategy === "session-id" && sessionId) {
-            cmdParts.push("--session-id", shellEscape(sessionId));
+          const sessionMode = strategy === "resume" ? "resume" : strategy === "session-id" ? "session-id" : "none";
+          const debugArgs = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
+          if (sessionMode === "resume" && sessionId) {
+            debugArgs.push("--resume", sessionId);
+          } else if (sessionMode === "session-id" && sessionId) {
+            debugArgs.push("--session-id", sessionId);
           }
 
-          const shellCmd = cmdParts.join(" ") + " < /dev/null";
-          devLog("[claude-adapter] spawning:", shellCmd);
-
-          const command = Command.create("sh", ["-c", shellCmd]);
+          devLog("[claude-adapter] spawning:", ["claude", ...debugArgs].join(" "));
+          const command = Command.create("claude-stream-sh", ["-c", CLAUDE_SHELL_SCRIPT], {
+            env: {
+              CLAUDE_MODE: sessionMode,
+              CLAUDE_PROMPT: prompt,
+              CLAUDE_SESSION_ID: sessionId ?? "",
+            },
+          });
           const { push, pull } = createAsyncQueue();
 
           let missingConversation = false;
           let sessionInUse = false;
           let latestSessionId: string | null = null;
+          let sawAssistantText = false;
+          let exitCode: number | null = null;
+          let exitSignal: number | null = null;
+          let timedOut = false;
+          let wasAborted = abortSignal.aborted;
 
           const handleStreamLine = (line: string) => {
             const trimmed = line.trim();
@@ -664,10 +630,11 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               if (event.type === "assistant" && event.message?.content) {
                 for (const block of event.message.content) {
                   if (block.type === "text" && block.text) {
+                    sawAssistantText = true;
                     push({ text: block.text });
                   }
                 }
-              } else if (event.type === "result" && event.result) {
+              } else if (event.type === "result" && event.result && !sawAssistantText) {
                 push({ text: event.result });
               }
             } catch {
@@ -715,6 +682,8 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           });
 
           command.on("close", (data) => {
+            exitCode = data.code;
+            exitSignal = data.signal;
             if (stdoutBuffer.trim()) {
               handleStreamLine(stdoutBuffer);
             }
@@ -731,17 +700,24 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
             push({ error: new Error(`Claude CLI error: ${err}`) });
           });
 
-          let child;
+          let child: Child;
+          let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
           try {
             child = await command.spawn();
             devLog("[claude-adapter] spawned pid:", child.pid);
+            timeoutHandle = setTimeout(() => {
+              timedOut = true;
+              void child.kill();
+            }, RUN_TIMEOUT_MS);
           } catch (err) {
             devError("[claude-adapter] spawn failed:", err);
             throw err;
           }
 
           const onAbort = () => {
-            child.kill();
+            wasAborted = true;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            void child.kill();
             push({ done: true });
           };
           abortSignal.addEventListener("abort", onAbort, { once: true });
@@ -758,6 +734,22 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
             }
           } finally {
             abortSignal.removeEventListener("abort", onAbort);
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+          }
+
+          if (timedOut) {
+            throw new Error(`Claude CLI timed out after ${RUN_TIMEOUT_MS}ms`);
+          }
+
+          if (
+            !wasAborted &&
+            exitCode !== null &&
+            exitCode !== 0 &&
+            !missingConversation &&
+            !sessionInUse
+          ) {
+            const signalSuffix = exitSignal !== null ? ` (signal ${exitSignal})` : "";
+            throw new Error(`Claude CLI exited with code ${exitCode}${signalSuffix}`);
           }
 
           if (knownSessionId && !missingConversation && !sessionInUse) {
@@ -815,4 +807,17 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
   };
 }
 
-export const claudeAdapter: ChatModelAdapter = createClaudeAdapter();
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    activeThreadRuns.clear();
+    pendingThreadRunWaiters.clear();
+    sessionByThread.clear();
+    cwdByThread.clear();
+    sessionRecords.clear();
+    sessionRecordsSnapshot = [];
+    devListeners.clear();
+    sessionListeners.clear();
+    devEventsHead = 0;
+    devEventsCount = 0;
+  });
+}
