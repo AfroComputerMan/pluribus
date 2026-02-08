@@ -1,4 +1,5 @@
 import "./App.css";
+import { DevPanel } from "@/components/DevPanel";
 import { RuntimeProvider } from "@/components/RuntimeProvider";
 import { Thread } from "@/components/assistant-ui/thread";
 
@@ -7,6 +8,7 @@ function App() {
     <RuntimeProvider>
       <main className="h-screen w-screen">
         <Thread />
+        <DevPanel />
       </main>
     </RuntimeProvider>
   );
