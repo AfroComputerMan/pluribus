@@ -33,7 +33,17 @@ export interface ThreadRow {
   status: "regular" | "archived";
   session_id: string | null;
   cwd: string | null;
+  workspace_id: string | null;
+  git_branch: string | null;
   dev_panel_open: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceRow {
+  id: string;
+  name: string;
+  cwd: string;
   created_at: string;
   updated_at: string;
 }
@@ -133,14 +143,24 @@ async function threadsGet(id: string): Promise<ThreadRow | null> {
   return rows[0] ?? null;
 }
 
-async function threadsCreate(id: string, cwd?: string): Promise<ThreadRow> {
+async function threadsCreate(
+  id: string,
+  opts?: {
+    cwd?: string | null;
+    workspaceId?: string | null;
+    gitBranch?: string | null;
+  },
+): Promise<ThreadRow> {
   const conn = await getDb();
   const now = new Date().toISOString();
+  const cwd = opts?.cwd?.trim() || null;
+  const workspaceId = opts?.workspaceId?.trim() || null;
+  const gitBranch = opts?.gitBranch?.trim() || null;
   await conn.execute(
-    `INSERT INTO threads (id, remote_id, status, cwd, created_at, updated_at)
-     VALUES ($1, $1, 'regular', $2, $3, $3)
+    `INSERT INTO threads (id, remote_id, status, cwd, workspace_id, git_branch, created_at, updated_at)
+     VALUES ($1, $1, 'regular', $2, $3, $4, $5, $5)
      ON CONFLICT (id) DO NOTHING`,
-    [id, cwd ?? null, now],
+    [id, cwd, workspaceId, gitBranch, now],
   );
   const row = await threadsGet(id);
   if (!row) throw new Error(`Failed to create thread: ${id}`);
@@ -195,6 +215,29 @@ async function threadsUpdateCwd(id: string, cwd: string): Promise<void> {
   );
 }
 
+async function threadsUpdateWorkspace(
+  id: string,
+  workspaceId: string | null,
+  cwd: string | null,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET workspace_id = $1, cwd = $2, updated_at = $3 WHERE id = $4",
+    [workspaceId, cwd, new Date().toISOString(), id],
+  );
+}
+
+async function threadsUpdateGitBranch(
+  id: string,
+  gitBranch: string | null,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET git_branch = $1, updated_at = $2 WHERE id = $3",
+    [gitBranch, new Date().toISOString(), id],
+  );
+}
+
 async function threadsGetDevPanelOpen(id: string): Promise<boolean> {
   const row = await threadsGet(id);
   return row?.dev_panel_open === 1;
@@ -205,6 +248,63 @@ async function threadsSetDevPanelOpen(id: string, open: boolean): Promise<void> 
   await conn.execute(
     "UPDATE threads SET dev_panel_open = $1, updated_at = $2 WHERE id = $3",
     [open ? 1 : 0, new Date().toISOString(), id],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// workspaces
+// ---------------------------------------------------------------------------
+
+async function workspacesList(): Promise<WorkspaceRow[]> {
+  const conn = await getDb();
+  return conn.select<WorkspaceRow[]>(
+    "SELECT * FROM workspaces ORDER BY name COLLATE NOCASE ASC, created_at ASC",
+    [],
+  );
+}
+
+async function workspacesGet(id: string): Promise<WorkspaceRow | null> {
+  const conn = await getDb();
+  const rows = await conn.select<WorkspaceRow[]>(
+    "SELECT * FROM workspaces WHERE id = $1 LIMIT 1",
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
+async function workspacesGetByCwd(cwd: string): Promise<WorkspaceRow | null> {
+  const conn = await getDb();
+  const rows = await conn.select<WorkspaceRow[]>(
+    "SELECT * FROM workspaces WHERE cwd = $1 LIMIT 1",
+    [cwd],
+  );
+  return rows[0] ?? null;
+}
+
+async function workspacesCreate(name: string, cwd: string): Promise<WorkspaceRow> {
+  const conn = await getDb();
+  const now = new Date().toISOString();
+  const normalizedName = name.trim();
+  const normalizedCwd = cwd.trim();
+  const existing = await workspacesGetByCwd(normalizedCwd);
+  if (existing) return existing;
+
+  const id = crypto.randomUUID();
+  await conn.execute(
+    `INSERT INTO workspaces (id, name, cwd, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $4)`,
+    [id, normalizedName, normalizedCwd, now],
+  );
+  const row = await workspacesGet(id);
+  if (!row) throw new Error(`Failed to create workspace: ${normalizedName}`);
+  return row;
+}
+
+async function workspacesRename(id: string, name: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE workspaces SET name = $1, updated_at = $2 WHERE id = $3",
+    [name.trim(), new Date().toISOString(), id],
   );
 }
 
@@ -576,8 +676,17 @@ export const db = {
     delete: threadsDelete,
     updateSessionId: threadsUpdateSessionId,
     updateCwd: threadsUpdateCwd,
+    updateWorkspace: threadsUpdateWorkspace,
+    updateGitBranch: threadsUpdateGitBranch,
     getDevPanelOpen: threadsGetDevPanelOpen,
     setDevPanelOpen: threadsSetDevPanelOpen,
+  },
+  workspaces: {
+    list: workspacesList,
+    get: workspacesGet,
+    getByCwd: workspacesGetByCwd,
+    create: workspacesCreate,
+    rename: workspacesRename,
   },
   messages: {
     loadByThread: messagesLoadByThread,

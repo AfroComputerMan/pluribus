@@ -126,7 +126,7 @@ const THREAD_LOCK_TIMEOUT_MS = 60_000;
 const RUN_IDLE_TIMEOUT_MS = 300_000;
 const DEV_LOGS = import.meta.env.DEV;
 const CLAUDE_SHELL_SCRIPT =
-  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --resume "$CLAUDE_SESSION_ID"; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --session-id "$CLAUDE_SESSION_ID"; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose; fi';
+  'if [ -n "$CLAUDE_GIT_BRANCH" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git checkout "$CLAUDE_GIT_BRANCH" 1>&2; fi; if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --resume "$CLAUDE_SESSION_ID"; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --session-id "$CLAUDE_SESSION_ID"; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose; fi';
 
 export type ClaudeDevEventCategory =
   | "hooks"
@@ -213,6 +213,8 @@ let cachedDevSnapshot: ClaudeDevSnapshot = {
 const sessionRecords = new Map<string, ClaudeSessionRecord>();
 const sessionListeners = new Set<() => void>();
 const cwdByThread = new Map<string, string>();
+const gitBranchByThread = new Map<string, string>();
+const loadedThreadConfig = new Set<string>();
 const seenMcpToolUseIds = new Set<string>();
 const activeChildByThread = new Map<string, Child>();
 const permissionRequestById = new Map<string, ClaudePermissionRequest>();
@@ -840,12 +842,19 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
       try {
         await runDiagnostics();
 
-        if (!cwdByThread.has(threadKey)) {
+        if (!loadedThreadConfig.has(threadKey)) {
           const thread = await db.threads.get(threadKey);
           const storedCwd = thread?.cwd?.trim();
           if (storedCwd) {
             cwdByThread.set(threadKey, storedCwd);
           }
+          const storedGitBranch = thread?.git_branch?.trim();
+          if (storedGitBranch) {
+            gitBranchByThread.set(threadKey, storedGitBranch);
+          } else {
+            gitBranchByThread.delete(threadKey);
+          }
+          loadedThreadConfig.add(threadKey);
         }
 
         const prompt = extractUserPrompt(messages);
@@ -885,6 +894,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           }
 
           const configuredCwd = cwdByThread.get(threadKey);
+          const configuredGitBranch = gitBranchByThread.get(threadKey);
 
           devLog("[claude-adapter] spawning:", ["claude", ...debugArgs].join(" "));
           const command = Command.create("claude-stream-sh", ["-c", CLAUDE_SHELL_SCRIPT], {
@@ -893,6 +903,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               CLAUDE_MODE: sessionMode,
               CLAUDE_PROMPT: prompt,
               CLAUDE_SESSION_ID: sessionId ?? "",
+              CLAUDE_GIT_BRANCH: configuredGitBranch ?? "",
             },
           });
           const { push, pull } = createAsyncQueue();
@@ -1398,6 +1409,8 @@ if (import.meta.hot) {
     pendingThreadRunWaiters.clear();
     sessionByThread.clear();
     cwdByThread.clear();
+    gitBranchByThread.clear();
+    loadedThreadConfig.clear();
     seenMcpToolUseIds.clear();
     activeChildByThread.clear();
     permissionRequestById.clear();

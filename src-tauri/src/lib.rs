@@ -27,6 +27,12 @@ pub fn run() {
             sql: include_str!("../migrations/003_ensure_mcp_invocations.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "workspaces_and_thread_branch",
+            sql: include_str!("../migrations/004_workspaces_and_thread_branch.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

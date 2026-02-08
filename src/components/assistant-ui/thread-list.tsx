@@ -1,61 +1,124 @@
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { setPendingThreadCwd } from "@/lib/sqlite-thread-list-adapter";
+import { db, type WorkspaceRow } from "@/lib/db";
+import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  AuiIf,
-  ThreadListItemMorePrimitive,
-  ThreadListItemPrimitive,
-  ThreadListPrimitive,
-  useAui,
-  useAuiState,
-} from "@assistant-ui/react";
+import { ThreadListPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import {
   ArchiveIcon,
+  CheckIcon,
+  FolderPlusIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
+  XIcon,
 } from "lucide-react";
 import type { FC } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-export const ThreadList: FC = () => {
-  return (
-    <ThreadListPrimitive.Root className="aui-root aui-thread-list-root flex flex-col gap-1">
-      <ThreadListNew />
-      <AuiIf condition={(s) => s.threads.isLoading}>
-        <ThreadListSkeleton />
-      </AuiIf>
-      <AuiIf condition={(s) => !s.threads.isLoading}>
-        <ThreadListPrimitive.Items components={{ ThreadListItem }} />
-      </AuiIf>
-    </ThreadListPrimitive.Root>
-  );
+type ThreadSnapshot = {
+  id: string;
+  remoteId: string | null;
+  title: string | null;
 };
 
-const ThreadListNew: FC = () => {
-  const aui = useAui();
-  const isMainNew = useAuiState(
-    ({ threads }) => threads.newThreadId === threads.mainThreadId,
-  );
-  const [open, setOpen] = useState(false);
-  const [cwd, setCwd] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [isBrowsing, setIsBrowsing] = useState(false);
+type ThreadMetaSnapshot = {
+  workspaceId: string | null;
+};
 
-  const browseDirectory = useCallback(async () => {
+export const ThreadList: FC = () => {
+  const aui = useAui();
+  const isLoading = useAuiState(({ threads }) => threads.isLoading);
+  const mainThreadId = useAuiState(({ threads }) => threads.mainThreadId);
+  const threadIds = useAuiState(({ threads }) => threads.threadIds);
+  const threadItems = useAuiState(({ threads }) => threads.threadItems);
+  const threads = useMemo<ThreadSnapshot[]>(() => {
+    return threadIds.map((threadId) => {
+      const item = threadItems.find((entry) => entry.id === threadId);
+      return {
+        id: threadId,
+        remoteId: item?.remoteId ?? null,
+        title: item?.title ?? null,
+      };
+    });
+  }, [threadIds, threadItems]);
+
+  const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
+  const [threadMetaByRemoteId, setThreadMetaByRemoteId] = useState<
+    Record<string, ThreadMetaSnapshot>
+  >({});
+  const [error, setError] = useState<string | null>(null);
+
+  const [showWorkspaceForm, setShowWorkspaceForm] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [newWorkspaceCwd, setNewWorkspaceCwd] = useState("");
+  const [isBrowsingWorkspaceDir, setIsBrowsingWorkspaceDir] = useState(false);
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+
+  const [creatingThreadWorkspaceId, setCreatingThreadWorkspaceId] = useState<string | null>(null);
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
+  const [editingWorkspaceName, setEditingWorkspaceName] = useState("");
+
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editingThreadTitle, setEditingThreadTitle] = useState("");
+  const editingThreadInputRef = useRef<HTMLInputElement>(null);
+
+  const loadWorkspaces = useCallback(async () => {
+    const rows = await db.workspaces.list();
+    setWorkspaces(rows);
+  }, []);
+
+  useEffect(() => {
+    void loadWorkspaces().catch((cause) => {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to load workspaces.";
+      setError(message);
+    });
+  }, [loadWorkspaces]);
+
+  const remoteIds = useMemo(
+    () => threads.map((thread) => thread.remoteId).filter((id): id is string => Boolean(id)),
+    [threads],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadThreadMeta = async () => {
+      if (!remoteIds.length) {
+        if (!cancelled) setThreadMetaByRemoteId({});
+        return;
+      }
+
+      const rows = await Promise.all(remoteIds.map((remoteId) => db.threads.get(remoteId)));
+      const nextMap: Record<string, ThreadMetaSnapshot> = {};
+      for (const row of rows) {
+        if (!row?.remote_id) continue;
+        nextMap[row.remote_id] = {
+          workspaceId: row.workspace_id,
+        };
+      }
+
+      if (!cancelled) {
+        setThreadMetaByRemoteId(nextMap);
+      }
+    };
+
+    void loadThreadMeta().catch((cause) => {
+      if (cancelled) return;
+      const message =
+        cause instanceof Error ? cause.message : "Failed to load thread metadata.";
+      setError(message);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteIds]);
+
+  const browseWorkspaceDirectory = useCallback(async () => {
     setError(null);
-    setIsBrowsing(true);
+    setIsBrowsingWorkspaceDir(true);
     try {
       const selected = await invoke<string | string[] | null>("plugin:dialog|open", {
         options: {
@@ -70,109 +133,396 @@ const ThreadListNew: FC = () => {
           : Array.isArray(selected)
             ? selected[0]
             : null;
+
       if (selectedPath) {
-        setCwd(selectedPath);
+        setNewWorkspaceCwd(selectedPath);
+        if (!newWorkspaceName.trim()) {
+          const parts = selectedPath.split(/[\\/]/).filter(Boolean);
+          const basename = parts[parts.length - 1] ?? selectedPath;
+          setNewWorkspaceName(basename);
+        }
       }
     } catch (cause) {
       const message =
         cause instanceof Error ? cause.message : "Failed to open directory picker.";
       setError(message);
     } finally {
-      setIsBrowsing(false);
+      setIsBrowsingWorkspaceDir(false);
     }
-  }, []);
+  }, [newWorkspaceName]);
 
-  const createThread = useCallback(async () => {
-    const normalizedCwd = cwd.trim();
-    if (!normalizedCwd) {
-      setError("Enter a directory path.");
+  const createWorkspace = useCallback(async () => {
+    const name = newWorkspaceName.trim();
+    const cwd = newWorkspaceCwd.trim();
+    if (!name) {
+      setError("Enter a workspace name.");
+      return;
+    }
+    if (!cwd) {
+      setError("Enter a workspace directory.");
       return;
     }
 
     setError(null);
-    setIsCreating(true);
+    setIsCreatingWorkspace(true);
     try {
-      await aui.threads().switchToNewThread();
-      const threadId = aui.threads().getState().mainThreadId;
-      setPendingThreadCwd(threadId, normalizedCwd);
-      setOpen(false);
-      setCwd("");
+      await db.workspaces.create(name, cwd);
+      setNewWorkspaceName("");
+      setNewWorkspaceCwd("");
+      setShowWorkspaceForm(false);
+      await loadWorkspaces();
     } catch (cause) {
       const message =
-        cause instanceof Error ? cause.message : "Failed to create thread.";
+        cause instanceof Error ? cause.message : "Failed to create workspace.";
       setError(message);
     } finally {
-      setIsCreating(false);
+      setIsCreatingWorkspace(false);
     }
-  }, [aui, cwd]);
+  }, [loadWorkspaces, newWorkspaceCwd, newWorkspaceName]);
+
+  const createThreadInWorkspace = useCallback(
+    async (workspace: WorkspaceRow) => {
+      setError(null);
+      setCreatingThreadWorkspaceId(workspace.id);
+      try {
+        await aui.threads().switchToNewThread();
+        const threadId = aui.threads().getState().mainThreadId;
+        setPendingThreadOptions(threadId, {
+          workspaceId: workspace.id,
+          cwd: workspace.cwd,
+        });
+      } catch (cause) {
+        const message =
+          cause instanceof Error ? cause.message : "Failed to create thread.";
+        setError(message);
+      } finally {
+        setCreatingThreadWorkspaceId(null);
+      }
+    },
+    [aui],
+  );
+
+  const threadGroups = useMemo(() => {
+    const groupedByWorkspace = new Map<string, ThreadSnapshot[]>();
+    const unassigned: ThreadSnapshot[] = [];
+
+    for (const thread of threads) {
+      const workspaceId =
+        thread.remoteId ? threadMetaByRemoteId[thread.remoteId]?.workspaceId ?? null : null;
+      if (!workspaceId) {
+        unassigned.push(thread);
+        continue;
+      }
+
+      const current = groupedByWorkspace.get(workspaceId) ?? [];
+      current.push(thread);
+      groupedByWorkspace.set(workspaceId, current);
+    }
+
+    return { groupedByWorkspace, unassigned };
+  }, [threadMetaByRemoteId, threads]);
+
+  const startWorkspaceRename = useCallback((workspace: WorkspaceRow) => {
+    setEditingWorkspaceId(workspace.id);
+    setEditingWorkspaceName(workspace.name);
+  }, []);
+
+  const confirmWorkspaceRename = useCallback(async () => {
+    if (!editingWorkspaceId) return;
+    const nextName = editingWorkspaceName.trim();
+    if (!nextName) {
+      setError("Workspace title cannot be empty.");
+      return;
+    }
+
+    setError(null);
+    try {
+      await db.workspaces.rename(editingWorkspaceId, nextName);
+      setEditingWorkspaceId(null);
+      await loadWorkspaces();
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to rename workspace.";
+      setError(message);
+    }
+  }, [editingWorkspaceId, editingWorkspaceName, loadWorkspaces]);
+
+  const startThreadRename = useCallback((thread: ThreadSnapshot) => {
+    setEditingThreadId(thread.id);
+    setEditingThreadTitle(thread.title ?? "");
+    requestAnimationFrame(() => {
+      editingThreadInputRef.current?.focus();
+      editingThreadInputRef.current?.select();
+    });
+  }, []);
+
+  const confirmThreadRename = useCallback(() => {
+    if (!editingThreadId) return;
+    const title = editingThreadTitle.trim();
+    if (!title) {
+      setEditingThreadId(null);
+      return;
+    }
+
+    aui.threads().item({ id: editingThreadId }).rename(title);
+    setEditingThreadId(null);
+  }, [aui, editingThreadId, editingThreadTitle]);
+
+  const switchToThread = useCallback(
+    (threadId: string) => {
+      aui.threads().switchToThread(threadId);
+    },
+    [aui],
+  );
 
   return (
-    <>
+    <ThreadListPrimitive.Root className="aui-root aui-thread-list-root flex flex-col gap-2">
+      <div className="flex items-center justify-between px-1">
+        <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+          Workspaces
+        </p>
+      </div>
       <Button
         variant="outline"
-        className="aui-thread-list-new h-9 justify-start gap-2 rounded-lg px-3 text-sm hover:bg-muted data-active:bg-muted"
-        data-active={isMainNew ? "true" : undefined}
-        aria-current={isMainNew ? "true" : undefined}
+        className="h-8 justify-start gap-2"
         onClick={() => {
+          setShowWorkspaceForm((prev) => !prev);
           setError(null);
-          setOpen(true);
         }}
       >
-        <PlusIcon className="size-4" />
-        New Thread
+        <FolderPlusIcon className="size-4" />
+        New Workspace
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New Thread Directory</DialogTitle>
-            <DialogDescription>
-              Set the working directory for this thread.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2">
-            <label htmlFor="thread-cwd-input" className="text-sm font-medium">
-              Directory path
-            </label>
-            <input
-              id="thread-cwd-input"
-              value={cwd}
-              onChange={(event) => setCwd(event.target.value)}
-              placeholder="/path/to/project"
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void createThread();
-                }
-              }}
-              disabled={isCreating || isBrowsing}
-              autoFocus
-            />
+
+      {showWorkspaceForm ? (
+        <div className="grid gap-2 rounded-md border p-2">
+          <input
+            value={newWorkspaceName}
+            onChange={(event) => setNewWorkspaceName(event.target.value)}
+            placeholder="Workspace title"
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+            disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+          />
+          <input
+            value={newWorkspaceCwd}
+            onChange={(event) => setNewWorkspaceCwd(event.target.value)}
+            placeholder="/path/to/project"
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+            disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+          />
+          <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={() => void browseDirectory()}
-              disabled={isCreating || isBrowsing}
-              className="justify-start"
+              size="sm"
+              onClick={() => void browseWorkspaceDirectory()}
+              disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+              className="h-8"
             >
-              Browse...
+              Browse
             </Button>
-            {error ? <p className="text-destructive text-xs">{error}</p> : null}
+            <Button
+              size="sm"
+              onClick={() => void createWorkspace()}
+              disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+              className="h-8"
+            >
+              Create
+            </Button>
           </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={isCreating || isBrowsing}
-            >
-              Cancel
-            </Button>
-            <Button onClick={() => void createThread()} disabled={isCreating || isBrowsing}>
-              Create Thread
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+        </div>
+      ) : null}
+
+      {error ? <p className="px-1 text-destructive text-xs">{error}</p> : null}
+
+      {isLoading ? <ThreadListSkeleton /> : null}
+      {!isLoading ? (
+        <div className="flex flex-col gap-3">
+          {workspaces.map((workspace) => {
+            const threadsInWorkspace = threadGroups.groupedByWorkspace.get(workspace.id) ?? [];
+            const isCreatingThread = creatingThreadWorkspaceId === workspace.id;
+            const isEditingWorkspace = editingWorkspaceId === workspace.id;
+
+            return (
+              <section key={workspace.id} className="rounded-lg border bg-card/40 p-2">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    {isEditingWorkspace ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          value={editingWorkspaceName}
+                          onChange={(event) => setEditingWorkspaceName(event.target.value)}
+                          className="h-7 w-full rounded border border-input bg-background px-2 text-sm outline-none"
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void confirmWorkspaceRename();
+                            }
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              setEditingWorkspaceId(null);
+                            }
+                          }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6"
+                          onClick={() => void confirmWorkspaceRename()}
+                        >
+                          <CheckIcon className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6"
+                          onClick={() => setEditingWorkspaceId(null)}
+                        >
+                          <XIcon className="size-3.5" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="truncate font-medium text-sm">{workspace.name}</p>
+                        <p className="truncate text-muted-foreground text-xs">{workspace.cwd}</p>
+                      </>
+                    )}
+                  </div>
+                  {!isEditingWorkspace ? (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        onClick={() => startWorkspaceRename(workspace)}
+                      >
+                        <PencilIcon className="size-3.5" />
+                        <span className="sr-only">Rename workspace</span>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2"
+                        onClick={() => void createThreadInWorkspace(workspace)}
+                        disabled={Boolean(creatingThreadWorkspaceId)}
+                      >
+                        <PlusIcon className="mr-1 size-3.5" />
+                        {isCreatingThread ? "Creating" : "New Chat"}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  {threadsInWorkspace.length ? (
+                    threadsInWorkspace.map((thread) => {
+                      const isActive = thread.id === mainThreadId;
+                      const isEditingThread = editingThreadId === thread.id;
+
+                      return (
+                        <div
+                          key={thread.id}
+                          className="group flex items-center gap-1 rounded-md hover:bg-muted data-[active=true]:bg-muted"
+                          data-active={isActive ? "true" : undefined}
+                        >
+                          {isEditingThread ? (
+                            <input
+                              ref={editingThreadInputRef}
+                              value={editingThreadTitle}
+                              onChange={(event) => setEditingThreadTitle(event.target.value)}
+                              onBlur={confirmThreadRename}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  confirmThreadRename();
+                                } else if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setEditingThreadId(null);
+                                }
+                              }}
+                              className="h-8 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm outline-none"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className="h-8 min-w-0 flex-1 truncate px-2 text-left text-sm"
+                              onClick={() => switchToThread(thread.id)}
+                            >
+                              {thread.title ?? "New Thread"}
+                            </button>
+                          )}
+
+                          <div className="mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6"
+                              onClick={() => startThreadRename(thread)}
+                            >
+                              <PencilIcon className="size-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6"
+                              onClick={() => aui.threads().item({ id: thread.id }).archive()}
+                            >
+                              <ArchiveIcon className="size-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6 text-destructive"
+                              onClick={() => aui.threads().item({ id: thread.id }).delete()}
+                            >
+                              <TrashIcon className="size-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="px-2 py-1 text-muted-foreground text-xs">No chats yet.</p>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+
+          {!workspaces.length ? (
+            <section className="rounded-lg border border-dashed p-2">
+              <p className="text-muted-foreground text-xs">
+                Create a workspace to start grouping chats by project directory.
+              </p>
+            </section>
+          ) : null}
+
+          {threadGroups.unassigned.length ? (
+            <section className="rounded-lg border border-dashed p-2">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="font-medium text-sm">Unassigned</p>
+                <MoreHorizontalIcon className="size-3.5 text-muted-foreground" />
+              </div>
+              <div className="flex flex-col gap-1">
+                {threadGroups.unassigned.map((thread) => {
+                  const isActive = thread.id === mainThreadId;
+                  return (
+                    <button
+                      key={thread.id}
+                      type="button"
+                      className="h-8 truncate rounded px-2 text-left text-sm hover:bg-muted data-[active=true]:bg-muted"
+                      data-active={isActive ? "true" : undefined}
+                      onClick={() => switchToThread(thread.id)}
+                    >
+                      {thread.title ?? "New Thread"}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      ) : null}
+    </ThreadListPrimitive.Root>
   );
 };
 
@@ -190,104 +540,5 @@ const ThreadListSkeleton: FC = () => {
         </div>
       ))}
     </div>
-  );
-};
-
-const ThreadListItem: FC = () => {
-  const aui = useAui();
-  const title = useAuiState(({ threadListItem }) => threadListItem.title);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const startEditing = useCallback(() => {
-    setEditValue(title ?? "");
-    setIsEditing(true);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-  }, [title]);
-
-  const confirmRename = useCallback(() => {
-    const trimmed = editValue.trim();
-    if (trimmed && trimmed !== title) {
-      aui.threadListItem().rename(trimmed);
-    }
-    setIsEditing(false);
-  }, [aui, editValue, title]);
-
-  const cancelEditing = useCallback(() => {
-    setIsEditing(false);
-  }, []);
-
-  return (
-    <ThreadListItemPrimitive.Root className="aui-thread-list-item group flex h-9 items-center gap-2 rounded-lg transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none data-active:bg-muted">
-      {isEditing ? (
-        <input
-          ref={inputRef}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              confirmRename();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              cancelEditing();
-            }
-          }}
-          onBlur={confirmRename}
-          className="flex h-full min-w-0 flex-1 items-center truncate bg-transparent px-3 text-start text-sm outline-none ring-1 ring-ring/30 rounded"
-        />
-      ) : (
-        <ThreadListItemPrimitive.Trigger className="aui-thread-list-item-trigger flex h-full min-w-0 flex-1 items-center truncate px-3 text-start text-sm">
-          <ThreadListItemPrimitive.Title fallback="New Thread" />
-        </ThreadListItemPrimitive.Trigger>
-      )}
-      <ThreadListItemMore onRename={startEditing} />
-    </ThreadListItemPrimitive.Root>
-  );
-};
-
-const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
-  return (
-    <ThreadListItemMorePrimitive.Root>
-      <ThreadListItemMorePrimitive.Trigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="aui-thread-list-item-more mr-2 size-7 p-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:bg-accent data-[state=open]:opacity-100 group-data-active:opacity-100"
-        >
-          <MoreHorizontalIcon className="size-4" />
-          <span className="sr-only">More options</span>
-        </Button>
-      </ThreadListItemMorePrimitive.Trigger>
-      <ThreadListItemMorePrimitive.Content
-        side="bottom"
-        align="start"
-        className="aui-thread-list-item-more-content z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-      >
-        <ThreadListItemMorePrimitive.Item
-          onSelect={onRename}
-          className="aui-thread-list-item-more-item flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-        >
-          <PencilIcon className="size-4" />
-          Rename
-        </ThreadListItemMorePrimitive.Item>
-        <ThreadListItemPrimitive.Archive asChild>
-          <ThreadListItemMorePrimitive.Item className="aui-thread-list-item-more-item flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">
-            <ArchiveIcon className="size-4" />
-            Archive
-          </ThreadListItemMorePrimitive.Item>
-        </ThreadListItemPrimitive.Archive>
-        <ThreadListItemPrimitive.Delete asChild>
-          <ThreadListItemMorePrimitive.Item className="aui-thread-list-item-more-item flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-destructive text-sm outline-none hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive">
-            <TrashIcon className="size-4" />
-            Delete
-          </ThreadListItemMorePrimitive.Item>
-        </ThreadListItemPrimitive.Delete>
-      </ThreadListItemMorePrimitive.Content>
-    </ThreadListItemMorePrimitive.Root>
   );
 };

@@ -14,7 +14,13 @@ type RemoteThreadMetadata = {
   externalId?: string;
 };
 
-const pendingThreadCwdById = new Map<string, string>();
+type PendingThreadOptions = {
+  cwd?: string | null;
+  workspaceId?: string | null;
+  gitBranch?: string | null;
+};
+
+const pendingThreadOptionsById = new Map<string, PendingThreadOptions>();
 
 // --- Title generation (concurrent with main run) ---
 
@@ -63,13 +69,22 @@ export function prefetchTitle(remoteId: string, userText: string): void {
     .catch(() => { /* CLI unavailable — generateTitle() will use fallback */ });
 }
 
-export function setPendingThreadCwd(threadId: string, cwd: string): void {
-  const normalized = cwd.trim();
-  if (!normalized) {
-    pendingThreadCwdById.delete(threadId);
+export function setPendingThreadOptions(
+  threadId: string,
+  options: PendingThreadOptions,
+): void {
+  const normalizedCwd = options.cwd?.trim() || null;
+  const normalizedWorkspaceId = options.workspaceId?.trim() || null;
+  const normalizedGitBranch = options.gitBranch?.trim() || null;
+  if (!normalizedCwd && !normalizedWorkspaceId && !normalizedGitBranch) {
+    pendingThreadOptionsById.delete(threadId);
     return;
   }
-  pendingThreadCwdById.set(threadId, normalized);
+  pendingThreadOptionsById.set(threadId, {
+    cwd: normalizedCwd,
+    workspaceId: normalizedWorkspaceId,
+    gitBranch: normalizedGitBranch,
+  });
 }
 
 function threadRowToMetadata(row: ThreadRow): RemoteThreadMetadata {
@@ -89,9 +104,9 @@ export function createSQLiteThreadListAdapter(): RemoteThreadListAdapter {
     },
 
     async initialize(threadId: string) {
-      const pendingCwd = pendingThreadCwdById.get(threadId);
-      const row = await db.threads.create(threadId, pendingCwd);
-      pendingThreadCwdById.delete(threadId);
+      const pending = pendingThreadOptionsById.get(threadId);
+      const row = await db.threads.create(threadId, pending);
+      pendingThreadOptionsById.delete(threadId);
       return { remoteId: row.remote_id, externalId: row.id };
     },
 
