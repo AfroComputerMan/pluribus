@@ -25,12 +25,12 @@
 |--------|----------|--------|--------|-------|
 | Test coverage (overall) | >= 70% | TBD | - | Not measured for full app yet |
 | Test coverage (NDJSON parser) | >= 90% | 93.04% lines | Pass | `bun test src/lib/ndjson-parser.test.ts` |
-| Test coverage (IPC layer) | >= 85% | TBD | - | |
+| Test coverage (IPC layer) | >= 85% | 56 tests, 3 files (channels, commands, events) | Pass | All sentinels, command wrappers, event listeners tested |
 | Rust LOC | < 1000 | 2019 | Risk | Current implementation exceeds target; consider refactor/scope trim in later phase |
 | Frontend bundle size | < 2 MB | TBD | - | WebView assets |
 | Binary size (total) | < 15 MB | TBD | - | Tauri build output |
 | SQLite tables | 7 | 7 | Pass | Created in `AppState::init_db` + TS schema |
-| TDD compliance | 100% | Partial | Risk | NDJSON parser met test-first target; broader Phase 1 tests still missing |
+| TDD compliance | 100% | Partial | Improving | NDJSON parser, IPC commands, and component tests now cover core chat UI |
 
 ### Reuse from Existing Pluribus
 
@@ -70,8 +70,9 @@
 | Create session pointing to local git repo | Partial | `create_session` now resolves saved project IDs to repo paths; manual runtime create/send validation still pending |
 | Type message, see streaming response | Partial | UI path now wired (`ChatPage` -> `ChatPanel` -> `useChatStream`); full runtime stream still pending manual validation with Claude CLI |
 | Markdown renders correctly | TBD | |
-| Tool calls render as collapsible cards | TBD | |
+| Tool calls render as collapsible cards | Partial | ToolCallCard unit tests pass (9/9); runtime rendering TBD |
 | Tool results render with syntax highlighting | TBD | |
+| Component unit tests (ChatPanel, MessageBubble, ToolCallCard, SessionSidebar) | Yes | 34/34 pass across 4 test files |
 | Session persists across app restart (SQLite) | Partial | hydration + metadata sync in place, and user messages now persist on send; manual restart validation still pending |
 | Session sidebar shows status dot + cost | Partial | status transitions now persist in DB from process lifecycle; manual UI verification of dot/cost rendering still pending |
 | NDJSON parser tests pass (90%+ coverage) | Yes | 42/42 pass, 93.04% lines |
