@@ -317,18 +317,6 @@ pub async fn update_claude_session_id(
     Ok(())
 }
 
-fn parse_session_status(status: &str) -> SessionStatus {
-    match status {
-        "created" => SessionStatus::Created,
-        "running" => SessionStatus::Running,
-        "completed" => SessionStatus::Completed,
-        "failed" => SessionStatus::Failed,
-        "killed" => SessionStatus::Killed,
-        "paused" => SessionStatus::Paused,
-        _ => SessionStatus::Created,
-    }
-}
-
 fn get_session_status_inner(state: &AppState, session_id: &str) -> Result<SessionStatus, AppError> {
     {
         let sessions = state.sessions.lock()
@@ -350,40 +338,33 @@ fn get_session_status_inner(state: &AppState, session_id: &str) -> Result<Sessio
 }
 
 fn upsert_runtime_session_in_db(state: &AppState, session: &SessionHandle) -> Result<(), AppError> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let conn = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
-
-    conn.execute(
-        "INSERT OR IGNORE INTO sessions (id, project_id, name, status, model, autonomy_level, worktree_path, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![
-            &session.id,
-            &session.project_path,
-            &session.name,
-            format!("{:?}", session.status).to_lowercase(),
-            &session.model,
-            &session.autonomy_level,
-            &session.worktree_path,
-            &session.created_at,
-        ],
-    ).map_err(|e| AppError::Database(format!("Failed to upsert runtime session: {}", e)))?;
-
-    Ok(())
+    state.with_db(|conn| {
+        conn.execute(
+            "INSERT OR IGNORE INTO sessions (id, project_id, name, status, model, autonomy_level, worktree_path, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                &session.id,
+                &session.project_path,
+                &session.name,
+                session.status.as_str(),
+                &session.model,
+                &session.autonomy_level,
+                &session.worktree_path,
+                &session.created_at,
+            ],
+        ).map_err(|e| AppError::Database(format!("Failed to upsert runtime session: {}", e)))?;
+        Ok(())
+    })
 }
 
 fn persist_claude_session_id_in_db(state: &AppState, session_id: &str, claude_session_id: &str) -> Result<(), AppError> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let conn = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
-
-    conn.execute(
-        "UPDATE sessions SET claude_session_id = ?1 WHERE id = ?2",
-        rusqlite::params![claude_session_id, session_id],
-    ).map_err(|e| AppError::Database(format!("Failed to persist claude session id: {}", e)))?;
-    Ok(())
+    state.with_db(|conn| {
+        conn.execute(
+            "UPDATE sessions SET claude_session_id = ?1 WHERE id = ?2",
+            rusqlite::params![claude_session_id, session_id],
+        ).map_err(|e| AppError::Database(format!("Failed to persist claude session id: {}", e)))?;
+        Ok(())
+    })
 }
 
 fn resolve_project_path(state: &AppState, project_id: &str) -> Result<String, AppError> {
@@ -391,121 +372,90 @@ fn resolve_project_path(state: &AppState, project_id: &str) -> Result<String, Ap
         return Ok(String::new());
     }
 
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let conn = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
-
-    let maybe_path: Option<String> = conn.query_row(
-        "SELECT path FROM projects WHERE id = ?1",
-        rusqlite::params![project_id],
-        |row| row.get(0),
-    ).ok();
-
-    Ok(maybe_path.unwrap_or_else(|| project_id.to_string()))
+    state.with_db(|conn| {
+        let maybe_path: Option<String> = conn.query_row(
+            "SELECT path FROM projects WHERE id = ?1",
+            rusqlite::params![project_id],
+            |row| row.get(0),
+        ).ok();
+        Ok(maybe_path.unwrap_or_else(|| project_id.to_string()))
+    })
 }
 
 fn persist_user_message_in_db(state: &AppState, session_id: &str, content: &str) -> Result<(), AppError> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let conn = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+    state.with_db(|conn| {
+        let next_order: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(order_index), -1) + 1 FROM messages WHERE session_id = ?1",
+            rusqlite::params![session_id],
+            |row| row.get(0),
+        ).map_err(|e| AppError::Database(format!("Failed to get next order index: {}", e)))?;
 
-    let next_order: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(order_index), -1) + 1 FROM messages WHERE session_id = ?1",
-        rusqlite::params![session_id],
-        |row| row.get(0),
-    ).map_err(|e| AppError::Database(format!("Failed to get next order index: {}", e)))?;
-
-    let message_id = uuid::Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO messages (id, session_id, role, content, content_type, order_index, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
-        rusqlite::params![message_id, session_id, "user", content, "text", next_order],
-    ).map_err(|e| AppError::Database(format!("Failed to persist user message: {}", e)))?;
-
-    Ok(())
+        let message_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, content, content_type, order_index, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
+            rusqlite::params![message_id, session_id, "user", content, "text", next_order],
+        ).map_err(|e| AppError::Database(format!("Failed to persist user message: {}", e)))?;
+        Ok(())
+    })
 }
 
 fn load_session_from_db(state: &AppState, session_id: &str) -> Result<Option<SessionHandle>, AppError> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let conn = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
+    state.with_db(|conn| {
+        let result = conn.query_row(
+            "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+             FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            session_row_mapper,
+        );
+        match result {
+            Ok(session) => Ok(Some(session)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::Database(format!("Failed to load session: {}", e))),
+        }
+    })
+}
 
-    let mut stmt = conn.prepare(
-        "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
-         FROM sessions WHERE id = ?1"
-    ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
-
-    let mut rows = stmt.query(rusqlite::params![session_id])
-        .map_err(|e| AppError::Database(format!("Failed to query session: {}", e)))?;
-
-    if let Some(row) = rows.next().map_err(|e| AppError::Database(format!("Failed to read row: {}", e)))? {
-        let status_str: String = row.get(2)
-            .map_err(|e| AppError::Database(format!("Failed to read status: {}", e)))?;
-        Ok(Some(SessionHandle {
-            id: row.get(0).map_err(|e| AppError::Database(format!("Failed to read id: {}", e)))?,
-            name: row.get(1).map_err(|e| AppError::Database(format!("Failed to read name: {}", e)))?,
-            status: parse_session_status(&status_str),
-            claude_session_id: row.get(3).map_err(|e| AppError::Database(format!("Failed to read claude_session_id: {}", e)))?,
-            project_path: row.get(4).map_err(|e| AppError::Database(format!("Failed to read project_id: {}", e)))?,
-            worktree_path: row.get(5).map_err(|e| AppError::Database(format!("Failed to read worktree_path: {}", e)))?,
-            model: row.get(6).map_err(|e| AppError::Database(format!("Failed to read model: {}", e)))?,
-            autonomy_level: row.get(7).map_err(|e| AppError::Database(format!("Failed to read autonomy_level: {}", e)))?,
-            created_at: row.get(8).map_err(|e| AppError::Database(format!("Failed to read created_at: {}", e)))?,
-        }))
-    } else {
-        Ok(None)
-    }
+/// Shared row mapper for session queries.
+fn session_row_mapper(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionHandle> {
+    let status_str: String = row.get(2)?;
+    Ok(SessionHandle {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        status: SessionStatus::parse(&status_str),
+        claude_session_id: row.get(3)?,
+        project_path: row.get(4)?,
+        worktree_path: row.get(5)?,
+        model: row.get(6)?,
+        autonomy_level: row.get(7)?,
+        created_at: row.get(8)?,
+    })
 }
 
 fn load_sessions_from_db(state: &AppState, project_id: Option<&str>) -> Result<Vec<SessionHandle>, AppError> {
-    let db = state.db.lock()
-        .map_err(|e| AppError::Database(format!("DB lock poisoned: {}", e)))?;
-    let conn = db.as_ref()
-        .ok_or_else(|| AppError::Database("Database not initialized".to_string()))?;
-
-    let mapper = |row: &rusqlite::Row<'_>| -> rusqlite::Result<SessionHandle> {
-            let status_str: String = row.get(2)?;
-            Ok(SessionHandle {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                status: parse_session_status(&status_str),
-                claude_session_id: row.get(3)?,
-                project_path: row.get(4)?,
-                worktree_path: row.get(5)?,
-                model: row.get(6)?,
-                autonomy_level: row.get(7)?,
-                created_at: row.get(8)?,
-            })
+    state.with_db(|conn| {
+        let (sql, params): (&str, Vec<&dyn rusqlite::types::ToSql>) = if let Some(pid) = project_id {
+            (
+                "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+                 FROM sessions WHERE project_id = ?1 ORDER BY created_at DESC",
+                vec![&pid as &dyn rusqlite::types::ToSql],
+            )
+        } else {
+            (
+                "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
+                 FROM sessions ORDER BY created_at DESC",
+                vec![],
+            )
         };
 
-    let mut sessions = Vec::new();
-    if let Some(pid) = project_id {
-        let mut stmt = conn.prepare(
-            "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
-             FROM sessions WHERE project_id = ?1 ORDER BY created_at DESC"
-        ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
+        let mut stmt = conn.prepare(sql)
+            .map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
+        let rows = stmt.query_map(params.as_slice(), session_row_mapper)
+            .map_err(|e| AppError::Database(format!("Failed to query sessions: {}", e)))?;
 
-        let rows = stmt.query_map([pid], mapper)
-            .map_err(|e| AppError::Database(format!("Failed to map rows: {}", e)))?;
-        for row in rows {
-            sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
-        }
-    } else {
-        let mut stmt = conn.prepare(
-            "SELECT id, name, status, claude_session_id, project_id, worktree_path, model, autonomy_level, created_at
-             FROM sessions ORDER BY created_at DESC"
-        ).map_err(|e| AppError::Database(format!("Failed to prepare query: {}", e)))?;
-
-        let rows = stmt.query_map([], mapper)
-            .map_err(|e| AppError::Database(format!("Failed to map rows: {}", e)))?;
-        for row in rows {
-            sessions.push(row.map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))?);
-        }
-    }
-    Ok(sessions)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError::Database(format!("Failed to parse row: {}", e)))
+    })
 }
 
 fn list_sessions_inner(state: &AppState, project_id: Option<&str>) -> Result<Vec<SessionHandle>, AppError> {
@@ -541,8 +491,8 @@ mod tests {
 
     #[test]
     fn parse_session_status_defaults_for_unknown() {
-        assert_eq!(parse_session_status("weird"), SessionStatus::Created);
-        assert_eq!(parse_session_status("running"), SessionStatus::Running);
+        assert_eq!(SessionStatus::parse("weird"), SessionStatus::Created);
+        assert_eq!(SessionStatus::parse("running"), SessionStatus::Running);
     }
 
     #[test]
@@ -815,5 +765,45 @@ mod tests {
         assert_eq!(collected.len(), 2);
         assert_eq!(collected[0], ("first".to_string(), 0));
         assert_eq!(collected[1], ("second".to_string(), 1));
+    }
+
+    #[test]
+    fn foreign_keys_enabled_cascade_deletes_messages() {
+        let state = setup_state();
+        {
+            let db = state.db.lock().unwrap();
+            let conn = db.as_ref().unwrap();
+
+            // Verify foreign keys are ON
+            let fk_enabled: i64 = conn.query_row(
+                "PRAGMA foreign_keys", [], |row| row.get(0)
+            ).unwrap();
+            assert_eq!(fk_enabled, 1, "foreign_keys PRAGMA should be enabled");
+
+            conn.execute(
+                "INSERT INTO projects (id, name, path) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["proj-fk", "FK Project", "/tmp/fk"]
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO sessions (id, project_id, name, status, model, autonomy_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params!["s-fk", "proj-fk", "FK Session", "created", "sonnet", "supervised", "2026-02-07T00:00:00Z"]
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO messages (id, session_id, role, content, order_index, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
+                rusqlite::params!["m-fk-1", "s-fk", "user", "hello", 0]
+            ).unwrap();
+
+            // Delete session -- messages should cascade
+            conn.execute("DELETE FROM sessions WHERE id = ?1", rusqlite::params!["s-fk"]).unwrap();
+
+            let msg_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+                rusqlite::params!["s-fk"],
+                |row| row.get(0)
+            ).unwrap();
+            assert_eq!(msg_count, 0, "messages should be cascade-deleted when session is removed");
+        }
     }
 }

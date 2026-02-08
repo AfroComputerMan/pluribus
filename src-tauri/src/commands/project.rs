@@ -4,7 +4,7 @@
 /// Project metadata is stored in SQLite while validation happens via git.
 
 use crate::error::AppError;
-use crate::state::AppState;
+use crate::state::{AppState, utc_datetime_now};
 use crate::worktree::manager::WorktreeManager;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -40,7 +40,7 @@ pub async fn open_project(
         .unwrap_or_else(|| "unknown".to_string());
 
     let id = uuid::Uuid::new_v4().to_string();
-    let now = chrono_now();
+    let now = utc_datetime_now();
 
     // Insert into SQLite
     let db = state.db.lock()
@@ -150,56 +150,3 @@ pub async fn get_project(
     ).map_err(|e| AppError::Database(format!("Project not found: {}", e)))
 }
 
-/// Simple timestamp helper (avoids adding chrono dependency)
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    // ISO-ish format: seconds since epoch (matches SQLite datetime format used elsewhere)
-    // The TS schema uses `datetime('now')` which produces "YYYY-MM-DD HH:MM:SS"
-    // We'll produce a similar format manually
-    let days = secs / 86400;
-    let remaining = secs % 86400;
-    let hours = remaining / 3600;
-    let minutes = (remaining % 3600) / 60;
-    let seconds = remaining % 60;
-
-    // Days since 1970-01-01
-    // Simple calculation: not accounting for leap seconds but good enough
-    let mut year = 1970i64;
-    let mut remaining_days = days as i64;
-
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining_days < days_in_year {
-            break;
-        }
-        remaining_days -= days_in_year;
-        year += 1;
-    }
-
-    let month_days = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 1;
-    for &md in &month_days {
-        if remaining_days < md {
-            break;
-        }
-        remaining_days -= md;
-        month += 1;
-    }
-
-    let day = remaining_days + 1;
-
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
-}
-
-fn is_leap_year(year: i64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
-}

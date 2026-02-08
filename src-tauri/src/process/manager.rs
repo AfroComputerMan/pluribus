@@ -1,7 +1,6 @@
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, ProcessHandle, ProcessStatus, SessionStatus};
 use std::process::Stdio;
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -364,16 +363,6 @@ pub async fn resume_session(state: &AppState, session_id: &str) -> AppResult<()>
     }
 
     Ok(())
-}
-
-impl Clone for AppState {
-    fn clone(&self) -> Self {
-        Self {
-            sessions: Arc::clone(&self.sessions),
-            processes: Arc::clone(&self.processes),
-            db: Arc::clone(&self.db),
-        }
-    }
 }
 
 fn persist_session_status_in_db(state: &AppState, session_id: &str, status: &SessionStatus) -> AppResult<()> {

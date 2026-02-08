@@ -90,6 +90,7 @@ const MIGRATIONS: Migration[] = [
         file_path TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team_id);
 
       CREATE TABLE IF NOT EXISTS usage_records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,6 +101,7 @@ const MIGRATIONS: Migration[] = [
         cost_usd REAL NOT NULL,
         timestamp TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE INDEX IF NOT EXISTS idx_usage_records_session ON usage_records(session_id);
 
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,

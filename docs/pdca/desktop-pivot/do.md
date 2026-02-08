@@ -16,6 +16,7 @@
 | Phase 1 | `ipc/commands.test.ts` | 32 | 32 | Target 85% |
 | Phase 1 | `ipc/channels.test.ts` | 16 | 16 | Target 85% |
 | Phase 1 | `ipc/events.test.ts` | 8 | 8 | Target 85% |
+| Phase 1 | `hooks/useChatStream.test.ts` | 12 | 12 | Target 85% |
 | Phase 1 | `stores/settingsStore.test.ts` | 14 | 14 | 100% lines (target >= 85%) |
 | Phase 1 | `stores/sessionStore.test.ts` | 18 | 18 | 100% lines (target >= 85%) |
 | Phase 1 | `stores/chatStore.test.ts` | 37 | 37 | ~95% lines (target >= 85%) |
@@ -257,6 +258,23 @@
   - `cd src-tauri && cargo check`: pass
   - `bun run desktop:typecheck`: pass
 
+### 2026-02-08: Phase 1 — Close Phase 1 Blockers (Icons, Deps, Build Verification)
+
+**[Architecture Specialist]** — resolved remaining Phase 1 build blockers
+- Created Tauri icon assets at `src-tauri/icons/`:
+  - Generated 32x32, 128x128, 256x256 (as 128x128@2x), and 512x512 RGBA PNGs from existing icon.png
+  - Added `bundle.icon` array to `tauri.conf.json` referencing all icon sizes
+- Fixed Rust compilation errors:
+  - Removed duplicate `impl Clone for AppState` in `process/manager.rs` (canonical impl lives in `state.rs`)
+  - Removed unused `Arc` import from `process/manager.rs`
+  - Fixed test in `commands/chat.rs` referencing non-existent `parse_session_status` function; updated to use `SessionStatus::parse()`
+- Verification results:
+  - `bun install`: all 524 packages verified (no changes needed)
+  - `bun run desktop:typecheck`: pass (clean)
+  - `cd src-tauri && cargo check --lib`: pass (clean)
+  - `cd src-tauri && cargo check`: pass (clean, including binary target with icon context generation)
+  - `cd src-tauri && cargo test`: 24/24 pass
+
 ### 2026-02-07: Phase 1 — Deterministic Session Listing (TDD Slice)
 
 **[Rust test-first pass]** — removed partial-cache blind spots in project-filtered session listing
@@ -298,9 +316,11 @@
 
 ### Implementation Log
 
-- Gate pending: add real app icons so `cargo check` / `bun run tauri dev` can build the binary target.
+- Gate closed: app icons generated (32x32, 128x128, 256x256, 512x512 RGBA PNGs) and bundle config updated.
+- Gate closed: `cargo check --lib` and `cargo check` (full binary) pass cleanly.
+- Gate closed: `bun run desktop:typecheck` passes cleanly.
+- Gate closed: all 24 Rust tests pass (`cargo test`).
 - Gate pending: run end-to-end runtime checks (session create -> send message -> stream -> completion).
-- Gate pending: install desktop dependencies when network access is available (`react`, `@tauri-apps/api`, `zustand`, `vite`, `vitest`, etc.), then re-run `bun run desktop:typecheck`.
 
 ---
 

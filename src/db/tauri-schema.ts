@@ -89,7 +89,9 @@ export const tasks = sqliteTable('tasks', {
   dependencies: text('dependencies'),         // JSON array of task IDs
   filePath: text('file_path'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-});
+}, (t) => [
+  index('idx_tasks_team').on(t.teamId),
+]);
 
 /**
  * Usage records table - granular cost and token tracking per request
@@ -102,7 +104,9 @@ export const usageRecords = sqliteTable('usage_records', {
   outputTokens: integer('output_tokens').notNull(),
   costUsd: real('cost_usd').notNull(),
   timestamp: text('timestamp').notNull().default(sql`(datetime('now'))`),
-});
+}, (t) => [
+  index('idx_usage_records_session').on(t.sessionId),
+]);
 
 /**
  * Settings table - application configuration and preferences

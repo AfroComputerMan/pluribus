@@ -24,9 +24,31 @@ impl Default for AppState {
     }
 }
 
+impl Clone for AppState {
+    fn clone(&self) -> Self {
+        Self {
+            sessions: Arc::clone(&self.sessions),
+            processes: Arc::clone(&self.processes),
+            db: Arc::clone(&self.db),
+        }
+    }
+}
+
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Access the DB connection inside the lock, returning AppError on failure.
+    pub fn with_db<F, T>(&self, f: F) -> Result<T, crate::error::AppError>
+    where
+        F: FnOnce(&rusqlite::Connection) -> Result<T, crate::error::AppError>,
+    {
+        let db = self.db.lock()
+            .map_err(|e| crate::error::AppError::Database(format!("DB lock poisoned: {}", e)))?;
+        let conn = db.as_ref()
+            .ok_or_else(|| crate::error::AppError::Database("Database not initialized".to_string()))?;
+        f(conn)
     }
 
     /// Initialize the SQLite database connection and create tables
@@ -37,6 +59,10 @@ impl AppState {
         // Enable WAL mode for better concurrent read performance
         conn.execute_batch("PRAGMA journal_mode=WAL;")
             .map_err(|e| format!("Failed to set WAL mode: {}", e))?;
+
+        // Enable foreign key enforcement (SQLite defaults to OFF)
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| format!("Failed to enable foreign keys: {}", e))?;
 
         // Create tables if they don't exist (matches tauri-schema.ts)
         conn.execute_batch(
@@ -113,6 +139,8 @@ impl AppState {
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
+            CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team_id);
+
             CREATE TABLE IF NOT EXISTS usage_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -122,6 +150,8 @@ impl AppState {
                 cost_usd REAL NOT NULL,
                 timestamp TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE INDEX IF NOT EXISTS idx_usage_records_session ON usage_records(session_id);
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -137,6 +167,49 @@ impl AppState {
     }
 }
 
+/// Produce a UTC timestamp matching SQLite's `datetime('now')` format: "YYYY-MM-DD HH:MM:SS".
+pub fn utc_datetime_now() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let days = secs / 86400;
+    let remaining = secs % 86400;
+    let hours = remaining / 3600;
+    let minutes = (remaining % 3600) / 60;
+    let seconds = remaining % 60;
+
+    let mut year = 1970i64;
+    let mut remaining_days = days as i64;
+    loop {
+        let days_in_year = if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        year += 1;
+    }
+
+    let month_days = if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1;
+    for &md in &month_days {
+        if remaining_days < md {
+            break;
+        }
+        remaining_days -= md;
+        month += 1;
+    }
+    let day = remaining_days + 1;
+
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+}
+
 /// Session lifecycle status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -147,6 +220,30 @@ pub enum SessionStatus {
     Failed,
     Killed,
     Paused,
+}
+
+impl SessionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Killed => "killed",
+            Self::Paused => "paused",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "running" => Self::Running,
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            "killed" => Self::Killed,
+            "paused" => Self::Paused,
+            _ => Self::Created,
+        }
+    }
 }
 
 /// Process status
@@ -182,12 +279,6 @@ impl SessionHandle {
         model: String,
         autonomy_level: String,
     ) -> Self {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
         Self {
             id,
             name,
@@ -197,7 +288,7 @@ impl SessionHandle {
             worktree_path,
             model,
             autonomy_level,
-            created_at: timestamp.to_string(),
+            created_at: utc_datetime_now(),
         }
     }
 }

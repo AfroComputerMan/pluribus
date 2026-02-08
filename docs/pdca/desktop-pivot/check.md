@@ -66,7 +66,7 @@
 
 | Criteria | Pass? | Notes |
 |----------|-------|-------|
-| `bun run tauri dev` launches app | No | Blocked by missing Tauri icon assets at context generation |
+| `bun run tauri dev` launches app | Partial | Icons created, `cargo check` passes (full binary incl. `generate_context!`); runtime launch pending manual validation |
 | Create session pointing to local git repo | Partial | `create_session` now resolves saved project IDs to repo paths; manual runtime create/send validation still pending |
 | Type message, see streaming response | Partial | UI path now wired (`ChatPage` -> `ChatPanel` -> `useChatStream`); full runtime stream still pending manual validation with Claude CLI |
 | Markdown renders correctly | TBD | |
@@ -141,7 +141,7 @@
 ## What Failed / Challenges
 
 ### Technical Challenges
-- Tauri build macro currently fails before command wiring is validated because icon assets are missing (`generate_context!` hard requirement).
+- ~~Tauri build macro currently fails before command wiring is validated because icon assets are missing (`generate_context!` hard requirement).~~ Resolved: icons generated and `cargo check` passes.
 - Single workspace `tsconfig.json` currently mixes backend Bun code and desktop React/Tauri code; this causes noisy typecheck failures and masks true desktop regressions.
 - Environment-level network restriction prevented dependency installation (`bun add` failed with `ConnectionRefused`), so desktop compile checks cannot fully run yet.
 
