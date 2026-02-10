@@ -17,12 +17,6 @@
           "name": "claude",
           "cmd": "claude",
           "args": true
-        },
-        {
-          "name": "claude-stream-sh",
-          "cmd": "sh",
-          "args": true,
-          "sidecar": false
         }
       ]
     },
@@ -33,16 +27,8 @@
           "name": "claude",
           "cmd": "claude",
           "args": true
-        },
-        {
-          "name": "claude-stream-sh",
-          "cmd": "sh",
-          "args": true,
-          "sidecar": false
         }
       ]
-    },
-    "shell:allow-stdin-write",
-    "shell:allow-kill"
+    }
   ]
 }

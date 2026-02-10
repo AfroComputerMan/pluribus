@@ -1,22 +1,8 @@
-import { Command, type Child } from "@tauri-apps/plugin-shell";
+import { Command } from "@tauri-apps/plugin-shell";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
-import type { ReadonlyJSONObject } from "assistant-stream/utils";
 import { db } from "@/lib/db";
 import { queueDevEventForArchive } from "@/lib/dev-event-batcher";
 import { prefetchTitle } from "@/lib/sqlite-thread-list-adapter";
-
-type JsonRecord = Record<string, unknown>;
-
-type ClaudeMessageMetrics = {
-  inputTokens: number | null;
-  outputTokens: number | null;
-  cacheReadInputTokens: number | null;
-  cacheCreationInputTokens: number | null;
-  contextWindow: number | null;
-  contextUsedTokens: number | null;
-  contextLeftBeforeCompaction: number | null;
-  totalTokens: number | null;
-};
 
 type ClaudeStreamEventBase = {
   index?: number;
@@ -97,25 +83,10 @@ type ClaudeResultEvent = ClaudeStreamEventBase & {
   result?: string;
 };
 
-type ClaudeContentBlockStartEvent = ClaudeStreamEventBase & {
-  type: "content_block_start";
-};
-
-type ClaudeContentBlockDeltaEvent = ClaudeStreamEventBase & {
-  type: "content_block_delta";
-};
-
-type ClaudeContentBlockStopEvent = ClaudeStreamEventBase & {
-  type: "content_block_stop";
-};
-
 type ClaudeStreamEvent =
   | ClaudeSystemEvent
   | ClaudeAssistantEvent
-  | ClaudeResultEvent
-  | ClaudeContentBlockStartEvent
-  | ClaudeContentBlockDeltaEvent
-  | ClaudeContentBlockStopEvent;
+  | ClaudeResultEvent;
 
 const sessionByThread = new Map<string, string>();
 const GLOBAL_THREAD_KEY = "__global__";
@@ -123,10 +94,8 @@ const activeThreadRuns = new Set<string>();
 const pendingThreadRunWaiters = new Map<string, Array<() => void>>();
 const MAX_DEV_EVENTS = 500;
 const THREAD_LOCK_TIMEOUT_MS = 60_000;
-const RUN_IDLE_TIMEOUT_MS = 300_000;
 const DEV_LOGS = import.meta.env.DEV;
-const CLAUDE_SHELL_SCRIPT =
-  'if [ -n "$CLAUDE_GIT_BRANCH" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git checkout "$CLAUDE_GIT_BRANCH" 1>&2; fi; if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --resume "$CLAUDE_SESSION_ID"; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose --session-id "$CLAUDE_SESSION_ID"; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --include-partial-messages --permission-mode default --verbose; fi';
+const ADAPTER_REV = "claude-adapter-reset-baseline-v2";
 
 export type ClaudeDevEventCategory =
   | "hooks"
@@ -195,7 +164,9 @@ let devSnapshot: Omit<ClaudeDevSnapshot, "events"> = {
   latestUsageEvent: null,
   latestSessionId: null,
 };
-const devEventsBuffer: Array<ClaudeDevEvent | undefined> = new Array(MAX_DEV_EVENTS);
+const devEventsBuffer: Array<ClaudeDevEvent | undefined> = new Array(
+  MAX_DEV_EVENTS,
+);
 let devEventsHead = 0;
 let devEventsCount = 0;
 let devEventsVersion = 0;
@@ -215,11 +186,6 @@ const sessionListeners = new Set<() => void>();
 const cwdByThread = new Map<string, string>();
 const gitBranchByThread = new Map<string, string>();
 const loadedThreadConfig = new Set<string>();
-const seenMcpToolUseIds = new Set<string>();
-const activeChildByThread = new Map<string, Child>();
-const permissionRequestById = new Map<string, ClaudePermissionRequest>();
-const permissionRequestsByThread = new Map<string, ClaudePermissionRequest[]>();
-const permissionRequestListeners = new Set<() => void>();
 let sessionRecordsSnapshot: ClaudeSessionRecord[] = [];
 
 let diagRan = false;
@@ -240,116 +206,25 @@ function devError(...args: unknown[]): void {
   console.error(...args);
 }
 
-function notifyPermissionRequestListeners(): void {
-  for (const listener of permissionRequestListeners) {
-    listener();
-  }
-}
-
-function detectPermissionPrompt(line: string): string | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  if (/\b(y\/n|yes\/no)\b/i.test(trimmed)) return trimmed;
-  if (/allow .*tool/i.test(trimmed)) return trimmed;
-  if (/approve .*request/i.test(trimmed)) return trimmed;
-  if (/permission/i.test(trimmed) && trimmed.endsWith("?")) return trimmed;
-  return null;
-}
-
-function pushPermissionRequest(threadKey: string, prompt: string): void {
-  const existing = permissionRequestsByThread.get(threadKey) ?? [];
-  const hasMatchingPending = existing.some((r) => !r.resolved && r.prompt === prompt);
-  if (hasMatchingPending) return;
-
-  const request: ClaudePermissionRequest = {
-    id: `${threadKey}:${Date.now()}:${existing.length}`,
-    threadKey,
-    prompt,
-    createdAt: Date.now(),
-    resolved: false,
-  };
-  permissionRequestById.set(request.id, request);
-  permissionRequestsByThread.set(threadKey, [...existing, request]);
-  notifyPermissionRequestListeners();
-}
-
-function hasPendingPermissionRequests(threadKey: string): boolean {
-  const entries = permissionRequestsByThread.get(threadKey) ?? [];
-  return entries.some((entry) => !entry.resolved);
-}
-
-function resolveAllPermissionRequestsForThread(threadKey: string): void {
-  const entries = permissionRequestsByThread.get(threadKey) ?? [];
-  let changed = false;
-  const next = entries.map((entry) => {
-    if (entry.resolved) return entry;
-    changed = true;
-    const updated = { ...entry, resolved: true };
-    permissionRequestById.set(updated.id, updated);
-    return updated;
-  });
-  if (!changed) return;
-  permissionRequestsByThread.set(threadKey, next);
-  notifyPermissionRequestListeners();
-}
-
-function resolvePermissionRequest(requestId: string): void {
-  const request = permissionRequestById.get(requestId);
-  if (!request || request.resolved) return;
-
-  const updated: ClaudePermissionRequest = {
-    ...request,
-    resolved: true,
-  };
-  permissionRequestById.set(requestId, updated);
-  const current = permissionRequestsByThread.get(request.threadKey) ?? [];
-  permissionRequestsByThread.set(
-    request.threadKey,
-    current.map((item) => (item.id === requestId ? updated : item)),
-  );
-  notifyPermissionRequestListeners();
-}
-
 const EMPTY_PERMISSION_REQUESTS: ClaudePermissionRequest[] = [];
-const permissionSnapshotCache = new Map<string, ClaudePermissionRequest[]>();
 
-export function getClaudePermissionRequests(threadKey: string | null): ClaudePermissionRequest[] {
-  if (!threadKey) return EMPTY_PERMISSION_REQUESTS;
-  const entries = permissionRequestsByThread.get(threadKey);
-  if (!entries) return EMPTY_PERMISSION_REQUESTS;
-  const pending = entries.filter((entry) => !entry.resolved);
-  if (pending.length === 0) return EMPTY_PERMISSION_REQUESTS;
-
-  // Return cached array if contents haven't changed (same length + same IDs)
-  const cached = permissionSnapshotCache.get(threadKey);
-  if (
-    cached &&
-    cached.length === pending.length &&
-    cached.every((item, i) => item.id === pending[i]!.id && item.resolved === pending[i]!.resolved)
-  ) {
-    return cached;
-  }
-  permissionSnapshotCache.set(threadKey, pending);
-  return pending;
+export function getClaudePermissionRequests(
+  _threadKey: string | null,
+): ClaudePermissionRequest[] {
+  return EMPTY_PERMISSION_REQUESTS;
 }
 
-export function subscribeClaudePermissionRequests(listener: () => void): () => void {
-  permissionRequestListeners.add(listener);
-  return () => {
-    permissionRequestListeners.delete(listener);
-  };
+export function subscribeClaudePermissionRequests(
+  _listener: () => void,
+): () => void {
+  return () => {};
 }
 
 export async function respondToClaudePermissionRequest(
-  requestId: string,
-  approved: boolean,
+  _requestId: string,
+  _approved: boolean,
 ): Promise<void> {
-  const request = permissionRequestById.get(requestId);
-  if (!request || request.resolved) return;
-  const child = activeChildByThread.get(request.threadKey);
-  if (!child) return;
-  await child.write(`${approved ? "y" : "n"}\n`);
-  resolvePermissionRequest(requestId);
+  return;
 }
 
 async function runDiagnostics(): Promise<void> {
@@ -357,6 +232,7 @@ async function runDiagnostics(): Promise<void> {
   diagRan = true;
 
   devLog("[claude-diag] Running environment diagnostics...");
+  devLog("[claude-adapter] revision:", ADAPTER_REV);
 
   const pathCmd = Command.create("claude", ["--version"]);
 
@@ -470,7 +346,8 @@ function clearSessionForThread(threadKey: string): void {
 }
 
 function getEventCategory(event: ClaudeStreamEvent): ClaudeDevEventCategory {
-  if (event.type === "system" && event.subtype?.startsWith("hook_")) return "hooks";
+  if (event.type === "system" && event.subtype?.startsWith("hook_"))
+    return "hooks";
   if (event.type === "system" && event.subtype === "init") return "mcp";
   if (event.type === "assistant") return "messages";
   if (event.type === "result") return "usage";
@@ -511,7 +388,11 @@ function getDevEventsSnapshot(): ClaudeDevEvent[] {
   return next;
 }
 
-function pushDevEvent(raw: string, parsed: ClaudeStreamEvent, threadKey: string): void {
+function pushDevEvent(
+  raw: string,
+  parsed: ClaudeStreamEvent,
+  threadKey: string,
+): void {
   const category = getEventCategory(parsed);
   const seq = devEventSeq++;
   const event: ClaudeDevEvent = {
@@ -553,113 +434,6 @@ function pushDevEvent(raw: string, parsed: ClaudeStreamEvent, threadKey: string)
   });
 }
 
-function extractMcpServerName(toolName: string): string | null {
-  if (!toolName.startsWith("mcp__")) return null;
-  const afterPrefix = toolName.slice("mcp__".length);
-  const splitAt = afterPrefix.indexOf("__");
-  if (splitAt <= 0) return null;
-  return afterPrefix.slice(0, splitAt);
-}
-
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function asRecord(value: unknown): JsonRecord | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : null;
-}
-
-function asReadonlyJSONObject(value: unknown): ReadonlyJSONObject {
-  const record = asRecord(value);
-  return (record ?? {}) as ReadonlyJSONObject;
-}
-
-function computeMessageMetrics(event: ClaudeStreamEvent): ClaudeMessageMetrics | null {
-  if (!event.usage && !event.modelUsage) return null;
-
-  const usage = event.usage;
-  const modelEntry = event.modelUsage ? Object.entries(event.modelUsage)[0] : undefined;
-  const modelUsage = modelEntry?.[1];
-
-  const inputTokens = asNumber(usage?.input_tokens) ?? asNumber(modelUsage?.inputTokens);
-  const outputTokens = asNumber(usage?.output_tokens) ?? asNumber(modelUsage?.outputTokens);
-  const cacheReadInputTokens =
-    asNumber(usage?.cache_read_input_tokens) ?? asNumber(modelUsage?.cacheReadInputTokens);
-  const cacheCreationInputTokens =
-    asNumber(usage?.cache_creation_input_tokens) ?? asNumber(modelUsage?.cacheCreationInputTokens);
-  const contextWindow = asNumber(modelUsage?.contextWindow);
-
-  const contextUsedTokens =
-    inputTokens !== null || cacheReadInputTokens !== null || cacheCreationInputTokens !== null
-      ? (inputTokens ?? 0) + (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0)
-      : null;
-  const contextLeftBeforeCompaction =
-    contextWindow !== null && contextUsedTokens !== null
-      ? Math.max(0, contextWindow - contextUsedTokens)
-      : null;
-  const totalTokens =
-    inputTokens !== null || outputTokens !== null
-      ? (inputTokens ?? 0) + (outputTokens ?? 0)
-      : null;
-
-  return {
-    inputTokens,
-    outputTokens,
-    cacheReadInputTokens,
-    cacheCreationInputTokens,
-    contextWindow,
-    contextUsedTokens,
-    contextLeftBeforeCompaction,
-    totalTokens,
-  };
-}
-
-function persistMcpInvocationsFromEvent(
-  event: ClaudeStreamEvent,
-  threadKey: string,
-  sessionId: string | null,
-): void {
-  if (event.type !== "assistant") return;
-  const blocks = event.message?.content ?? [];
-
-  for (const block of blocks) {
-    if (block.type !== "tool_use") continue;
-
-    const toolName =
-      typeof block.name === "string"
-        ? block.name
-        : typeof block.tool_name === "string"
-          ? block.tool_name
-          : null;
-    if (!toolName || !toolName.startsWith("mcp__")) continue;
-
-    if (typeof block.id === "string") {
-      const dedupeKey = `${threadKey}:${sessionId ?? "none"}:${block.id}`;
-      if (seenMcpToolUseIds.has(dedupeKey)) continue;
-      seenMcpToolUseIds.add(dedupeKey);
-    }
-
-    void db.mcpInvocations.insert({
-      id: crypto.randomUUID(),
-      thread_id: threadKey,
-      session_id: sessionId,
-      tool_name: toolName,
-      server_name: extractMcpServerName(toolName),
-      input_tokens: null,
-      output_tokens: null,
-      cost_usd: typeof event.cost_usd === "number" ? event.cost_usd : null,
-      duration_ms: null,
-      success: block.is_error ? 0 : 1,
-      error: block.is_error ? (typeof block.error === "string" ? block.error : "tool_use_error") : null,
-      created_at: new Date().toISOString(),
-    }).catch((error) => {
-      console.error("[mcp-invocation] insert failed:", error);
-    });
-  }
-}
-
 export function getClaudeDevSnapshot(): ClaudeDevSnapshot {
   if (cachedDevSnapshotVersion === devSnapshotVersion) {
     return cachedDevSnapshot;
@@ -696,7 +470,9 @@ export function getClaudeSessionRecords(): ClaudeSessionRecord[] {
   return sessionRecordsSnapshot;
 }
 
-export function subscribeClaudeSessionRecords(listener: () => void): () => void {
+export function subscribeClaudeSessionRecords(
+  listener: () => void,
+): () => void {
   sessionListeners.add(listener);
   return () => {
     sessionListeners.delete(listener);
@@ -782,39 +558,10 @@ function extractUserPrompt(
     .join("\n");
 }
 
-type QueueItem =
-  | {
-      chunk: ChatModelRunResult;
-    }
-  | { done: true }
-  | { error: Error };
-
-function createAsyncQueue() {
-  const buffer: QueueItem[] = [];
-  const waiters: Array<(item: QueueItem) => void> = [];
-
-  const push = (item: QueueItem) => {
-    const resolve = waiters.shift();
-    if (resolve) {
-      resolve(item);
-    } else {
-      buffer.push(item);
-    }
-  };
-
-  const pull = (): Promise<QueueItem> => {
-    if (buffer.length > 0) {
-      return Promise.resolve(buffer.shift()!);
-    }
-    return new Promise((resolve) => {
-      waiters.push(resolve);
-    });
-  };
-
-  return { push, pull };
-}
-
-function chooseSessionStrategy(threadKey: string, sessionId: string | null): {
+function chooseSessionStrategy(
+  threadKey: string,
+  sessionId: string | null,
+): {
   strategy: "resume" | "session-id" | "none";
   sessionId: string | null;
 } {
@@ -830,12 +577,81 @@ function chooseSessionStrategy(threadKey: string, sessionId: string | null): {
   return { strategy: "resume", sessionId };
 }
 
-export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): ChatModelAdapter {
+type ClaudeJsonResult = {
+  type: "result";
+  subtype?: string;
+  result?: string;
+  session_id?: string;
+  is_error?: boolean;
+  errors?: string[];
+  total_cost_usd?: number;
+  cost_usd?: number;
+  model?: string;
+};
+
+function extractResultEvent(payload: unknown): ClaudeJsonResult | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  if (Array.isArray(payload)) {
+    for (let i = payload.length - 1; i >= 0; i -= 1) {
+      const extracted = extractResultEvent(payload[i]);
+      if (extracted) return extracted;
+    }
+    return null;
+  }
+
+  const candidate = payload as Partial<ClaudeJsonResult>;
+  if (candidate.type === "result") {
+    return candidate as ClaudeJsonResult;
+  }
+  return null;
+}
+
+function parseClaudeJsonResult(
+  stdout: string,
+  stderr: string,
+): { raw: string; parsed: ClaudeJsonResult } | null {
+  const trimmedStdout = stdout.trim();
+  if (trimmedStdout) {
+    try {
+      const parsedPayload = JSON.parse(trimmedStdout) as unknown;
+      const parsed = extractResultEvent(parsedPayload);
+      if (parsed) {
+        return { raw: trimmedStdout, parsed };
+      }
+    } catch {
+      // Fall through to line-wise scanning.
+    }
+  }
+
+  const candidates = [...stdout.split(/\r?\n/), ...stderr.split(/\r?\n/)]
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("{") && line.endsWith("}"));
+  for (const candidate of candidates) {
+    try {
+      const parsedPayload = JSON.parse(candidate) as unknown;
+      const parsed = extractResultEvent(parsedPayload);
+      if (parsed) {
+        return { raw: candidate, parsed };
+      }
+    } catch {
+      // Keep scanning.
+    }
+  }
+
+  return null;
+}
+
+export function createClaudeAdapter(
+  adapterOptions?: ClaudeAdapterOptions,
+): ChatModelAdapter {
   return {
     async *run(options) {
       const { messages, abortSignal } = options;
       const threadKey =
-        adapterOptions?.threadKey ?? options.unstable_threadId?.trim() ?? GLOBAL_THREAD_KEY;
+        adapterOptions?.threadKey ??
+        options.unstable_threadId?.trim() ??
+        GLOBAL_THREAD_KEY;
       await hydrateSessionCache(threadKey);
       await acquireThreadRunLock(threadKey);
 
@@ -872,19 +688,23 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
 
         while (lastAttempt < 3) {
           lastAttempt += 1;
-          resolveAllPermissionRequestsForThread(threadKey);
 
-          const { strategy, sessionId } = chooseSessionStrategy(threadKey, knownSessionId);
+          const { strategy, sessionId } = chooseSessionStrategy(
+            threadKey,
+            knownSessionId,
+          );
           const attemptedSessionId = sessionId;
-          const sessionMode = strategy === "resume" ? "resume" : strategy === "session-id" ? "session-id" : "none";
+          const sessionMode =
+            strategy === "resume"
+              ? "resume"
+              : strategy === "session-id"
+                ? "session-id"
+                : "none";
           const debugArgs = [
             "-p",
             prompt,
             "--output-format",
-            "stream-json",
-            "--include-partial-messages",
-            "--permission-mode",
-            "default",
+            "json",
             "--verbose",
           ];
           if (sessionMode === "resume" && sessionId) {
@@ -896,214 +716,120 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
           const configuredCwd = cwdByThread.get(threadKey);
           const configuredGitBranch = gitBranchByThread.get(threadKey);
 
-          devLog("[claude-adapter] spawning:", ["claude", ...debugArgs].join(" "));
-          const command = Command.create("claude-stream-sh", ["-c", CLAUDE_SHELL_SCRIPT], {
-            cwd: configuredCwd,
-            env: {
-              CLAUDE_MODE: sessionMode,
-              CLAUDE_PROMPT: prompt,
-              CLAUDE_SESSION_ID: sessionId ?? "",
-              CLAUDE_GIT_BRANCH: configuredGitBranch ?? "",
-            },
-          });
-          const { push, pull } = createAsyncQueue();
+          devLog(
+            "[claude-adapter] spawning:",
+            `[${ADAPTER_REV}]`,
+            ["claude", ...debugArgs].join(" "),
+          );
 
           let missingConversation = false;
           let sessionInUse = false;
           let latestSessionId: string | null = null;
-          let sawAssistantText = false;
-          let sawPartialTextOrReasoning = false;
-          let sawPartialToolCall = false;
-          const emittedToolCallIds = new Set<string>();
-          const partialToolCallByIndex = new Map<
-            number,
-            { toolCallId: string; toolName: string; inputJson: string }
-          >();
-          let exitCode: number | null = null;
-          let exitSignal: number | null = null;
-          let timedOut = false;
           let wasAborted = abortSignal.aborted;
+          const onAbort = () => {
+            wasAborted = true;
+          };
+          abortSignal.addEventListener("abort", onAbort, { once: true });
 
-          const handleStreamLine = (line: string) => {
+          const command = Command.create("claude", debugArgs, {
+            cwd: configuredCwd,
+          });
+
+          if (configuredGitBranch?.trim()) {
+            devLog(
+              "[claude-adapter] skipping auto git checkout:",
+              configuredGitBranch,
+            );
+          }
+
+          let commandResult: Awaited<ReturnType<typeof command.execute>>;
+          try {
+            commandResult = await command.execute();
+            devLog(
+              "[claude-adapter] process closed:",
+              JSON.stringify({
+                code: commandResult.code,
+                signal: commandResult.signal,
+                stdoutBytes: (commandResult.stdout ?? "").length,
+                stderrBytes: (commandResult.stderr ?? "").length,
+              }),
+            );
+          } finally {
+            abortSignal.removeEventListener("abort", onAbort);
+          }
+
+          if (wasAborted) {
+            break;
+          }
+
+          for (const line of (commandResult.stderr ?? "").split(/\r?\n/)) {
             const trimmed = line.trim();
-            if (!trimmed) return;
+            if (!trimmed) continue;
+            devWarn("[claude-adapter] stderr:", trimmed);
+            if (trimmed.includes("No conversation found with session ID")) {
+              missingConversation = true;
+              const staleSessionId = attemptedSessionId ?? knownSessionId;
+              if (staleSessionId) {
+                upsertSessionRecord(threadKey, staleSessionId, {
+                  status: "stale",
+                  localCache: "missing",
+                  strategy,
+                  lastCheckedAt: Date.now(),
+                  lastError: "No conversation found with session ID",
+                });
+              }
+            }
+            if (trimmed.includes("already in use")) {
+              sessionInUse = true;
+              if (knownSessionId) {
+                upsertSessionRecord(threadKey, knownSessionId, {
+                  status: "in_use",
+                  strategy,
+                  lastCheckedAt: Date.now(),
+                  lastError: trimmed,
+                });
+              }
+            }
+          }
 
+          const stdoutText = commandResult.stdout ?? "";
+          const stderrText = commandResult.stderr ?? "";
+          const parsedResult = parseClaudeJsonResult(stdoutText, stderrText);
+          if (parsedResult) {
             try {
-              const event: ClaudeStreamEvent = JSON.parse(trimmed);
-              pushDevEvent(trimmed, event, threadKey);
+              const result = parsedResult.parsed;
 
-              if (event.type === "system" && event.subtype === "init") {
-                if (typeof event.cwd === "string") {
-                  cwdByThread.set(threadKey, event.cwd);
-                  void db.threads.updateCwd(threadKey, event.cwd);
-                }
+              pushDevEvent(
+                parsedResult.raw,
+                result as unknown as ClaudeStreamEvent,
+                threadKey,
+              );
 
-                // Capture MCP snapshot
-                const allTools = event.tools ?? [];
-                const mcpTools = allTools.filter((t) => t.startsWith("mcp__"));
-                const builtinTools = allTools.filter((t) => !t.startsWith("mcp__"));
-                void db.mcpSnapshots.insert({
-                  id: crypto.randomUUID(),
-                  thread_id: threadKey,
-                  session_id: event.session_id ?? latestSessionId,
-                  servers: JSON.stringify(event.mcp_servers ?? []),
-                  tools: JSON.stringify(allTools),
-                  mcp_tools: JSON.stringify(mcpTools),
-                  builtin_tools: JSON.stringify(builtinTools),
-                  skills: event.skills ? JSON.stringify(event.skills) : null,
-                  slash_commands: event.slash_commands ? JSON.stringify(event.slash_commands) : null,
-                  captured_at: new Date().toISOString(),
-                });
+              if (result.session_id?.trim()) {
+                knownSessionId = result.session_id;
+                latestSessionId = result.session_id;
               }
 
-              if (event.type === "content_block_start") {
-                const block = event.content_block;
-                const blockIndex = typeof event.index === "number" ? event.index : -1;
-
-                if (block?.type === "text" && typeof block.text === "string" && block.text) {
-                  sawPartialTextOrReasoning = true;
-                  sawAssistantText = true;
-                  push({
-                    chunk: {
-                      content: [{ type: "text", text: block.text }],
-                    },
-                  });
-                } else if (
-                  (block?.type === "thinking" || block?.type === "reasoning") &&
-                  (typeof block.thinking === "string" || typeof block.text === "string")
-                ) {
-                  sawPartialTextOrReasoning = true;
-                  const reasoningText =
-                    typeof block.thinking === "string"
-                      ? block.thinking
-                      : typeof block.text === "string"
-                        ? block.text
-                        : "";
-                  if (reasoningText) {
-                    sawAssistantText = true;
-                    push({
-                      chunk: {
-                        content: [{ type: "reasoning", text: reasoningText }],
-                      },
-                    });
-                  }
-                } else if (block?.type === "tool_use") {
-                  sawPartialToolCall = true;
-                  const toolCallId = block.id ?? crypto.randomUUID();
-                  const toolName =
-                    typeof block.name === "string"
-                      ? block.name
-                      : typeof block.tool_name === "string"
-                        ? block.tool_name
-                        : "tool";
-                  const args = asReadonlyJSONObject(block.input);
-                  const inputJson = JSON.stringify(args);
-                  partialToolCallByIndex.set(blockIndex, { toolCallId, toolName, inputJson });
-                  emittedToolCallIds.add(toolCallId);
-                  push({
-                    chunk: {
-                      content: [
-                        {
-                          type: "tool-call",
-                          toolCallId,
-                          toolName,
-                          args,
-                          argsText: JSON.stringify(args, null, 2),
-                        },
-                      ],
-                    },
-                  });
-                }
-              } else if (event.type === "content_block_delta") {
-                const deltaType = event.delta?.type;
-                if (deltaType === "text_delta" && typeof event.delta?.text === "string") {
-                  sawPartialTextOrReasoning = true;
-                  sawAssistantText = true;
-                  push({
-                    chunk: {
-                      content: [{ type: "text", text: event.delta.text }],
-                    },
-                  });
-                } else if (
-                  deltaType === "thinking_delta" &&
-                  (typeof event.delta?.thinking === "string" || typeof event.delta?.text === "string")
-                ) {
-                  sawPartialTextOrReasoning = true;
-                  const reasoningText =
-                    typeof event.delta?.thinking === "string"
-                      ? event.delta.thinking
-                      : typeof event.delta?.text === "string"
-                        ? event.delta.text
-                        : "";
-                  if (reasoningText) {
-                    sawAssistantText = true;
-                    push({
-                      chunk: {
-                        content: [{ type: "reasoning", text: reasoningText }],
-                      },
-                    });
-                  }
-                } else if (
-                  deltaType === "input_json_delta" &&
-                  typeof event.delta?.partial_json === "string"
-                ) {
-                  const blockIndex = typeof event.index === "number" ? event.index : -1;
-                  const existing = partialToolCallByIndex.get(blockIndex);
-                  if (existing) {
-                    existing.inputJson += event.delta.partial_json;
-                    partialToolCallByIndex.set(blockIndex, existing);
-                  }
-                }
-              } else if (event.type === "content_block_stop") {
-                const blockIndex = typeof event.index === "number" ? event.index : -1;
-                partialToolCallByIndex.delete(blockIndex);
-              }
-
-              // Capture usage snapshots
-              if (event.usage || event.modelUsage) {
-                const usage = event.usage;
-                const modelEntry = event.modelUsage
-                  ? Object.entries(event.modelUsage)[0]
-                  : undefined;
-                void db.usageSnapshots.insert({
-                  id: crypto.randomUUID(),
-                  thread_id: threadKey,
-                  session_id: latestSessionId,
-                  input_tokens: usage?.input_tokens ?? modelEntry?.[1]?.inputTokens ?? null,
-                  output_tokens: usage?.output_tokens ?? modelEntry?.[1]?.outputTokens ?? null,
-                  cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? null,
-                  cache_read_input_tokens: usage?.cache_read_input_tokens ?? null,
-                  total_cost_usd: event.total_cost_usd ?? modelEntry?.[1]?.costUSD ?? null,
-                  model_id: modelEntry?.[0] ?? null,
-                  context_window: modelEntry?.[1]?.contextWindow ?? null,
-                  captured_at: new Date().toISOString(),
-                });
-
-                const metrics = computeMessageMetrics(event);
-                if (metrics) {
-                  push({
-                    chunk: {
-                      metadata: {
-                        custom: {
-                          claudeMessageMetrics: metrics,
-                        },
-                      },
-                    },
-                  });
-                }
-              }
-
-              persistMcpInvocationsFromEvent(event, threadKey, event.session_id ?? latestSessionId);
-
-              if (event.session_id?.trim()) {
-                knownSessionId = event.session_id;
-                latestSessionId = event.session_id;
-              }
+              void db.usageSnapshots.insert({
+                id: crypto.randomUUID(),
+                thread_id: threadKey,
+                session_id: latestSessionId,
+                input_tokens: null,
+                output_tokens: null,
+                cache_creation_input_tokens: null,
+                cache_read_input_tokens: null,
+                total_cost_usd:
+                  result.total_cost_usd ?? result.cost_usd ?? null,
+                model_id: result.model ?? null,
+                context_window: null,
+                captured_at: new Date().toISOString(),
+              });
 
               if (
-                event.type === "result" &&
-                event.subtype === "error_during_execution" &&
-                event.errors?.some((e) => e.includes("No conversation found with session ID"))
+                result.subtype === "error_during_execution" &&
+                result.errors?.some((e) =>
+                  e.includes("No conversation found with session ID"),
+                )
               ) {
                 missingConversation = true;
                 const staleSessionId = attemptedSessionId ?? knownSessionId;
@@ -1118,234 +844,56 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
                 }
               }
 
-              if (event.type === "assistant" && event.message?.content) {
-                for (const block of event.message.content) {
-                  if (block.type === "text" && block.text) {
-                    if (sawPartialTextOrReasoning) continue;
-                    sawAssistantText = true;
-                    push({
-                      chunk: {
-                        content: [{ type: "text", text: block.text }],
-                      },
-                    });
-                    continue;
-                  }
-
-                  if (
-                    (block.type === "reasoning" || block.type === "thinking") &&
-                    (block.text || block.thinking)
-                  ) {
-                    if (sawPartialTextOrReasoning) continue;
-                    const reasoningText = block.text ?? block.thinking ?? "";
-                    if (!reasoningText) continue;
-                    sawAssistantText = true;
-                    push({
-                      chunk: {
-                        content: [
-                          {
-                            type: "reasoning",
-                            text: reasoningText,
-                            ...(block.id ? { parentId: block.id } : {}),
-                          },
-                        ],
-                      },
-                    });
-                    continue;
-                  }
-
-                  if (block.type === "tool_use") {
-                    if (sawPartialToolCall) continue;
-                    const toolCallId = block.id ?? crypto.randomUUID();
-                    if (emittedToolCallIds.has(toolCallId)) continue;
-                    const toolName =
-                      typeof block.name === "string"
-                        ? block.name
-                        : typeof block.tool_name === "string"
-                          ? block.tool_name
-                          : "tool";
-                    const args = asReadonlyJSONObject(block.input);
-                    const argsText = JSON.stringify(args, null, 2);
-
-                    push({
-                      chunk: {
-                        content: [
-                          {
-                            type: "tool-call",
-                            toolCallId,
-                            toolName,
-                            args,
-                            argsText,
-                          },
-                        ],
-                      },
-                    });
-                    continue;
-                  }
-                }
-              } else if (event.type === "result" && event.result && !sawAssistantText) {
-                push({
-                  chunk: {
-                    content: [{ type: "text", text: event.result }],
-                  },
-                });
+              if (!result.is_error && result.result) {
+                yield {
+                  content: [{ type: "text", text: result.result }],
+                } satisfies ChatModelRunResult;
+              } else if (result.is_error && result.result) {
+                yield {
+                  content: [{ type: "text", text: `Error: ${result.result}` }],
+                } satisfies ChatModelRunResult;
               }
-            } catch {
-              // Non-JSON lines can include permission prompts.
-              const permissionPrompt = detectPermissionPrompt(trimmed);
-              if (permissionPrompt) {
-                pushPermissionRequest(threadKey, permissionPrompt);
-              }
+            } catch (e) {
+              devError(
+                "[claude-adapter] failed to parse JSON result:",
+                e,
+                parsedResult.raw.slice(0, 200),
+              );
             }
-          };
-
-          let child: Child | null = null;
-          let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-          let lastActivityAt = Date.now();
-          let lastStdoutAt: number | null = null;
-          let lastStderrAt: number | null = null;
-          let lastStderrLine: string | null = null;
-          let idleTimeoutDetails: string | null = null;
-          const refreshIdleTimeout = () => {
-            if (!child) return;
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-            timeoutHandle = setTimeout(() => {
-              if (hasPendingPermissionRequests(threadKey)) {
-                devWarn(
-                  "[claude-adapter] idle timeout deferred; waiting on pending permission request",
-                );
-                refreshIdleTimeout();
-                return;
-              }
-              timedOut = true;
-              const idleForMs = Date.now() - lastActivityAt;
-              idleTimeoutDetails =
-                `No stdout/stderr activity for ${idleForMs}ms` +
-                ` (lastStdoutAt=${lastStdoutAt ?? "never"},` +
-                ` lastStderrAt=${lastStderrAt ?? "never"},` +
-                ` lastStderr=${JSON.stringify(lastStderrLine)})`;
-              devWarn("[claude-adapter] idle timeout:", idleTimeoutDetails);
-              void child?.kill();
-            }, RUN_IDLE_TIMEOUT_MS);
-          };
-
-          let stdoutBuffer = "";
-          command.stdout.on("data", (chunk: string) => {
-            devLog("[claude-adapter] stdout:", chunk);
-            lastActivityAt = Date.now();
-            lastStdoutAt = lastActivityAt;
-            refreshIdleTimeout();
-            stdoutBuffer += chunk;
-            const lines = stdoutBuffer.split(/\r?\n/);
-            stdoutBuffer = lines.pop() ?? "";
-            for (const line of lines) {
-              handleStreamLine(line);
+          } else {
+            const fallbackText = stdoutText.trim() || stderrText.trim();
+            if (fallbackText) {
+              devWarn(
+                "[claude-adapter] no JSON result found; emitting fallback text",
+              );
+              yield {
+                content: [{ type: "text", text: fallbackText }],
+              } satisfies ChatModelRunResult;
             }
-          });
-
-          command.stderr.on("data", (line: string) => {
-            devWarn("[claude-adapter] stderr:", line);
-            lastActivityAt = Date.now();
-            lastStderrAt = lastActivityAt;
-            lastStderrLine = line.trim() || lastStderrLine;
-            refreshIdleTimeout();
-            const permissionPrompt = detectPermissionPrompt(line);
-            if (permissionPrompt) {
-              pushPermissionRequest(threadKey, permissionPrompt);
-            }
-            if (line.includes("No conversation found with session ID")) {
-              missingConversation = true;
-              const staleSessionId = attemptedSessionId ?? knownSessionId;
-              if (staleSessionId) {
-                upsertSessionRecord(threadKey, staleSessionId, {
-                  status: "stale",
-                  localCache: "missing",
-                  strategy,
-                  lastCheckedAt: Date.now(),
-                  lastError: "No conversation found with session ID",
-                });
-              }
-            }
-            if (line.includes("already in use")) {
-              sessionInUse = true;
-              if (knownSessionId) {
-                upsertSessionRecord(threadKey, knownSessionId, {
-                  status: "in_use",
-                  strategy,
-                  lastCheckedAt: Date.now(),
-                  lastError: line.trim(),
-                });
-              }
-            }
-          });
-
-          command.on("close", (data) => {
-            exitCode = data.code;
-            exitSignal = data.signal;
-            resolveAllPermissionRequestsForThread(threadKey);
-            if (stdoutBuffer.trim()) {
-              handleStreamLine(stdoutBuffer);
-            }
-            stdoutBuffer = "";
-            if (data.code === 0 && latestSessionId && !missingConversation && !sessionInUse) {
-              setSessionForThread(threadKey, latestSessionId);
-            }
-            devLog("[claude-adapter] process closed:", JSON.stringify(data));
-            push({ done: true });
-          });
-
-          command.on("error", (err: string) => {
-            devError("[claude-adapter] process error:", err);
-            resolveAllPermissionRequestsForThread(threadKey);
-            push({ error: new Error(`Claude CLI error: ${err}`) });
-          });
-
-          try {
-            child = await command.spawn();
-            devLog("[claude-adapter] spawned pid:", child.pid);
-            activeChildByThread.set(threadKey, child);
-            refreshIdleTimeout();
-          } catch (err) {
-            devError("[claude-adapter] spawn failed:", err);
-            throw err;
-          }
-
-          const onAbort = () => {
-            wasAborted = true;
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-            void child?.kill();
-            resolveAllPermissionRequestsForThread(threadKey);
-            push({ done: true });
-          };
-          abortSignal.addEventListener("abort", onAbort, { once: true });
-
-          try {
-            while (true) {
-              const item = await pull();
-              if ("done" in item) break;
-              if ("error" in item) throw item.error;
-
-              yield item.chunk;
-            }
-          } finally {
-            activeChildByThread.delete(threadKey);
-            abortSignal.removeEventListener("abort", onAbort);
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-          }
-
-          if (timedOut) {
-            const details = idleTimeoutDetails ? `; ${idleTimeoutDetails}` : "";
-            throw new Error(`Claude CLI idle timeout after ${RUN_IDLE_TIMEOUT_MS}ms${details}`);
           }
 
           if (
-            !wasAborted &&
-            exitCode !== null &&
-            exitCode !== 0 &&
+            commandResult.code !== null &&
+            commandResult.code !== 0 &&
             !missingConversation &&
             !sessionInUse
           ) {
-            const signalSuffix = exitSignal !== null ? ` (signal ${exitSignal})` : "";
-            throw new Error(`Claude CLI exited with code ${exitCode}${signalSuffix}`);
+            const signalSuffix =
+              commandResult.signal !== null
+                ? ` (signal ${commandResult.signal})`
+                : "";
+            throw new Error(
+              `Claude CLI exited with code ${commandResult.code}${signalSuffix}`,
+            );
+          }
+
+          if (
+            commandResult.code === 0 &&
+            latestSessionId &&
+            !missingConversation &&
+            !sessionInUse
+          ) {
+            setSessionForThread(threadKey, latestSessionId);
           }
 
           if (knownSessionId && !missingConversation && !sessionInUse) {
@@ -1360,7 +908,7 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
               localCache:
                 strategy === "session-id"
                   ? "present"
-                  : sessionRecords.get(threadKey)?.localCache ?? "unknown",
+                  : (sessionRecords.get(threadKey)?.localCache ?? "unknown"),
               lastCheckedAt: Date.now(),
               lastError: null,
             });
@@ -1388,7 +936,10 @@ export function createClaudeAdapter(adapterOptions?: ClaudeAdapterOptions): Chat
             continue;
           }
 
-          if (sessionInUse && (strategy === "session-id" || strategy === "resume")) {
+          if (
+            sessionInUse &&
+            (strategy === "session-id" || strategy === "resume")
+          ) {
             clearSessionForThread(threadKey);
             knownSessionId = null;
             continue;
@@ -1411,15 +962,10 @@ if (import.meta.hot) {
     cwdByThread.clear();
     gitBranchByThread.clear();
     loadedThreadConfig.clear();
-    seenMcpToolUseIds.clear();
-    activeChildByThread.clear();
-    permissionRequestById.clear();
-    permissionRequestsByThread.clear();
     sessionRecords.clear();
     sessionRecordsSnapshot = [];
     devListeners.clear();
     sessionListeners.clear();
-    permissionRequestListeners.clear();
     devEventsHead = 0;
     devEventsCount = 0;
   });
