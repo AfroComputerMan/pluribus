@@ -1,4 +1,4 @@
-import { Command } from "@tauri-apps/plugin-shell";
+import { Command, type Child } from "@tauri-apps/plugin-shell";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 import { db } from "@/lib/db";
 import { queueDevEventForArchive } from "@/lib/dev-event-batcher";
@@ -83,10 +83,65 @@ type ClaudeResultEvent = ClaudeStreamEventBase & {
   result?: string;
 };
 
+type ClaudeContentBlockStartEvent = ClaudeStreamEventBase & {
+  type: "content_block_start";
+  index: number;
+  content_block: {
+    type: string;
+    id?: string;
+    name?: string;
+    text?: string;
+    thinking?: string;
+  };
+};
+
+type ClaudeContentBlockDeltaEvent = ClaudeStreamEventBase & {
+  type: "content_block_delta";
+  index: number;
+  delta: {
+    type: string;
+    text?: string;
+    thinking?: string;
+    partial_json?: string;
+  };
+};
+
+type ClaudeContentBlockStopEvent = ClaudeStreamEventBase & {
+  type: "content_block_stop";
+  index: number;
+};
+
+type ClaudeStreamEventEnvelope = ClaudeStreamEventBase & {
+  type: "stream_event";
+  event: {
+    type: string;
+    index?: number;
+    content_block?: {
+      type: string;
+      id?: string;
+      name?: string;
+      text?: string;
+      thinking?: string;
+    };
+    delta?: {
+      type: string;
+      text?: string;
+      thinking?: string;
+      partial_json?: string;
+    };
+    message?: ClaudeStreamEventBase["message"];
+    usage?: ClaudeStreamEventBase["usage"];
+  };
+};
+
 type ClaudeStreamEvent =
   | ClaudeSystemEvent
   | ClaudeAssistantEvent
-  | ClaudeResultEvent;
+  | ClaudeResultEvent
+  | ClaudeContentBlockStartEvent
+  | ClaudeContentBlockDeltaEvent
+  | ClaudeContentBlockStopEvent
+  | ClaudeStreamEventEnvelope;
 
 const sessionByThread = new Map<string, string>();
 const GLOBAL_THREAD_KEY = "__global__";
@@ -96,6 +151,21 @@ const MAX_DEV_EVENTS = 500;
 const THREAD_LOCK_TIMEOUT_MS = 60_000;
 const DEV_LOGS = import.meta.env.DEV;
 const ADAPTER_REV = "claude-adapter-reset-baseline-v2";
+const YIELD_THROTTLE_MS = 16; // ~60fps
+
+/** Tracks active child processes per thread for abort support. */
+const activeChildByThread = new Map<string, Child>();
+
+/** Accumulates incremental state for a single content block during streaming. */
+interface ContentBlockAccumulator {
+  blockType: "text" | "thinking" | "tool_use";
+  text: string;
+  toolCallId: string;
+  toolName: string;
+  argsJson: string;
+  result: string | undefined;
+  isError: boolean;
+}
 
 export type ClaudeDevEventCategory =
   | "hooks"
@@ -253,6 +323,27 @@ async function runDiagnostics(): Promise<void> {
     await pathCmd.spawn();
   } catch (err) {
     devError("[claude-diag] spawn failed:", err);
+  }
+
+  // Verify the shell wrapper scope works (matches streaming path)
+  const shellCmd = Command.create("claude-stream-sh", ["-c", "echo SHELL_OK < /dev/null"]);
+  shellCmd.stdout.on("data", (line: string) => {
+    devLog("[claude-diag] shell wrapper stdout:", line.trim());
+  });
+  shellCmd.stderr.on("data", (line: string) => {
+    devWarn("[claude-diag] shell wrapper stderr:", line.trim());
+  });
+  shellCmd.on("close", (data) => {
+    devLog("[claude-diag] shell wrapper closed:", JSON.stringify(data));
+  });
+  shellCmd.on("error", (err: string) => {
+    devError("[claude-diag] shell wrapper error:", err);
+  });
+
+  try {
+    await shellCmd.spawn();
+  } catch (err) {
+    devError("[claude-diag] shell wrapper spawn failed:", err);
   }
 }
 
@@ -577,69 +668,443 @@ function chooseSessionStrategy(
   return { strategy: "resume", sessionId };
 }
 
-type ClaudeJsonResult = {
-  type: "result";
-  subtype?: string;
-  result?: string;
-  session_id?: string;
-  is_error?: boolean;
-  errors?: string[];
-  total_cost_usd?: number;
-  cost_usd?: number;
-  model?: string;
-};
+// ---------------------------------------------------------------------------
+// Streaming helpers
+// ---------------------------------------------------------------------------
 
-function extractResultEvent(payload: unknown): ClaudeJsonResult | null {
-  if (!payload || typeof payload !== "object") return null;
-
-  if (Array.isArray(payload)) {
-    for (let i = payload.length - 1; i >= 0; i -= 1) {
-      const extracted = extractResultEvent(payload[i]);
-      if (extracted) return extracted;
-    }
-    return null;
-  }
-
-  const candidate = payload as Partial<ClaudeJsonResult>;
-  if (candidate.type === "result") {
-    return candidate as ClaudeJsonResult;
-  }
-  return null;
+function makeAccumulator(
+  blockType: ContentBlockAccumulator["blockType"],
+): ContentBlockAccumulator {
+  return {
+    blockType,
+    text: "",
+    toolCallId: "",
+    toolName: "",
+    argsJson: "",
+    result: undefined,
+    isError: false,
+  };
 }
 
-function parseClaudeJsonResult(
-  stdout: string,
-  stderr: string,
-): { raw: string; parsed: ClaudeJsonResult } | null {
-  const trimmedStdout = stdout.trim();
-  if (trimmedStdout) {
-    try {
-      const parsedPayload = JSON.parse(trimmedStdout) as unknown;
-      const parsed = extractResultEvent(parsedPayload);
-      if (parsed) {
-        return { raw: trimmedStdout, parsed };
+/**
+ * Unwrap a `stream_event` envelope into the inner event type that
+ * `processStreamEvent()` already handles.
+ *
+ * Claude CLI's `--output-format stream-json` wraps Anthropic API streaming
+ * events like `content_block_start`, `content_block_delta`, etc. inside
+ * `{"type":"stream_event","event":{...}}`. This function extracts the inner
+ * event and maps it to one of the existing `ClaudeStreamEvent` variants.
+ *
+ * Returns `null` for envelope sub-types we don't need to process
+ * (e.g. `message_start`, `message_delta`, `message_stop`).
+ */
+function unwrapStreamEvent(
+  envelope: ClaudeStreamEventEnvelope,
+): ClaudeStreamEvent | null {
+  const inner = envelope.event;
+  if (!inner || !inner.type) return null;
+
+  switch (inner.type) {
+    case "content_block_start":
+      return {
+        type: "content_block_start",
+        index: inner.index ?? 0,
+        content_block: inner.content_block ?? { type: "text" },
+        // Propagate session_id from envelope
+        session_id: envelope.session_id,
+      } as ClaudeContentBlockStartEvent;
+
+    case "content_block_delta":
+      return {
+        type: "content_block_delta",
+        index: inner.index ?? 0,
+        delta: inner.delta ?? { type: "text_delta" },
+        session_id: envelope.session_id,
+      } as ClaudeContentBlockDeltaEvent;
+
+    case "content_block_stop":
+      return {
+        type: "content_block_stop",
+        index: inner.index ?? 0,
+        session_id: envelope.session_id,
+      } as ClaudeContentBlockStopEvent;
+
+    // message_start, message_delta, message_stop — not needed,
+    // the top-level "assistant" and "result" events carry this data.
+    default:
+      devLog(
+        "[claude-adapter] unwrap: skipping stream_event sub-type:",
+        inner.type,
+      );
+      return null;
+  }
+}
+
+/**
+ * Extracts the element type from `ChatModelRunResult["content"]` so we can
+ * build a mutable array that still satisfies the readonly constraint.
+ */
+type ContentPart = NonNullable<ChatModelRunResult["content"]>[number];
+
+/**
+ * Convert the accumulator array into content parts that assistant-ui expects.
+ */
+function buildContentFromAccumulators(
+  accumulators: ContentBlockAccumulator[],
+): NonNullable<ChatModelRunResult["content"]> {
+  const content: ContentPart[] = [] as ContentPart[];
+  for (const acc of accumulators) {
+    switch (acc.blockType) {
+      case "thinking":
+        if (acc.text) {
+          content.push({ type: "reasoning", text: acc.text });
+        }
+        break;
+      case "text":
+        if (acc.text) {
+          content.push({ type: "text", text: acc.text });
+        }
+        break;
+      case "tool_use": {
+        let args: Record<string, never> = {};
+        if (acc.argsJson) {
+          try {
+            args = JSON.parse(acc.argsJson) as Record<string, never>;
+          } catch {
+            // partial JSON — pass argsText for display
+          }
+        }
+        content.push({
+          type: "tool-call" as const,
+          toolCallId: acc.toolCallId || crypto.randomUUID(),
+          toolName: acc.toolName,
+          args,
+          argsText: acc.argsJson,
+        } as ContentPart);
+        break;
       }
-    } catch {
-      // Fall through to line-wise scanning.
+    }
+  }
+  return content;
+}
+
+/**
+ * Process a single parsed stream event and update the accumulators array.
+ *
+ * Returns flags so the caller knows what happened.
+ */
+function processStreamEvent(
+  event: ClaudeStreamEvent,
+  accumulators: ContentBlockAccumulator[],
+): {
+  contentChanged: boolean;
+  sessionId: string | null;
+  resultEvent: ClaudeStreamEvent | null;
+  isError: boolean;
+  resultText: string | null;
+  missingConversation: boolean;
+  errors: string[] | null;
+  subtype: string | null;
+} {
+  let contentChanged = false;
+  let sessionId: string | null = event.session_id ?? null;
+  let resultEvent: ClaudeStreamEvent | null = null;
+  let isError = false;
+  let resultText: string | null = null;
+  let missingConversation = false;
+  let errors: string[] | null = null;
+  let subtype: string | null = null;
+
+  switch (event.type) {
+    case "system":
+      // init event carries session_id — already captured above
+      break;
+
+    case "content_block_start": {
+      const idx = event.index;
+      const block = event.content_block;
+      const blockType =
+        block.type === "thinking"
+          ? "thinking"
+          : block.type === "tool_use"
+            ? "tool_use"
+            : "text";
+      const acc = makeAccumulator(blockType);
+      if (block.type === "tool_use") {
+        acc.toolCallId = block.id ?? "";
+        acc.toolName = block.name ?? "";
+      }
+      if (block.text) acc.text = block.text;
+      if (block.thinking) acc.text = block.thinking;
+      accumulators[idx] = acc;
+      contentChanged = true;
+      break;
+    }
+
+    case "content_block_delta": {
+      const idx = event.index;
+      const delta = event.delta;
+      let acc = accumulators[idx];
+      if (!acc) {
+        // Safety: if we missed the start event, create a text accumulator
+        acc = makeAccumulator("text");
+        accumulators[idx] = acc;
+      }
+      if (delta.text) {
+        acc.text += delta.text;
+        contentChanged = true;
+      }
+      if (delta.thinking) {
+        acc.text += delta.thinking;
+        contentChanged = true;
+      }
+      if (delta.partial_json) {
+        acc.argsJson += delta.partial_json;
+        contentChanged = true;
+      }
+      break;
+    }
+
+    case "content_block_stop":
+      // Block is complete — no action needed, accumulator already has full state
+      break;
+
+    case "assistant": {
+      // assistant events carry full message snapshots
+      if (event.message?.content) {
+        for (const block of event.message.content) {
+          if (block.type === "tool_result" && block.tool_use_id) {
+            // Reconcile tool results back to their tool_use accumulators
+            for (const acc of accumulators) {
+              if (
+                acc.blockType === "tool_use" &&
+                acc.toolCallId === block.tool_use_id
+              ) {
+                acc.result =
+                  typeof block.content === "string"
+                    ? block.content
+                    : JSON.stringify(block.content ?? block.result ?? "");
+                acc.isError = block.is_error ?? false;
+                contentChanged = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // assistant events with content_block / delta (alternative format)
+      if (event.content_block) {
+        const idx = event.index ?? accumulators.length;
+        const block = event.content_block;
+        const blockType =
+          block.type === "thinking"
+            ? "thinking"
+            : block.type === "tool_use"
+              ? "tool_use"
+              : "text";
+        if (!accumulators[idx]) {
+          const acc = makeAccumulator(blockType);
+          if (block.type === "tool_use") {
+            acc.toolCallId = block.id ?? "";
+            acc.toolName = block.tool_name ?? block.name ?? "";
+          }
+          if (block.text) acc.text = block.text;
+          if (block.thinking) acc.text = block.thinking;
+          accumulators[idx] = acc;
+          contentChanged = true;
+        }
+      }
+      if (event.delta) {
+        const idx = event.index ?? accumulators.length - 1;
+        const acc = accumulators[idx];
+        if (acc) {
+          if (event.delta.text) {
+            acc.text += event.delta.text;
+            contentChanged = true;
+          }
+          if (event.delta.thinking) {
+            acc.text += event.delta.thinking;
+            contentChanged = true;
+          }
+          if (event.delta.partial_json) {
+            acc.argsJson += event.delta.partial_json;
+            contentChanged = true;
+          }
+        }
+      }
+      break;
+    }
+
+    case "result": {
+      resultEvent = event;
+      sessionId = event.session_id ?? sessionId;
+      isError = event.is_error ?? false;
+      resultText = event.result ?? null;
+      errors = event.errors ?? null;
+      subtype = event.subtype ?? null;
+      if (
+        event.subtype === "error_during_execution" &&
+        event.errors?.some((e) =>
+          e.includes("No conversation found with session ID"),
+        )
+      ) {
+        missingConversation = true;
+      }
+      break;
     }
   }
 
-  const candidates = [...stdout.split(/\r?\n/), ...stderr.split(/\r?\n/)]
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("{") && line.endsWith("}"));
-  for (const candidate of candidates) {
-    try {
-      const parsedPayload = JSON.parse(candidate) as unknown;
-      const parsed = extractResultEvent(parsedPayload);
-      if (parsed) {
-        return { raw: candidate, parsed };
-      }
-    } catch {
-      // Keep scanning.
+  return {
+    contentChanged,
+    sessionId,
+    resultEvent,
+    isError,
+    resultText,
+    missingConversation,
+    errors,
+    subtype,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Stream event queue types for spawnClaudeStreaming
+// ---------------------------------------------------------------------------
+
+type StreamQueueItem =
+  | { kind: "stdout"; line: string }
+  | { kind: "stderr"; line: string }
+  | { kind: "close"; code: number | null; signal: number | null }
+  | { kind: "error"; message: string };
+
+interface StreamSpawnConfig {
+  prompt: string;
+  sessionMode: "resume" | "session-id" | "none";
+  sessionId: string | null;
+  cwd?: string;
+}
+
+/**
+ * Shell script that invokes Claude CLI with `< /dev/null` to close stdin
+ * immediately (EOF). Without this, Claude CLI detects a pipe on stdin
+ * and blocks waiting for input before producing any output.
+ *
+ * The prompt and session details are passed via environment variables
+ * to avoid shell injection. `exec` replaces `sh` with `claude` so
+ * there is no lingering parent shell process.
+ */
+const CLAUDE_SHELL_SCRIPT =
+  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --resume "$CLAUDE_SESSION_ID" < /dev/null; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --session-id "$CLAUDE_SESSION_ID" < /dev/null; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages < /dev/null; fi';
+
+/**
+ * Spawn Claude CLI and yield stream events as an async iterable.
+ *
+ * Bridges Tauri's callback-based shell events into an async generator
+ * the run() method can consume with `for await`.
+ *
+ * Uses a shell wrapper (`sh -c`) with `< /dev/null` to immediately close
+ * stdin, which prevents Claude CLI from hanging when it detects a pipe
+ * instead of a TTY.
+ */
+async function* spawnClaudeStreaming(
+  config: StreamSpawnConfig,
+  threadKey: string,
+  abortSignal: AbortSignal,
+): AsyncGenerator<StreamQueueItem, void, unknown> {
+  const command = Command.create("claude-stream-sh", ["-c", CLAUDE_SHELL_SCRIPT], {
+    cwd: config.cwd,
+    env: {
+      CLAUDE_MODE: config.sessionMode,
+      CLAUDE_PROMPT: config.prompt,
+      CLAUDE_SESSION_ID: config.sessionId ?? "",
+    },
+  });
+
+  // Queue + resolver pattern to bridge callbacks → async iteration
+  const queue: StreamQueueItem[] = [];
+  let resolve: (() => void) | null = null;
+  let done = false;
+
+  function enqueue(item: StreamQueueItem) {
+    queue.push(item);
+    if (resolve) {
+      const r = resolve;
+      resolve = null;
+      r();
     }
   }
 
-  return null;
+  command.stdout.on("data", (line: string) => {
+    devLog(
+      "[claude-stream] stdout data:",
+      line.length,
+      "chars,",
+      line.slice(0, 80),
+    );
+    enqueue({ kind: "stdout", line });
+  });
+  command.stderr.on("data", (line: string) => {
+    devLog("[claude-stream] stderr data:", line.slice(0, 120));
+    enqueue({ kind: "stderr", line });
+  });
+  command.on("close", (data) => {
+    enqueue({
+      kind: "close",
+      code: data.code ?? null,
+      signal: data.signal ?? null,
+    });
+  });
+  command.on("error", (err: string) => {
+    enqueue({ kind: "error", message: err });
+  });
+
+  const child = await command.spawn();
+  activeChildByThread.set(threadKey, child);
+
+  // Wire abort signal to kill
+  const onAbort = () => {
+    void child.kill();
+  };
+  if (abortSignal.aborted) {
+    void child.kill();
+  } else {
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  try {
+    while (!done) {
+      // Drain any queued items
+      while (queue.length > 0) {
+        const item = queue.shift()!;
+        if (item.kind === "close" || item.kind === "error") {
+          // Race guard: drain any remaining stdout/stderr before yielding close
+          for (const remaining of queue) {
+            if (
+              remaining.kind === "stdout" ||
+              remaining.kind === "stderr"
+            ) {
+              yield remaining;
+            }
+          }
+          queue.length = 0;
+          done = true;
+          yield item;
+          return;
+        }
+        yield item;
+      }
+
+      // Wait for next item
+      if (!done) {
+        await new Promise<void>((r) => {
+          resolve = r;
+        });
+      }
+    }
+  } finally {
+    abortSignal.removeEventListener("abort", onAbort);
+    activeChildByThread.delete(threadKey);
+  }
 }
 
 export function createClaudeAdapter(
@@ -700,40 +1165,22 @@ export function createClaudeAdapter(
               : strategy === "session-id"
                 ? "session-id"
                 : "none";
-          const debugArgs = [
-            "-p",
-            prompt,
-            "--output-format",
-            "json",
-            "--verbose",
-          ];
-          if (sessionMode === "resume" && sessionId) {
-            debugArgs.push("--resume", sessionId);
-          } else if (sessionMode === "session-id" && sessionId) {
-            debugArgs.push("--session-id", sessionId);
-          }
 
           const configuredCwd = cwdByThread.get(threadKey);
           const configuredGitBranch = gitBranchByThread.get(threadKey);
 
+          const spawnConfig: StreamSpawnConfig = {
+            prompt,
+            sessionMode,
+            sessionId,
+            cwd: configuredCwd,
+          };
+
           devLog(
             "[claude-adapter] spawning:",
             `[${ADAPTER_REV}]`,
-            ["claude", ...debugArgs].join(" "),
+            JSON.stringify({ sessionMode, sessionId, cwd: configuredCwd }),
           );
-
-          let missingConversation = false;
-          let sessionInUse = false;
-          let latestSessionId: string | null = null;
-          let wasAborted = abortSignal.aborted;
-          const onAbort = () => {
-            wasAborted = true;
-          };
-          abortSignal.addEventListener("abort", onAbort, { once: true });
-
-          const command = Command.create("claude", debugArgs, {
-            cwd: configuredCwd,
-          });
 
           if (configuredGitBranch?.trim()) {
             devLog(
@@ -742,153 +1189,279 @@ export function createClaudeAdapter(
             );
           }
 
-          let commandResult: Awaited<ReturnType<typeof command.execute>>;
-          try {
-            commandResult = await command.execute();
-            devLog(
-              "[claude-adapter] process closed:",
-              JSON.stringify({
-                code: commandResult.code,
-                signal: commandResult.signal,
-                stdoutBytes: (commandResult.stdout ?? "").length,
-                stderrBytes: (commandResult.stderr ?? "").length,
-              }),
-            );
-          } finally {
-            abortSignal.removeEventListener("abort", onAbort);
+          let missingConversation = false;
+          let sessionInUse = false;
+          let latestSessionId: string | null = null;
+          let exitCode: number | null = null;
+          let exitSignal: number | null = null;
+          let wasAborted = abortSignal.aborted;
+          let streamResultEvent: ClaudeStreamEvent | null = null;
+          let streamResultIsError = false;
+          let streamResultText: string | null = null;
+
+          // Accumulators for incremental content blocks
+          const accumulators: ContentBlockAccumulator[] = [];
+          let lastYieldTime = 0;
+          let pendingYield = false;
+
+          for await (const item of spawnClaudeStreaming(
+            spawnConfig,
+            threadKey,
+            abortSignal,
+          )) {
+            if (abortSignal.aborted) {
+              wasAborted = true;
+              break;
+            }
+
+            switch (item.kind) {
+              case "stderr": {
+                const trimmed = item.line.trim();
+                if (!trimmed) break;
+                devWarn("[claude-adapter] stderr:", trimmed);
+                if (
+                  trimmed.includes("No conversation found with session ID")
+                ) {
+                  missingConversation = true;
+                  const staleSessionId = attemptedSessionId ?? knownSessionId;
+                  if (staleSessionId) {
+                    upsertSessionRecord(threadKey, staleSessionId, {
+                      status: "stale",
+                      localCache: "missing",
+                      strategy,
+                      lastCheckedAt: Date.now(),
+                      lastError: "No conversation found with session ID",
+                    });
+                  }
+                }
+                if (trimmed.includes("already in use")) {
+                  sessionInUse = true;
+                  if (knownSessionId) {
+                    upsertSessionRecord(threadKey, knownSessionId, {
+                      status: "in_use",
+                      strategy,
+                      lastCheckedAt: Date.now(),
+                      lastError: trimmed,
+                    });
+                  }
+                }
+                break;
+              }
+
+              case "stdout": {
+                devLog(
+                  "[claude-adapter] raw stdout:",
+                  item.line.length,
+                  "chars,",
+                  item.line.slice(0, 80),
+                );
+
+                // Defensive: split on newlines in case Tauri batches lines
+                const lines = item.line.split("\n");
+                for (const rawLine of lines) {
+                  const line = rawLine.trim();
+                  if (!line) continue;
+
+                  let rawParsed: ClaudeStreamEvent;
+                  try {
+                    rawParsed = JSON.parse(line) as ClaudeStreamEvent;
+                  } catch {
+                    devWarn(
+                      "[claude-adapter] non-JSON stdout line:",
+                      line.slice(0, 120),
+                    );
+                    continue;
+                  }
+
+                  devLog(
+                    "[claude-adapter] parsed type:",
+                    rawParsed.type,
+                    rawParsed.type === "stream_event"
+                      ? `-> inner: ${(rawParsed as ClaudeStreamEventEnvelope).event?.type}`
+                      : "",
+                  );
+
+                  // Unwrap stream_event envelopes into the inner event types
+                  let parsed: ClaudeStreamEvent;
+                  if (rawParsed.type === "stream_event") {
+                    const unwrapped = unwrapStreamEvent(
+                      rawParsed as ClaudeStreamEventEnvelope,
+                    );
+                    if (!unwrapped) {
+                      devLog("[claude-adapter] unwrap: skipped (null)");
+                      // Still log the raw envelope to dev panel for visibility
+                      pushDevEvent(line, rawParsed, threadKey);
+                      continue;
+                    }
+                    devLog(
+                      "[claude-adapter] unwrap: ->",
+                      unwrapped.type,
+                    );
+                    parsed = unwrapped;
+                  } else {
+                    parsed = rawParsed;
+                  }
+
+                  // Log every event to dev panel
+                  pushDevEvent(line, parsed, threadKey);
+
+                  // Process the event and update accumulators
+                  const result = processStreamEvent(parsed, accumulators);
+
+                  devLog(
+                    "[claude-adapter] processStreamEvent:",
+                    parsed.type,
+                    "contentChanged:",
+                    result.contentChanged,
+                    "accumulators:",
+                    accumulators.length,
+                    "textLen:",
+                    accumulators.reduce((s, a) => s + a.text.length, 0),
+                  );
+
+                  if (result.sessionId) {
+                    latestSessionId = result.sessionId;
+                    knownSessionId = result.sessionId;
+                  }
+                  if (result.missingConversation) {
+                    missingConversation = true;
+                    const staleSessionId =
+                      attemptedSessionId ?? knownSessionId;
+                    if (staleSessionId) {
+                      upsertSessionRecord(threadKey, staleSessionId, {
+                        status: "stale",
+                        localCache: "missing",
+                        strategy,
+                        lastCheckedAt: Date.now(),
+                        lastError: "No conversation found with session ID",
+                      });
+                    }
+                  }
+                  if (result.resultEvent) {
+                    streamResultEvent = result.resultEvent;
+                    streamResultIsError = result.isError;
+                    streamResultText = result.resultText;
+                  }
+
+                  // Yield throttled content updates (~60fps)
+                  if (result.contentChanged) {
+                    const now = Date.now();
+                    if (now - lastYieldTime >= YIELD_THROTTLE_MS) {
+                      const content =
+                        buildContentFromAccumulators(accumulators);
+                      if (content.length > 0) {
+                        devLog(
+                          "[claude-adapter] yielding content:",
+                          content.length,
+                          "parts",
+                        );
+                        yield { content } satisfies ChatModelRunResult;
+                        lastYieldTime = now;
+                        pendingYield = false;
+                      }
+                    } else {
+                      pendingYield = true;
+                    }
+                  }
+                }
+                break;
+              }
+
+              case "close": {
+                exitCode = item.code;
+                exitSignal = item.signal;
+                devLog(
+                  "[claude-adapter] process closed:",
+                  JSON.stringify({
+                    code: item.code,
+                    signal: item.signal,
+                  }),
+                );
+                break;
+              }
+
+              case "error": {
+                devError("[claude-adapter] spawn error:", item.message);
+                break;
+              }
+            }
           }
 
           if (wasAborted) {
+            // Flush final content before breaking out
+            const content = buildContentFromAccumulators(accumulators);
+            if (content.length > 0) {
+              yield {
+                content,
+                status: { type: "incomplete", reason: "cancelled" },
+              } satisfies ChatModelRunResult;
+            }
             break;
           }
 
-          for (const line of (commandResult.stderr ?? "").split(/\r?\n/)) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            devWarn("[claude-adapter] stderr:", trimmed);
-            if (trimmed.includes("No conversation found with session ID")) {
-              missingConversation = true;
-              const staleSessionId = attemptedSessionId ?? knownSessionId;
-              if (staleSessionId) {
-                upsertSessionRecord(threadKey, staleSessionId, {
-                  status: "stale",
-                  localCache: "missing",
-                  strategy,
-                  lastCheckedAt: Date.now(),
-                  lastError: "No conversation found with session ID",
-                });
-              }
-            }
-            if (trimmed.includes("already in use")) {
-              sessionInUse = true;
-              if (knownSessionId) {
-                upsertSessionRecord(threadKey, knownSessionId, {
-                  status: "in_use",
-                  strategy,
-                  lastCheckedAt: Date.now(),
-                  lastError: trimmed,
-                });
-              }
-            }
-          }
-
-          const stdoutText = commandResult.stdout ?? "";
-          const stderrText = commandResult.stderr ?? "";
-          const parsedResult = parseClaudeJsonResult(stdoutText, stderrText);
-          if (parsedResult) {
-            try {
-              const result = parsedResult.parsed;
-
-              pushDevEvent(
-                parsedResult.raw,
-                result as unknown as ClaudeStreamEvent,
-                threadKey,
-              );
-
-              if (result.session_id?.trim()) {
-                knownSessionId = result.session_id;
-                latestSessionId = result.session_id;
-              }
-
-              void db.usageSnapshots.insert({
-                id: crypto.randomUUID(),
-                thread_id: threadKey,
-                session_id: latestSessionId,
-                input_tokens: null,
-                output_tokens: null,
-                cache_creation_input_tokens: null,
-                cache_read_input_tokens: null,
-                total_cost_usd:
-                  result.total_cost_usd ?? result.cost_usd ?? null,
-                model_id: result.model ?? null,
-                context_window: null,
-                captured_at: new Date().toISOString(),
-              });
-
-              if (
-                result.subtype === "error_during_execution" &&
-                result.errors?.some((e) =>
-                  e.includes("No conversation found with session ID"),
-                )
-              ) {
-                missingConversation = true;
-                const staleSessionId = attemptedSessionId ?? knownSessionId;
-                if (staleSessionId) {
-                  upsertSessionRecord(threadKey, staleSessionId, {
-                    status: "stale",
-                    localCache: "missing",
-                    strategy,
-                    lastCheckedAt: Date.now(),
-                    lastError: "No conversation found with session ID",
-                  });
-                }
-              }
-
-              if (!result.is_error && result.result) {
-                yield {
-                  content: [{ type: "text", text: result.result }],
-                } satisfies ChatModelRunResult;
-              } else if (result.is_error && result.result) {
-                yield {
-                  content: [{ type: "text", text: `Error: ${result.result}` }],
-                } satisfies ChatModelRunResult;
-              }
-            } catch (e) {
-              devError(
-                "[claude-adapter] failed to parse JSON result:",
-                e,
-                parsedResult.raw.slice(0, 200),
-              );
-            }
-          } else {
-            const fallbackText = stdoutText.trim() || stderrText.trim();
-            if (fallbackText) {
-              devWarn(
-                "[claude-adapter] no JSON result found; emitting fallback text",
-              );
+          // Flush any pending content that wasn't yielded due to throttling
+          if (pendingYield || accumulators.length > 0) {
+            const content = buildContentFromAccumulators(accumulators);
+            if (content.length > 0) {
               yield {
-                content: [{ type: "text", text: fallbackText }],
+                content,
+                status: { type: "complete", reason: "stop" },
               } satisfies ChatModelRunResult;
             }
           }
 
+          // Track usage from result event
+          if (streamResultEvent) {
+            const re = streamResultEvent as ClaudeResultEvent;
+            void db.usageSnapshots.insert({
+              id: crypto.randomUUID(),
+              thread_id: threadKey,
+              session_id: latestSessionId,
+              input_tokens: re.usage?.input_tokens ?? null,
+              output_tokens: re.usage?.output_tokens ?? null,
+              cache_creation_input_tokens:
+                re.usage?.cache_creation_input_tokens ?? null,
+              cache_read_input_tokens:
+                re.usage?.cache_read_input_tokens ?? null,
+              total_cost_usd: re.total_cost_usd ?? re.cost_usd ?? null,
+              model_id: null,
+              context_window: null,
+              captured_at: new Date().toISOString(),
+            });
+          }
+
+          // If no content was yielded from accumulators, fall back to result text
+          if (accumulators.length === 0 && streamResultText) {
+            if (!streamResultIsError) {
+              yield {
+                content: [{ type: "text", text: streamResultText }],
+              } satisfies ChatModelRunResult;
+            } else {
+              yield {
+                content: [
+                  { type: "text", text: `Error: ${streamResultText}` },
+                ],
+              } satisfies ChatModelRunResult;
+            }
+          }
+
+          // --- Retry logic (structurally identical to before) ---
+
           if (
-            commandResult.code !== null &&
-            commandResult.code !== 0 &&
+            exitCode !== null &&
+            exitCode !== 0 &&
             !missingConversation &&
             !sessionInUse
           ) {
             const signalSuffix =
-              commandResult.signal !== null
-                ? ` (signal ${commandResult.signal})`
-                : "";
+              exitSignal !== null ? ` (signal ${exitSignal})` : "";
             throw new Error(
-              `Claude CLI exited with code ${commandResult.code}${signalSuffix}`,
+              `Claude CLI exited with code ${exitCode}${signalSuffix}`,
             );
           }
 
           if (
-            commandResult.code === 0 &&
+            exitCode === 0 &&
             latestSessionId &&
             !missingConversation &&
             !sessionInUse
@@ -954,8 +1527,107 @@ export function createClaudeAdapter(
   };
 }
 
+/**
+ * Diagnostic: spawn a minimal Claude CLI session and log every event
+ * with counters. Call from browser console to verify the pipeline
+ * independently of assistant-ui.
+ *
+ * Usage: `import { runStreamDiagnostic } from '@/lib/claude-adapter'; runStreamDiagnostic()`
+ * Or: assign to window in dev and call `window.runStreamDiagnostic()`
+ */
+export async function runStreamDiagnostic(): Promise<void> {
+  const diagKey = "__stream_diag__";
+  const ac = new AbortController();
+  const counters: Record<string, number> = {};
+
+  console.log("[stream-diag] Starting diagnostic — spawning Claude CLI...");
+
+  for await (const item of spawnClaudeStreaming(
+    { prompt: "say hello", sessionMode: "none", sessionId: null },
+    diagKey,
+    ac.signal,
+  )) {
+    const key = item.kind;
+    counters[key] = (counters[key] ?? 0) + 1;
+
+    if (item.kind === "stdout") {
+      const lines = item.line.split("\n");
+      for (const rawLine of lines) {
+        const trimmed = rawLine.trim();
+        if (!trimmed) continue;
+        try {
+          const rawParsed = JSON.parse(trimmed) as ClaudeStreamEvent;
+          const typeKey = rawParsed.type;
+          counters[`type:${typeKey}`] = (counters[`type:${typeKey}`] ?? 0) + 1;
+
+          if (rawParsed.type === "stream_event") {
+            const envelope = rawParsed as ClaudeStreamEventEnvelope;
+            const innerType = envelope.event?.type ?? "unknown";
+            counters[`inner:${innerType}`] =
+              (counters[`inner:${innerType}`] ?? 0) + 1;
+
+            const unwrapped = unwrapStreamEvent(envelope);
+            if (unwrapped) {
+              counters[`unwrapped:${unwrapped.type}`] =
+                (counters[`unwrapped:${unwrapped.type}`] ?? 0) + 1;
+
+              if (
+                unwrapped.type === "content_block_delta" &&
+                unwrapped.delta?.text
+              ) {
+                console.log(
+                  "[stream-diag] delta text:",
+                  JSON.stringify(unwrapped.delta.text),
+                );
+              }
+            } else {
+              counters["unwrapped:skipped"] =
+                (counters["unwrapped:skipped"] ?? 0) + 1;
+            }
+          }
+
+          console.log(
+            "[stream-diag]",
+            typeKey,
+            rawParsed.type === "stream_event"
+              ? `(${(rawParsed as ClaudeStreamEventEnvelope).event?.type})`
+              : "",
+            trimmed.slice(0, 100),
+          );
+        } catch {
+          console.log("[stream-diag] non-JSON:", trimmed.slice(0, 100));
+        }
+      }
+    } else if (item.kind === "stderr") {
+      console.warn("[stream-diag] stderr:", item.line.slice(0, 200));
+    } else if (item.kind === "close") {
+      console.log(
+        "[stream-diag] process closed: code=",
+        item.code,
+        "signal=",
+        item.signal,
+      );
+    } else if (item.kind === "error") {
+      console.error("[stream-diag] error:", item.message);
+    }
+  }
+
+  console.log("[stream-diag] Done. Counters:", counters);
+}
+
+// Expose diagnostic on window in dev for easy console access
+if (DEV_LOGS && typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).runStreamDiagnostic =
+    runStreamDiagnostic;
+}
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    // Kill any active child processes on hot reload
+    for (const child of activeChildByThread.values()) {
+      void child.kill();
+    }
+    activeChildByThread.clear();
     activeThreadRuns.clear();
     pendingThreadRunWaiters.clear();
     sessionByThread.clear();
