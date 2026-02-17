@@ -1,9 +1,10 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState, type ElementType } from "react";
 import {
   AlertCircleIcon,
   CheckIcon,
   ChevronDownIcon,
   LoaderIcon,
+  WrenchIcon,
   XCircleIcon,
 } from "lucide-react";
 import {
@@ -64,7 +65,7 @@ function ToolFallbackRoot({
       open={isOpen}
       onOpenChange={handleOpenChange}
       className={cn(
-        "aui-tool-fallback-root group/tool-fallback-root w-full rounded-lg border py-3",
+        "aui-tool-fallback-root group/tool-fallback-root w-full py-0.5",
         className,
       )}
       style={
@@ -90,11 +91,17 @@ const statusIconMap: Record<ToolStatus, React.ElementType> = {
 
 function ToolFallbackTrigger({
   toolName,
+  toolLabel = "Tool",
+  toolMeta,
+  leadingIcon: LeadingIcon = WrenchIcon,
   status,
   className,
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   toolName: string;
+  toolLabel?: string;
+  toolMeta?: string;
+  leadingIcon?: ElementType;
   status?: ToolCallMessagePartStatus;
 }) {
   const statusType = status?.type ?? "complete";
@@ -103,49 +110,61 @@ function ToolFallbackTrigger({
     status?.type === "incomplete" && status.reason === "cancelled";
 
   const Icon = statusIconMap[statusType];
-  const label = isCancelled ? "Cancelled tool" : "Used tool";
+  const statusLabel = isCancelled
+    ? "Cancelled"
+    : statusType === "running"
+      ? "Running"
+      : statusType === "requires-action"
+        ? "Needs action"
+        : statusType === "incomplete"
+          ? "Incomplete"
+          : "Complete";
 
   return (
     <CollapsibleTrigger
       data-slot="tool-fallback-trigger"
       className={cn(
-        "aui-tool-fallback-trigger group/trigger flex w-full items-center gap-2 px-4 text-sm transition-colors",
+        "aui-tool-fallback-trigger group/trigger flex w-full items-center gap-2 px-1.5 py-1 text-xs transition-colors hover:bg-muted/20",
         className,
       )}
       {...props}
     >
-      <Icon
-        data-slot="tool-fallback-trigger-icon"
-        className={cn(
-          "aui-tool-fallback-trigger-icon size-4 shrink-0",
-          isCancelled && "text-muted-foreground",
-          isRunning && "animate-spin",
-        )}
-      />
-      <span
-        data-slot="tool-fallback-trigger-label"
-        className={cn(
-          "aui-tool-fallback-trigger-label-wrapper relative inline-block grow text-left leading-none",
-          isCancelled && "text-muted-foreground line-through",
-        )}
-      >
-        <span>
-          {label}: <b>{toolName}</b>
+      <span className="inline-flex size-4 shrink-0 items-center justify-center">
+        <LeadingIcon className="size-3 text-muted-foreground/90" />
+      </span>
+      <span className="min-w-0 grow text-left">
+        <span
+          data-slot="tool-fallback-trigger-label"
+          className={cn(
+            "aui-tool-fallback-trigger-label-wrapper block text-[10px] leading-tight text-muted-foreground/90",
+            isCancelled && "line-through",
+          )}
+        >
+          {toolLabel}
         </span>
-        {isRunning && (
-          <span
-            aria-hidden
-            data-slot="tool-fallback-trigger-shimmer"
-            className="aui-tool-fallback-trigger-shimmer shimmer pointer-events-none absolute inset-0 motion-reduce:animate-none"
-          >
-            {label}: <b>{toolName}</b>
-          </span>
-        )}
+        <span className="block truncate text-[12px] leading-tight text-foreground/95">{toolName}</span>
+      </span>
+      {toolMeta && (
+        <span className="hidden text-[10px] text-muted-foreground/90 leading-tight sm:inline">
+          {toolMeta}
+        </span>
+      )}
+      <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/85">
+        <Icon
+          data-slot="tool-fallback-trigger-icon"
+          className={cn(
+            "aui-tool-fallback-trigger-icon size-3 shrink-0",
+            statusType === "incomplete" && "text-red-300/80",
+            statusType === "requires-action" && "text-amber-300/80",
+            isRunning && "animate-spin",
+          )}
+        />
+        <span className="hidden lg:inline">{statusLabel}</span>
       </span>
       <ChevronDownIcon
         data-slot="tool-fallback-trigger-chevron"
         className={cn(
-          "aui-tool-fallback-trigger-chevron size-4 shrink-0",
+          "aui-tool-fallback-trigger-chevron size-3 shrink-0 text-muted-foreground/80",
           "transition-transform duration-(--animation-duration) ease-out",
           "group-data-[state=closed]/trigger:-rotate-90",
           "group-data-[state=open]/trigger:rotate-0",
@@ -176,7 +195,7 @@ function ToolFallbackContent({
       )}
       {...props}
     >
-      <div className="mt-3 flex flex-col gap-2 border-t pt-2">{children}</div>
+      <div className="mt-1.5 flex flex-col gap-1.5 border-l border-border/50 pl-4">{children}</div>
     </CollapsibleContent>
   );
 }

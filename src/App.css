@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+@import "highlight.js/styles/github-dark-dimmed.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -356,9 +357,35 @@
 }
 
 .aui-tool-fallback-root {
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--primary);
-  background: color-mix(in srgb, var(--card) 85%, transparent);
+  border: none;
+  background: transparent;
+}
+
+.aui-tool-fallback-root + .aui-tool-fallback-root {
+  margin-top: 0.15rem;
+}
+
+.hljs {
+  background: transparent !important;
+  color: color-mix(in srgb, var(--foreground) 90%, transparent) !important;
+  padding: 0 !important;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: color-mix(in srgb, var(--muted-foreground) 85%, transparent) !important;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal {
+  color: color-mix(in srgb, var(--primary) 88%, var(--foreground)) !important;
+}
+
+.hljs-string,
+.hljs-title,
+.hljs-section {
+  color: color-mix(in srgb, var(--accent) 70%, var(--foreground)) !important;
 }
 
 .aui-sidebar-brand {
