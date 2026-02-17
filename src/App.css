@@ -10,6 +10,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+  --app-font: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.129 0.042 264.695);
@@ -125,5 +126,907 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--app-font);
   }
+}
+
+:root[data-theme="studio"] {
+  --app-font: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.004 255);
+  --foreground: oklch(0.2 0.03 258);
+  --card: oklch(0.995 0.002 260);
+  --card-foreground: oklch(0.2 0.03 258);
+  --primary: oklch(0.46 0.13 258);
+  --primary-foreground: oklch(0.985 0.004 255);
+  --secondary: oklch(0.95 0.016 250);
+  --secondary-foreground: oklch(0.27 0.05 258);
+  --muted: oklch(0.953 0.01 252);
+  --muted-foreground: oklch(0.51 0.03 258);
+  --accent: oklch(0.94 0.028 229);
+  --accent-foreground: oklch(0.27 0.05 258);
+  --border: oklch(0.9 0.018 252);
+  --input: oklch(0.9 0.018 252);
+  --ring: oklch(0.56 0.11 254);
+}
+
+:root[data-theme="graphite"] {
+  --app-font: "IBM Plex Sans", "Segoe UI", "Trebuchet MS", sans-serif;
+  --radius: 0.5rem;
+  --background: oklch(0.19 0.01 260);
+  --foreground: oklch(0.95 0.005 255);
+  --card: oklch(0.24 0.014 260);
+  --card-foreground: oklch(0.95 0.005 255);
+  --popover: oklch(0.24 0.014 260);
+  --popover-foreground: oklch(0.95 0.005 255);
+  --primary: oklch(0.86 0.03 240);
+  --primary-foreground: oklch(0.2 0.01 260);
+  --secondary: oklch(0.31 0.014 260);
+  --secondary-foreground: oklch(0.95 0.005 255);
+  --muted: oklch(0.29 0.012 260);
+  --muted-foreground: oklch(0.74 0.013 255);
+  --accent: oklch(0.35 0.02 222);
+  --accent-foreground: oklch(0.96 0.005 255);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 20%);
+  --ring: oklch(0.72 0.04 228);
+  --sidebar: oklch(0.22 0.013 260);
+}
+
+:root[data-theme="sunset"] {
+  --app-font: "Gill Sans", "Trebuchet MS", "Segoe UI", sans-serif;
+  --radius: 1rem;
+  --background: oklch(0.98 0.018 65);
+  --foreground: oklch(0.29 0.05 35);
+  --card: oklch(0.99 0.01 72);
+  --card-foreground: oklch(0.29 0.05 35);
+  --primary: oklch(0.62 0.2 34);
+  --primary-foreground: oklch(0.98 0.01 72);
+  --secondary: oklch(0.93 0.045 76);
+  --secondary-foreground: oklch(0.37 0.08 35);
+  --muted: oklch(0.94 0.026 67);
+  --muted-foreground: oklch(0.52 0.05 34);
+  --accent: oklch(0.88 0.1 90);
+  --accent-foreground: oklch(0.37 0.08 35);
+  --border: oklch(0.86 0.05 61);
+  --input: oklch(0.86 0.05 61);
+  --ring: oklch(0.65 0.2 28);
+}
+
+:root[data-theme="terminal"] {
+  --app-font: "Courier Prime", "Courier New", monospace;
+  --radius: 0.25rem;
+  --background: oklch(0.16 0.03 152);
+  --foreground: oklch(0.93 0.07 145);
+  --card: oklch(0.21 0.03 153);
+  --card-foreground: oklch(0.92 0.06 145);
+  --popover: oklch(0.21 0.03 153);
+  --popover-foreground: oklch(0.92 0.06 145);
+  --primary: oklch(0.9 0.2 142);
+  --primary-foreground: oklch(0.13 0.03 152);
+  --secondary: oklch(0.27 0.03 151);
+  --secondary-foreground: oklch(0.92 0.06 145);
+  --muted: oklch(0.24 0.03 151);
+  --muted-foreground: oklch(0.74 0.06 145);
+  --accent: oklch(0.31 0.06 156);
+  --accent-foreground: oklch(0.92 0.06 145);
+  --destructive: oklch(0.68 0.21 29);
+  --border: oklch(0.56 0.07 145 / 35%);
+  --input: oklch(0.56 0.07 145 / 45%);
+  --ring: oklch(0.88 0.19 141);
+}
+
+:root[data-theme="paper"] {
+  --app-font: "Palatino Linotype", "Book Antiqua", "Times New Roman", serif;
+  --radius: 0.15rem;
+  --background: oklch(0.985 0.006 88);
+  --foreground: oklch(0.22 0.02 80);
+  --card: oklch(0.99 0.004 88);
+  --card-foreground: oklch(0.22 0.02 80);
+  --primary: oklch(0.34 0.04 54);
+  --primary-foreground: oklch(0.99 0.004 88);
+  --secondary: oklch(0.94 0.014 87);
+  --secondary-foreground: oklch(0.31 0.03 63);
+  --muted: oklch(0.94 0.01 87);
+  --muted-foreground: oklch(0.49 0.02 72);
+  --accent: oklch(0.89 0.03 85);
+  --accent-foreground: oklch(0.31 0.03 63);
+  --border: oklch(0.8 0.017 82);
+  --input: oklch(0.8 0.017 82);
+  --ring: oklch(0.49 0.04 62);
+}
+
+.app-shell {
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--accent) 14%, transparent) 0%, transparent 36%),
+    radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--primary) 12%, transparent) 0%, transparent 34%),
+    var(--background);
+}
+
+.app-sidebar {
+  backdrop-filter: blur(8px);
+}
+
+.theme-switcher .theme-choice[data-active="true"] {
+  border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
+  background: color-mix(in oklab, var(--primary) 14%, var(--card));
+}
+
+:root[data-theme="graphite"] .app-shell {
+  background:
+    radial-gradient(circle at 20% 10%, oklch(0.45 0.03 220 / 0.22), transparent 40%),
+    linear-gradient(145deg, oklch(0.175 0.01 260), oklch(0.21 0.015 258));
+}
+
+:root[data-theme="sunset"] .app-shell {
+  background:
+    radial-gradient(circle at 15% 10%, oklch(0.78 0.16 55 / 0.38), transparent 42%),
+    radial-gradient(circle at 100% 100%, oklch(0.74 0.14 34 / 0.3), transparent 42%),
+    linear-gradient(160deg, oklch(0.97 0.02 67), oklch(0.95 0.03 74));
+}
+
+:root[data-theme="terminal"] .app-shell {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      oklch(0.145 0.03 151) 0px,
+      oklch(0.145 0.03 151) 2px,
+      oklch(0.16 0.03 152) 2px,
+      oklch(0.16 0.03 152) 4px
+    );
+}
+
+:root[data-theme="terminal"] .app-sidebar {
+  border-right-style: dashed;
+}
+
+:root[data-theme="paper"] .app-shell {
+  background:
+    linear-gradient(90deg, oklch(0.94 0.01 88 / 0.7) 1px, transparent 1px) 0 0 / 16px 16px,
+    linear-gradient(oklch(0.94 0.01 88 / 0.7) 1px, transparent 1px) 0 0 / 16px 16px,
+    var(--background);
+}
+
+:root[data-theme="paper"] .app-sidebar {
+  border-right-width: 2px;
+}
+
+main[data-layout] {
+  isolation: isolate;
+}
+
+.visual-designer-panel {
+  animation: designer-in 260ms cubic-bezier(0.2, 0.7, 0, 1);
+}
+
+.visual-layout-choice[data-layout-id="atelier"] .visual-layout-preview-grid {
+  grid-template-columns: 1fr 2fr 1fr;
+}
+
+.visual-layout-choice[data-layout-id="broadcast"] .visual-layout-preview-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.visual-layout-choice[data-layout-id="broadcast"] .visual-layout-block:first-child {
+  grid-column: 1 / -1;
+}
+
+.visual-layout-choice[data-layout-id="zenith"] .visual-layout-preview-grid {
+  grid-template-columns: 0.8fr 2.2fr;
+}
+
+.visual-layout-choice[data-layout-id="kinetic"] .visual-layout-preview-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.visual-layout-choice[data-layout-id="nocturne"] .visual-layout-preview-grid {
+  grid-template-columns: 1fr;
+}
+
+.visual-layout-choice[data-layout-id="nocturne"] .visual-layout-block:nth-child(2) {
+  opacity: 0.6;
+}
+
+@keyframes designer-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.app-shell {
+  --workspace-gap: 0.75rem;
+  position: relative;
+  padding: 0.75rem;
+  overflow: hidden;
+}
+
+.workspace-grid {
+  height: 100%;
+  display: grid;
+  gap: var(--workspace-gap);
+}
+
+.workspace-nav,
+.workspace-thread,
+.workspace-utility {
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  background: color-mix(in oklab, var(--card) 84%, transparent);
+  min-height: 0;
+}
+
+.workspace-nav,
+.workspace-utility {
+  padding: 0.5rem;
+  overflow: auto;
+}
+
+.workspace-thread {
+  position: relative;
+  overflow: hidden;
+}
+
+.workspace-fab-row {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 20;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.workspace-topbar {
+  margin-bottom: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+  background: color-mix(in oklab, var(--card) 86%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+}
+
+.workspace-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.workspace-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.workspace-utility-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  color: var(--muted-foreground);
+}
+
+.workspace-utility-copy {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+
+.aui-thread-root,
+.aui-thread-list-root {
+  height: 100%;
+}
+
+.aui-thread-list-root {
+  border-radius: inherit;
+  padding: 0.35rem;
+}
+
+.aui-thread-root {
+  border-radius: inherit;
+}
+
+.aui-composer-shell {
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.aui-composer-root:focus-within .aui-composer-shell {
+  transform: translateY(-1px);
+}
+
+.aui-running-loader {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.aui-running-loader-bars {
+  gap: 2px;
+}
+
+.aui-running-loader-bars span {
+  width: 2px;
+  height: 9px;
+  border-radius: 99px;
+  background: currentColor;
+  opacity: 0.8;
+  animation: aui-bars 0.8s ease-in-out infinite;
+}
+
+.aui-running-loader-bars span:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.aui-running-loader-bars span:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+.aui-running-loader-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: aui-dot 1s ease-in-out infinite;
+}
+
+.aui-running-loader-orbit {
+  position: relative;
+  width: 13px;
+  height: 13px;
+}
+
+.aui-running-loader-orbit span {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: aui-orbit 1s linear infinite;
+}
+
+.aui-running-loader-orbit span:last-child {
+  animation-delay: 500ms;
+}
+
+.aui-running-loader-pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  position: relative;
+}
+
+.aui-running-loader-pulse span {
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  background: currentColor;
+  animation: aui-pulse 1s ease-out infinite;
+}
+
+.aui-thread-list-skeleton-group[data-layout="nocturne"] .aui-thread-list-skeleton {
+  animation-duration: 2s;
+}
+
+@keyframes aui-bars {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes aui-dot {
+  0%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes aui-orbit {
+  from {
+    transform: rotate(0deg) translateX(4px);
+  }
+  to {
+    transform: rotate(360deg) translateX(4px);
+  }
+}
+
+@keyframes aui-pulse {
+  0% {
+    transform: scale(0.45);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.1);
+    opacity: 0;
+  }
+}
+
+.app-shell.layout-atelier {
+  font-family: "Satoshi", "Avenir Next", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 7% 3%, oklch(0.81 0.09 245 / 0.34), transparent 26%),
+    radial-gradient(circle at 94% 96%, oklch(0.73 0.11 198 / 0.2), transparent 34%),
+    linear-gradient(165deg, oklch(0.98 0.008 252), oklch(0.95 0.014 252));
+}
+
+.app-shell.layout-atelier .workspace-grid {
+  grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr) minmax(12rem, 15rem);
+}
+
+.app-shell.layout-atelier .workspace-nav,
+.app-shell.layout-atelier .workspace-thread,
+.app-shell.layout-atelier .workspace-utility {
+  border-radius: 1.35rem;
+  backdrop-filter: blur(12px);
+}
+
+.app-shell.layout-broadcast {
+  font-family: "Eurostile", "Bank Gothic", "Segoe UI", sans-serif;
+  background:
+    linear-gradient(180deg, oklch(0.19 0.03 255), oklch(0.14 0.022 258));
+}
+
+.app-shell.layout-broadcast .workspace-grid {
+  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr) minmax(14rem, 18rem);
+  height: calc(100% - 3.5rem);
+}
+
+.app-shell.layout-broadcast .workspace-nav,
+.app-shell.layout-broadcast .workspace-thread,
+.app-shell.layout-broadcast .workspace-utility,
+.app-shell.layout-broadcast .workspace-topbar {
+  border-radius: 0.95rem;
+  border-color: oklch(0.53 0.12 33 / 0.5);
+  background: oklch(0.21 0.015 258 / 0.82);
+  box-shadow: inset 0 0 0 1px oklch(0.6 0.08 35 / 0.14);
+}
+
+.app-shell.layout-broadcast .workspace-brand,
+.app-shell.layout-broadcast .workspace-utility-label {
+  color: oklch(0.84 0.14 44);
+}
+
+.app-shell.layout-zenith {
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  background:
+    linear-gradient(120deg, oklch(0.985 0.01 92), oklch(0.96 0.016 92));
+}
+
+.app-shell.layout-zenith .workspace-grid {
+  grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
+}
+
+.app-shell.layout-zenith .workspace-nav,
+.app-shell.layout-zenith .workspace-thread {
+  border-radius: 0.4rem;
+  border-width: 2px;
+}
+
+.app-shell.layout-zenith .workspace-thread {
+  background: oklch(0.99 0.004 90);
+}
+
+.app-shell.layout-kinetic {
+  font-family: "ITC Avant Garde Gothic", "Futura", "Trebuchet MS", sans-serif;
+  background:
+    radial-gradient(circle at 4% 100%, oklch(0.35 0.27 307 / 0.32), transparent 28%),
+    radial-gradient(circle at 100% 0%, oklch(0.72 0.18 256 / 0.2), transparent 34%),
+    oklch(0.2 0.02 272);
+}
+
+.app-shell.layout-kinetic .workspace-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 21rem);
+}
+
+.app-shell.layout-kinetic .workspace-nav,
+.app-shell.layout-kinetic .workspace-thread {
+  border-radius: 1.4rem;
+  border-color: oklch(0.72 0.16 300 / 0.5);
+  background: oklch(0.28 0.03 272 / 0.82);
+}
+
+.app-shell.layout-kinetic .workspace-fab-row {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.app-shell.layout-nocturne {
+  font-family: "Neue Haas Grotesk", "Gill Sans", sans-serif;
+  background:
+    radial-gradient(circle at 50% -20%, oklch(0.7 0.16 83 / 0.22), transparent 30%),
+    linear-gradient(170deg, oklch(0.12 0.01 263), oklch(0.16 0.02 264));
+}
+
+.app-shell.layout-nocturne .workspace-grid {
+  grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
+}
+
+.app-shell.layout-nocturne .workspace-nav,
+.app-shell.layout-nocturne .workspace-thread {
+  border-radius: 1.15rem;
+  border-color: oklch(0.75 0.08 85 / 0.45);
+  background: oklch(0.2 0.02 264 / 0.84);
+  box-shadow: 0 14px 32px oklch(0.04 0.02 264 / 0.55);
+}
+
+.app-shell.layout-nocturne .workspace-fab-row button {
+  border-color: oklch(0.72 0.11 85 / 0.5);
+}
+
+.app-shell.layout-broadcast .aui-thread-welcome-message-inner,
+.app-shell.layout-nocturne .aui-thread-welcome-message-inner,
+.app-shell.layout-kinetic .aui-thread-welcome-message-inner {
+  color: color-mix(in oklab, var(--foreground) 92%, white 8%);
+}
+
+.app-shell.layout-broadcast .aui-composer-shell,
+.app-shell.layout-kinetic .aui-composer-shell,
+.app-shell.layout-nocturne .aui-composer-shell {
+  background: color-mix(in oklab, var(--card) 80%, transparent);
+}
+
+.app-shell.layout-broadcast .aui-thread-scroll-to-bottom,
+.app-shell.layout-kinetic .aui-thread-scroll-to-bottom,
+.app-shell.layout-nocturne .aui-thread-scroll-to-bottom {
+  border-color: color-mix(in oklab, var(--primary) 40%, var(--border));
+}
+
+@media (max-width: 1120px) {
+  .app-shell {
+    padding: 0.5rem;
+  }
+
+  .app-shell .workspace-grid {
+    grid-template-columns: minmax(13rem, 15rem) minmax(0, 1fr) !important;
+  }
+
+  .app-shell .workspace-utility {
+    display: none;
+  }
+}
+
+@media (max-width: 840px) {
+  .visual-designer {
+    left: 0.75rem;
+    right: 0.75rem;
+    max-width: none;
+    align-items: stretch;
+  }
+
+  .app-shell .workspace-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .app-shell .workspace-nav {
+    max-height: 38vh;
+  }
+
+  .workspace-fab-row {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+/* Deep component styling for per-layout personality */
+.aui-workspace-card,
+.aui-unassigned-card,
+.aui-workspace-form,
+.aui-thread-row,
+.aui-assistant-message-content,
+.aui-user-message-content,
+.aui-tool-fallback-root,
+.aui-code-header-root,
+.aui-md-pre {
+  transition: all 180ms ease;
+}
+
+.aui-workspace-card {
+  background: color-mix(in oklab, var(--card) 88%, transparent);
+}
+
+.aui-workspace-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.aui-thread-row[data-active="true"] {
+  border: 1px solid color-mix(in oklab, var(--primary) 46%, transparent);
+}
+
+.aui-thread-row-actions button {
+  border-radius: 0.65rem;
+}
+
+.aui-assistant-message-content,
+.aui-user-message-content {
+  backdrop-filter: blur(6px);
+}
+
+.aui-agent-dot {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 16%, transparent);
+}
+
+.aui-md[data-layout="atelier"] .aui-md-h2,
+.aui-md[data-layout="atelier"] .aui-md-h3 {
+  letter-spacing: 0.01em;
+}
+
+.aui-md[data-layout="broadcast"] {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+}
+
+.aui-md[data-layout="zenith"] .aui-md-p {
+  font-size: 1.02rem;
+  line-height: 1.72;
+}
+
+.aui-md[data-layout="kinetic"] .aui-md-inline-code {
+  border-radius: 999px;
+}
+
+.aui-md[data-layout="nocturne"] .aui-md-blockquote {
+  border-left-width: 3px;
+}
+
+.app-shell.layout-atelier .aui-thread-list-root {
+  gap: 0.6rem;
+}
+
+.app-shell.layout-atelier .aui-workspace-card,
+.app-shell.layout-atelier .aui-unassigned-card {
+  border-radius: 1.1rem;
+  border-color: color-mix(in oklab, var(--primary) 22%, var(--border));
+  box-shadow: 0 10px 30px oklch(0.28 0.07 252 / 0.08);
+}
+
+.app-shell.layout-atelier .aui-thread-row {
+  border: 1px solid transparent;
+  border-radius: 0.9rem;
+}
+
+.app-shell.layout-atelier .aui-thread-row:hover {
+  background: color-mix(in oklab, var(--primary) 10%, var(--muted));
+}
+
+.app-shell.layout-atelier .aui-assistant-message-content {
+  border-radius: 1.2rem;
+  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  background: color-mix(in oklab, white 70%, var(--card));
+  padding: 0.9rem 1rem;
+}
+
+.app-shell.layout-atelier .aui-user-message-content {
+  border-radius: 1.2rem 1.2rem 0.4rem 1.2rem;
+  border: 1px solid color-mix(in oklab, var(--primary) 30%, transparent);
+  background: color-mix(in oklab, var(--primary) 8%, var(--muted));
+}
+
+.app-shell.layout-atelier .aui-tool-fallback-root {
+  border-radius: 1rem;
+  border-style: solid;
+}
+
+.app-shell.layout-broadcast .aui-thread-list-root {
+  gap: 0.45rem;
+}
+
+.app-shell.layout-broadcast .aui-thread-list-root,
+.app-shell.layout-broadcast .aui-thread-root {
+  color: oklch(0.92 0.03 255);
+}
+
+.app-shell.layout-broadcast .aui-workspace-card,
+.app-shell.layout-broadcast .aui-unassigned-card,
+.app-shell.layout-broadcast .aui-workspace-form {
+  border-radius: 0.25rem;
+  border-color: oklch(0.62 0.12 40 / 0.4);
+  background: oklch(0.25 0.02 260 / 0.8);
+}
+
+.app-shell.layout-broadcast .aui-thread-row {
+  border: 1px solid oklch(0.52 0.11 37 / 0.25);
+  border-radius: 0.25rem;
+}
+
+.app-shell.layout-broadcast .aui-thread-row[data-active="true"] {
+  background: oklch(0.34 0.06 42 / 0.3);
+  box-shadow: inset 0 0 0 1px oklch(0.76 0.13 45 / 0.45);
+}
+
+.app-shell.layout-broadcast .aui-workspace-path,
+.app-shell.layout-broadcast .aui-agent-label,
+.app-shell.layout-broadcast .aui-user-label {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+}
+
+.app-shell.layout-broadcast .aui-assistant-message-content {
+  border: 1px solid oklch(0.69 0.11 47 / 0.32);
+  border-radius: 0.35rem;
+  background: oklch(0.24 0.02 260 / 0.86);
+  box-shadow: inset 0 0 0 1px oklch(0.56 0.08 36 / 0.26);
+  padding: 0.8rem 0.9rem;
+}
+
+.app-shell.layout-broadcast .aui-user-message-content {
+  border-radius: 0.25rem;
+  background: oklch(0.36 0.05 40 / 0.35);
+  border: 1px solid oklch(0.7 0.11 46 / 0.38);
+}
+
+.app-shell.layout-broadcast .aui-tool-fallback-root {
+  border-radius: 0.25rem;
+  border-color: oklch(0.69 0.11 47 / 0.36);
+  background: oklch(0.2 0.015 260 / 0.9);
+}
+
+.app-shell.layout-zenith .aui-thread-list-root {
+  gap: 0.75rem;
+}
+
+.app-shell.layout-zenith .aui-workspace-card,
+.app-shell.layout-zenith .aui-unassigned-card,
+.app-shell.layout-zenith .aui-workspace-form {
+  border-radius: 0.3rem;
+  border-width: 2px;
+  border-color: oklch(0.82 0.02 85);
+  background: oklch(0.992 0.003 89);
+}
+
+.app-shell.layout-zenith .aui-thread-row {
+  border-bottom: 1px dashed oklch(0.8 0.02 86);
+  border-radius: 0;
+}
+
+.app-shell.layout-zenith .aui-thread-row:last-child {
+  border-bottom: 0;
+}
+
+.app-shell.layout-zenith .aui-assistant-message-head,
+.app-shell.layout-zenith .aui-user-message-head {
+  margin-left: 0;
+  margin-bottom: 0.35rem;
+}
+
+.app-shell.layout-zenith .aui-agent-label,
+.app-shell.layout-zenith .aui-user-label {
+  border: 0;
+  border-bottom: 1px solid oklch(0.82 0.02 84);
+  border-radius: 0;
+  padding-inline: 0;
+  letter-spacing: 0.12em;
+}
+
+.app-shell.layout-zenith .aui-assistant-message-content {
+  border: 0;
+  border-left: 3px solid oklch(0.62 0.08 80 / 0.45);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.2rem 0.1rem 0.2rem 0.9rem;
+}
+
+.app-shell.layout-zenith .aui-user-message-content {
+  border-radius: 0;
+  border: 1px solid oklch(0.85 0.02 86);
+  background: oklch(0.97 0.006 88);
+}
+
+.app-shell.layout-zenith .aui-tool-fallback-root {
+  border-radius: 0.35rem;
+  background: oklch(0.982 0.005 88);
+}
+
+.app-shell.layout-kinetic .aui-thread-list-root {
+  gap: 0.7rem;
+}
+
+.app-shell.layout-kinetic .aui-workspace-card,
+.app-shell.layout-kinetic .aui-unassigned-card,
+.app-shell.layout-kinetic .aui-workspace-form {
+  border-radius: 1.25rem;
+  border-color: oklch(0.74 0.15 304 / 0.45);
+  background:
+    linear-gradient(140deg, oklch(0.3 0.04 285 / 0.84), oklch(0.24 0.03 268 / 0.84));
+}
+
+.app-shell.layout-kinetic .aui-workspace-count {
+  border-color: oklch(0.72 0.16 301 / 0.7);
+  background: oklch(0.36 0.08 294 / 0.4);
+}
+
+.app-shell.layout-kinetic .aui-thread-row {
+  border: 1px solid oklch(0.73 0.15 302 / 0.3);
+  border-radius: 1rem;
+}
+
+.app-shell.layout-kinetic .aui-thread-row:hover {
+  transform: translateX(2px);
+}
+
+.app-shell.layout-kinetic .aui-assistant-message-content {
+  border-radius: 1.3rem 1.3rem 1.3rem 0.45rem;
+  border: 1px solid oklch(0.74 0.16 302 / 0.45);
+  background: oklch(0.29 0.05 280 / 0.84);
+  padding: 0.9rem 1rem;
+}
+
+.app-shell.layout-kinetic .aui-user-message-content {
+  border-radius: 1.3rem 1.3rem 0.4rem 1.3rem;
+  border: 1px solid oklch(0.79 0.17 314 / 0.5);
+  background: oklch(0.34 0.08 305 / 0.56);
+}
+
+.app-shell.layout-kinetic .aui-tool-fallback-root {
+  border-radius: 1rem;
+  border-color: oklch(0.75 0.16 304 / 0.5);
+  background: oklch(0.24 0.03 270 / 0.86);
+}
+
+.app-shell.layout-nocturne .aui-thread-list-root {
+  gap: 0.65rem;
+}
+
+.app-shell.layout-nocturne .aui-workspace-card,
+.app-shell.layout-nocturne .aui-unassigned-card,
+.app-shell.layout-nocturne .aui-workspace-form {
+  border-radius: 0.95rem;
+  border-color: oklch(0.72 0.09 84 / 0.44);
+  background: oklch(0.18 0.015 265 / 0.72);
+  box-shadow: 0 10px 20px oklch(0.04 0.01 265 / 0.38);
+}
+
+.app-shell.layout-nocturne .aui-workspace-path,
+.app-shell.layout-nocturne .aui-agent-label,
+.app-shell.layout-nocturne .aui-user-label {
+  color: oklch(0.82 0.07 86);
+}
+
+.app-shell.layout-nocturne .aui-thread-row {
+  border: 1px solid oklch(0.66 0.08 86 / 0.24);
+  border-radius: 0.8rem;
+}
+
+.app-shell.layout-nocturne .aui-thread-row[data-active="true"] {
+  background: oklch(0.28 0.03 265 / 0.54);
+}
+
+.app-shell.layout-nocturne .aui-assistant-message-content {
+  border-radius: 1rem;
+  border: 1px solid oklch(0.72 0.09 86 / 0.4);
+  background: oklch(0.19 0.02 265 / 0.78);
+  box-shadow: 0 8px 24px oklch(0.02 0.01 265 / 0.52);
+  padding: 0.9rem 1rem;
+}
+
+.app-shell.layout-nocturne .aui-user-message-content {
+  border-radius: 1rem;
+  background: oklch(0.3 0.04 266 / 0.52);
+  border: 1px solid oklch(0.72 0.1 86 / 0.36);
+}
+
+.app-shell.layout-nocturne .aui-tool-fallback-root {
+  border-radius: 0.9rem;
+  border-color: oklch(0.69 0.09 85 / 0.4);
+  background: oklch(0.14 0.01 264 / 0.86);
+}
+
+.app-shell.layout-nocturne .aui-tool-fallback-trigger-shimmer {
+  opacity: 0.75;
 }

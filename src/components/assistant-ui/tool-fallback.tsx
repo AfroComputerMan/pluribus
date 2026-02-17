@@ -16,6 +16,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { useVisualLayoutId } from "@/lib/visual-layout-context";
 import { cn } from "@/lib/utils";
 
 const ANIMATION_DURATION = 200;
@@ -272,11 +273,13 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   result,
   status,
 }) => {
+  const layoutId = useVisualLayoutId();
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
 
   return (
     <ToolFallbackRoot
+      data-layout={layoutId}
       className={cn(isCancelled && "border-muted-foreground/30 bg-muted/30")}
     >
       <ToolFallbackTrigger toolName={toolName} status={status} />
