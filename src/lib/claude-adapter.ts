@@ -373,10 +373,6 @@ async function runDiagnostics(): Promise<void> {
   }
 }
 
-export function resetClaudeSession(): void {
-  sessionByThread.clear();
-}
-
 /** Hydrate the in-memory session cache from SQLite for a given thread. */
 async function hydrateSessionCache(threadKey: string): Promise<void> {
   if (sessionByThread.has(threadKey)) return;
