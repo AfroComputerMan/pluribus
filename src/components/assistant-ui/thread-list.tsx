@@ -9,7 +9,12 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { db, type WorkspaceRow } from "@/lib/db";
+import {
+  db,
+  DuplicateThreadWorkspaceError,
+  DuplicateWorkspaceCwdError,
+  type WorkspaceRow,
+} from "@/lib/db";
 import { getWorkspaceRepoMeta, type WorkspaceRepoMeta } from "@/lib/workspace-repo-metadata";
 import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import { invoke } from "@tauri-apps/api/core";
@@ -172,6 +177,7 @@ export const ThreadList: FC = () => {
   const [newWorkspaceCwd, setNewWorkspaceCwd] = useState("");
   const [isBrowsingWorkspaceDir, setIsBrowsingWorkspaceDir] = useState(false);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [workspaceCreationError, setWorkspaceCreationError] = useState<string | null>(null);
 
   const [creatingThreadWorkspaceId, setCreatingThreadWorkspaceId] = useState<string | null>(null);
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
@@ -287,8 +293,46 @@ export const ThreadList: FC = () => {
     };
   }, [workspaces]);
 
+  const createWorkspace = useCallback(async (options?: { cwd?: string; name?: string }) => {
+    const cwd = (options?.cwd ?? newWorkspaceCwd).trim();
+    if (!cwd) {
+      setWorkspaceCreationError("Select a workspace directory.");
+      return;
+    }
+
+    const enteredName = (options?.name ?? newWorkspaceName).trim();
+    const repoMeta = await getWorkspaceRepoMeta(cwd);
+    const defaultName = repoMeta?.repoName ?? basename(cwd);
+    const name = enteredName
+      ? enteredName === cwd
+        ? defaultName
+        : enteredName
+      : defaultName;
+
+    setError(null);
+    setWorkspaceCreationError(null);
+    setIsCreatingWorkspace(true);
+    try {
+      await db.workspaces.create(name, cwd);
+      setNewWorkspaceName("");
+      setNewWorkspaceCwd("");
+      setShowWorkspaceForm(false);
+      await loadWorkspaces();
+    } catch (cause) {
+      const message = cause instanceof DuplicateWorkspaceCwdError
+        ? "This workspace already exists for the selected folder."
+        : cause instanceof Error
+          ? cause.message
+          : "Failed to create workspace.";
+      setWorkspaceCreationError(message);
+    } finally {
+      setIsCreatingWorkspace(false);
+    }
+  }, [loadWorkspaces, newWorkspaceCwd, newWorkspaceName]);
+
   const browseWorkspaceDirectory = useCallback(async () => {
     setError(null);
+    setWorkspaceCreationError(null);
     setIsBrowsingWorkspaceDir(true);
     try {
       const selected = await invoke<string | string[] | null>("plugin:dialog|open", {
@@ -305,58 +349,41 @@ export const ThreadList: FC = () => {
             ? selected[0]
             : null;
 
-      if (selectedPath) {
-        setNewWorkspaceCwd(selectedPath);
-        const repoMeta = await getWorkspaceRepoMeta(selectedPath);
-        setNewWorkspaceName(repoMeta?.repoName ?? basename(selectedPath));
-      }
+      if (!selectedPath) return;
+
+      const repoMeta = await getWorkspaceRepoMeta(selectedPath);
+      const derivedName = repoMeta?.repoName ?? basename(selectedPath);
+      setNewWorkspaceCwd(selectedPath);
+      setNewWorkspaceName(derivedName);
+      await createWorkspace({ cwd: selectedPath, name: derivedName });
     } catch (cause) {
       const message =
         cause instanceof Error ? cause.message : "Failed to open directory picker.";
-      setError(message);
+      setWorkspaceCreationError(message);
     } finally {
       setIsBrowsingWorkspaceDir(false);
     }
-  }, [newWorkspaceName]);
-
-  const createWorkspace = useCallback(async () => {
-    const cwd = newWorkspaceCwd.trim();
-    if (!cwd) {
-      setError("Enter a workspace directory.");
-      return;
-    }
-
-    const enteredName = newWorkspaceName.trim();
-    const repoMeta = await getWorkspaceRepoMeta(cwd);
-    const defaultName = repoMeta?.repoName ?? basename(cwd);
-    const name = enteredName
-      ? enteredName === cwd
-        ? defaultName
-        : enteredName
-      : defaultName;
-
-    setError(null);
-    setIsCreatingWorkspace(true);
-    try {
-      await db.workspaces.create(name, cwd);
-      setNewWorkspaceName("");
-      setNewWorkspaceCwd("");
-      setShowWorkspaceForm(false);
-      await loadWorkspaces();
-    } catch (cause) {
-      const message =
-        cause instanceof Error ? cause.message : "Failed to create workspace.";
-      setError(message);
-    } finally {
-      setIsCreatingWorkspace(false);
-    }
-  }, [loadWorkspaces, newWorkspaceCwd, newWorkspaceName]);
+  }, [createWorkspace]);
 
   const createThreadInWorkspace = useCallback(
     async (workspace: WorkspaceRow) => {
       setError(null);
       setCreatingThreadWorkspaceId(workspace.id);
       try {
+        const workspaceCwd = workspace.cwd.trim();
+        const existingThread = (await db.threads.list()).find((thread) => {
+          const threadWorkspaceId = thread.workspace_id?.trim() ?? null;
+          if (threadWorkspaceId && threadWorkspaceId === workspace.id) return true;
+          const threadCwd = thread.cwd?.trim() ?? null;
+          return Boolean(threadCwd && threadCwd === workspaceCwd);
+        });
+
+        if (existingThread) {
+          aui.threads().switchToThread(existingThread.id);
+          setError("A thread for this workspace already exists. Switched to the existing thread.");
+          return;
+        }
+
         await aui.threads().switchToNewThread();
         const threadId = aui.threads().getState().mainThreadId;
         setPendingThreadOptions(threadId, {
@@ -364,8 +391,11 @@ export const ThreadList: FC = () => {
           cwd: workspace.cwd,
         });
       } catch (cause) {
-        const message =
-          cause instanceof Error ? cause.message : "Failed to create thread.";
+        const message = cause instanceof DuplicateThreadWorkspaceError
+          ? "A thread for this workspace already exists."
+          : cause instanceof Error
+            ? cause.message
+            : "Failed to create thread.";
         setError(message);
       } finally {
         setCreatingThreadWorkspaceId(null);
@@ -834,6 +864,7 @@ export const ThreadList: FC = () => {
           onClick={() => {
             setShowWorkspaceForm((prev) => !prev);
             setError(null);
+            setWorkspaceCreationError(null);
           }}
         >
           <FolderPlusIcon className="size-4" />
@@ -877,6 +908,22 @@ export const ThreadList: FC = () => {
           </div>
         ) : null}
       </div>
+      <Dialog
+        open={Boolean(workspaceCreationError)}
+        onOpenChange={(open) => {
+          if (!open) setWorkspaceCreationError(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Workspace not created</DialogTitle>
+            <DialogDescription>{workspaceCreationError}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setWorkspaceCreationError(null)}>OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={Boolean(deletingWorkspace)}
         onOpenChange={(open) => {

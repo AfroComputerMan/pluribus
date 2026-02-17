@@ -9,6 +9,7 @@ const DB_URL = "sqlite:pluribus.db";
 let dbInstance: Database | null = null;
 let dbPromise: Promise<Database> | null = null;
 let ensureMcpInvocationsTablePromise: Promise<void> | null = null;
+let ensureWorkspaceUniquenessPromise: Promise<void> | null = null;
 
 /** Get or initialize the database singleton. Thread-safe via promise dedup. */
 export async function getDb(): Promise<Database> {
@@ -118,9 +119,80 @@ export interface UsageSnapshotRow {
   captured_at: string;
 }
 
+export class DuplicateThreadWorkspaceError extends Error {
+  readonly existingThreadId: string;
+  readonly cwd: string;
+
+  constructor(existingThreadId: string, cwd: string) {
+    super("A thread already exists for this workspace.");
+    this.name = "DuplicateThreadWorkspaceError";
+    this.existingThreadId = existingThreadId;
+    this.cwd = cwd;
+  }
+}
+
+export class DuplicateWorkspaceCwdError extends Error {
+  readonly existingWorkspaceId: string;
+  readonly cwd: string;
+
+  constructor(existingWorkspaceId: string, cwd: string) {
+    super("A workspace for this directory already exists.");
+    this.name = "DuplicateWorkspaceCwdError";
+    this.existingWorkspaceId = existingWorkspaceId;
+    this.cwd = cwd;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // threads
 // ---------------------------------------------------------------------------
+
+function normalizeCwd(cwd: string | null | undefined): string | null {
+  const trimmed = cwd?.trim();
+  if (!trimmed) return null;
+  if (/^[\\/]+$/.test(trimmed)) return "/";
+  if (/^[a-zA-Z]:[\\/]?$/.test(trimmed)) return `${trimmed[0]}:${"\\"}`;
+
+  const withoutTrailingSeparators = trimmed.replace(/[\\/]+$/g, "");
+  return withoutTrailingSeparators || trimmed;
+}
+
+function cwdComparisonKey(cwd: string | null | undefined): string | null {
+  const normalized = normalizeCwd(cwd);
+  if (!normalized) return null;
+  return normalized.replace(/\\/g, "/");
+}
+
+async function threadsFindRegularByCwd(
+  cwd: string,
+  excludeId?: string | null,
+): Promise<ThreadRow | null> {
+  const targetKey = cwdComparisonKey(cwd);
+  if (!targetKey) return null;
+  const conn = await getDb();
+  const rows = await conn.select<ThreadRow[]>(
+    `SELECT * FROM threads
+     WHERE status = 'regular' AND cwd IS NOT NULL AND ($1 IS NULL OR id <> $1)
+     ORDER BY updated_at DESC`,
+    [excludeId ?? null],
+  );
+  for (const row of rows) {
+    if (cwdComparisonKey(row.cwd) === targetKey) {
+      return row;
+    }
+  }
+  return null;
+}
+
+async function assertNoRegularThreadDuplicateByCwd(
+  cwd: string | null,
+  excludeId?: string | null,
+): Promise<void> {
+  if (!cwd) return;
+  const duplicate = await threadsFindRegularByCwd(cwd, excludeId);
+  if (!duplicate) return;
+  throw new DuplicateThreadWorkspaceError(duplicate.id, cwd);
+}
 
 async function threadsList(): Promise<ThreadRow[]> {
   const conn = await getDb();
@@ -149,9 +221,10 @@ async function threadsCreate(
 ): Promise<ThreadRow> {
   const conn = await getDb();
   const now = new Date().toISOString();
-  const cwd = opts?.cwd?.trim() || null;
+  const cwd = normalizeCwd(opts?.cwd);
   const workspaceId = opts?.workspaceId?.trim() || null;
   const gitBranch = opts?.gitBranch?.trim() || null;
+  await assertNoRegularThreadDuplicateByCwd(cwd, id);
   await conn.execute(
     `INSERT INTO threads (id, remote_id, status, cwd, workspace_id, git_branch, created_at, updated_at)
      VALUES ($1, $1, 'regular', $2, $3, $4, $5, $5)
@@ -180,6 +253,8 @@ async function threadsArchive(id: string): Promise<void> {
 }
 
 async function threadsUnarchive(id: string): Promise<void> {
+  const row = await threadsGet(id);
+  await assertNoRegularThreadDuplicateByCwd(normalizeCwd(row?.cwd), id);
   const conn = await getDb();
   await conn.execute(
     "UPDATE threads SET status = 'regular', updated_at = $1 WHERE id = $2",
@@ -204,10 +279,12 @@ async function threadsUpdateSessionId(
 }
 
 async function threadsUpdateCwd(id: string, cwd: string): Promise<void> {
+  const normalizedCwd = normalizeCwd(cwd);
+  await assertNoRegularThreadDuplicateByCwd(normalizedCwd, id);
   const conn = await getDb();
   await conn.execute(
     "UPDATE threads SET cwd = $1, updated_at = $2 WHERE id = $3",
-    [cwd, new Date().toISOString(), id],
+    [normalizedCwd, new Date().toISOString(), id],
   );
 }
 
@@ -216,10 +293,12 @@ async function threadsUpdateWorkspace(
   workspaceId: string | null,
   cwd: string | null,
 ): Promise<void> {
+  const normalizedCwd = normalizeCwd(cwd);
+  await assertNoRegularThreadDuplicateByCwd(normalizedCwd, id);
   const conn = await getDb();
   await conn.execute(
     "UPDATE threads SET workspace_id = $1, cwd = $2, updated_at = $3 WHERE id = $4",
-    [workspaceId, cwd, new Date().toISOString(), id],
+    [workspaceId, normalizedCwd, new Date().toISOString(), id],
   );
 }
 
@@ -251,7 +330,43 @@ async function threadsSetDevPanelOpen(id: string, open: boolean): Promise<void> 
 // workspaces
 // ---------------------------------------------------------------------------
 
+async function ensureWorkspaceCwdUniqueness(): Promise<void> {
+  if (ensureWorkspaceUniquenessPromise) return ensureWorkspaceUniquenessPromise;
+
+  ensureWorkspaceUniquenessPromise = (async () => {
+    const conn = await getDb();
+    const rows = await conn.select<WorkspaceRow[]>(
+      "SELECT * FROM workspaces ORDER BY created_at ASC",
+      [],
+    );
+
+    const canonicalByKey = new Map<string, WorkspaceRow>();
+    for (const row of rows) {
+      const key = cwdComparisonKey(row.cwd);
+      if (!key) continue;
+
+      const existing = canonicalByKey.get(key);
+      if (!existing) {
+        canonicalByKey.set(key, row);
+        continue;
+      }
+
+      const now = new Date().toISOString();
+      await conn.execute(
+        "UPDATE threads SET workspace_id = $1, updated_at = $2 WHERE workspace_id = $3",
+        [existing.id, now, row.id],
+      );
+      await conn.execute("DELETE FROM workspaces WHERE id = $1", [row.id]);
+    }
+  })().finally(() => {
+    ensureWorkspaceUniquenessPromise = null;
+  });
+
+  return ensureWorkspaceUniquenessPromise;
+}
+
 async function workspacesList(): Promise<WorkspaceRow[]> {
+  await ensureWorkspaceCwdUniqueness();
   const conn = await getDb();
   return conn.select<WorkspaceRow[]>(
     "SELECT * FROM workspaces ORDER BY name COLLATE NOCASE ASC, created_at ASC",
@@ -260,6 +375,7 @@ async function workspacesList(): Promise<WorkspaceRow[]> {
 }
 
 async function workspacesGet(id: string): Promise<WorkspaceRow | null> {
+  await ensureWorkspaceCwdUniqueness();
   const conn = await getDb();
   const rows = await conn.select<WorkspaceRow[]>(
     "SELECT * FROM workspaces WHERE id = $1 LIMIT 1",
@@ -269,21 +385,33 @@ async function workspacesGet(id: string): Promise<WorkspaceRow | null> {
 }
 
 async function workspacesGetByCwd(cwd: string): Promise<WorkspaceRow | null> {
+  await ensureWorkspaceCwdUniqueness();
+  const targetKey = cwdComparisonKey(cwd);
+  if (!targetKey) return null;
   const conn = await getDb();
   const rows = await conn.select<WorkspaceRow[]>(
-    "SELECT * FROM workspaces WHERE cwd = $1 LIMIT 1",
-    [cwd],
+    "SELECT * FROM workspaces ORDER BY created_at ASC",
+    [],
   );
-  return rows[0] ?? null;
+  for (const row of rows) {
+    if (cwdComparisonKey(row.cwd) === targetKey) {
+      return row;
+    }
+  }
+  return null;
 }
 
 async function workspacesCreate(name: string, cwd: string): Promise<WorkspaceRow> {
   const conn = await getDb();
   const now = new Date().toISOString();
   const normalizedName = name.trim();
-  const normalizedCwd = cwd.trim();
+  const normalizedCwd = normalizeCwd(cwd);
+  if (!normalizedCwd) throw new Error("Workspace directory is required.");
   const existing = await workspacesGetByCwd(normalizedCwd);
-  if (existing) return existing;
+  // TODO(noahr): Duplicate workspace detection is still not fully reliable in the app flow.
+  if (existing) {
+    throw new DuplicateWorkspaceCwdError(existing.id, normalizedCwd);
+  }
 
   const id = crypto.randomUUID();
   await conn.execute(

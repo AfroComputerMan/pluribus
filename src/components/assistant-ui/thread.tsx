@@ -26,7 +26,7 @@ import {
   respondToClaudePermissionRequest,
   subscribeClaudePermissionRequests,
 } from "@/lib/claude-adapter";
-import { db, type WorkspaceRow } from "@/lib/db";
+import { db, DuplicateThreadWorkspaceError, type WorkspaceRow } from "@/lib/db";
 import {
   createWorkspaceBranch,
   getWorkspaceRepoMeta,
@@ -181,6 +181,7 @@ const WorkspacePicker: FC<{
   >({});
   const [workspaceLastUsedAtById, setWorkspaceLastUsedAtById] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,12 +279,23 @@ const WorkspacePicker: FC<{
   const selectWorkspace = useCallback(
     async (workspace: WorkspaceRow) => {
       if (!threadId) return;
-      await db.threads.updateWorkspace(threadId, workspace.id, workspace.cwd);
-      setPendingThreadOptions(threadId, {
-        workspaceId: workspace.id,
-        cwd: workspace.cwd,
-      });
-      onWorkspaceSelected();
+      setSelectionError(null);
+      try {
+        await db.threads.updateWorkspace(threadId, workspace.id, workspace.cwd);
+        setPendingThreadOptions(threadId, {
+          workspaceId: workspace.id,
+          cwd: workspace.cwd,
+        });
+        onWorkspaceSelected();
+      } catch (cause) {
+        if (cause instanceof DuplicateThreadWorkspaceError) {
+          setSelectionError("A thread for this workspace already exists.");
+          return;
+        }
+        const message =
+          cause instanceof Error ? cause.message : "Failed to select workspace.";
+        setSelectionError(message);
+      }
     },
     [threadId, onWorkspaceSelected],
   );
@@ -299,6 +311,9 @@ const WorkspacePicker: FC<{
             <p className="fade-in slide-in-from-bottom-1 animate-in text-muted-foreground text-base delay-75 duration-200">
               Choose a project directory for this chat.
             </p>
+            {selectionError ? (
+              <p className="mt-2 text-destructive text-sm">{selectionError}</p>
+            ) : null}
           </div>
 
           {isLoading ? (
