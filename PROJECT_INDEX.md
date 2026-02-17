@@ -165,11 +165,52 @@ bun install                # Install frontend dependencies
 cargo tauri dev            # Start dev server + Tauri window
 ```
 
-## Known Architectural Notes
+## Architectural Insights
 
-- Thread list uses `useRemoteThreadListRuntime` with SQLite-backed adapter
-- Claude CLI session resume uses 3-tier strategy (resume → session-id → fresh)
-- Dev event archival uses batched writes (50 events / 200ms flush)
-- Shell permissions allow both `claude` direct and `sh -c` invocation
-- No test framework configured
+### Why `sh -c` Instead of Direct `Command.create("claude", [...])`?
+
+Claude CLI detects whether stdin is a **pipe or TTY**. Tauri's `Command.create` makes stdin appear as a pipe, causing Claude CLI to block waiting for piped input. The `sh -c ... < /dev/null` wrapper forces immediate stdin EOF. The `exec` in the shell script replaces `sh` with `claude` so there's no lingering parent shell process. Prompt data passes via env vars (`CLAUDE_PROMPT`) to avoid shell injection.
+
+### Stream Protocol: Double-Envelope Format
+
+Claude CLI's `--output-format stream-json` emits two JSON formats on stdout:
+- **Top-level**: `{ "type": "system" | "assistant" | "result", ... }`
+- **Enveloped**: `{ "type": "stream_event", "event": { "type": "content_block_start|delta|stop", ... } }`
+
+The adapter unwraps `stream_event` envelopes before processing. Content blocks may include a `parent_tool_use_id` creating a scope hierarchy (root scope vs tool-execution scope).
+
+### Why Module-Level Maps (Not React State)?
+
+The adapter runs **outside React's render cycle** as an async generator. Module-level `Map`s survive component remounts (e.g., thread switching), provide direct access from async contexts without hook rules, and outlive component lifecycles (a CLI process may still stream when components unmount).
+
+### Concurrency Model
+
+| Pattern | Purpose |
+|---------|---------|
+| FIFO waiter queue | One CLI process per thread; subsequent calls block and resolve in order (60s timeout) |
+| Queue+resolver bridge | Converts Tauri's callback-based shell events into async generator yields |
+| ~60fps yield throttle | Prevents excessive DOM reconciliation during fast streaming |
+| Concurrent title prefetch | Spawns Haiku CLI call in parallel with main conversation stream |
+| Lazy session hydration | Loads session from SQLite once per thread on first access |
+
+### Known Limitations
+
+- **Only last message sent** — Claude CLI manages history via `--resume`; Pluribus's message history diverges on edit/branch/regenerate
+- **Stale session detection is fragile** — relies on string-matching `"No conversation found"` in stderr
+- **Cross-thread git races** — thread lock prevents same-thread races but not cross-thread races on the same cwd
+- **Env var size limit** — extremely long prompts may exceed OS env var limits (~128KB Linux, ~32KB macOS)
+- **No test framework** configured
+- **Attachments non-functional** — UI wired but no `adapters.attachments` configured
 - Single theme ("carbon") — warm dark IDE aesthetic
+
+### Serena Memories (Deep Dives)
+
+For detailed analysis beyond this index, read these Serena memories:
+- `pluribus-design-rationale` — why each architectural choice was made
+- `pluribus-gotchas-and-pitfalls` — non-obvious behaviors and edge cases
+- `pluribus-concurrency-patterns` — queue+resolver bridge, throttling, abort handling
+- `pluribus-assistant-ui-integration` — framework usage patterns and adapter contracts
+- `pluribus-claude-adapter-core` — adapter internals by line range
+- `pluribus-data-extraction-logic` — step-by-step stream processing flow
+- `pluribus-session-management` — session lifecycle and retry strategy
+- `pluribus-database-layer` — SQLite schema and query patterns
