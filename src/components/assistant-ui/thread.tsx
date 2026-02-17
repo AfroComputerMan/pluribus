@@ -13,6 +13,14 @@ import {
 } from "@/components/assistant-ui/claude-tool-display";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useVisualLayoutId } from "@/lib/visual-layout-context";
 import {
   getClaudePermissionRequests,
@@ -20,6 +28,13 @@ import {
   subscribeClaudePermissionRequests,
 } from "@/lib/claude-adapter";
 import { db, type WorkspaceRow } from "@/lib/db";
+import {
+  createWorkspaceBranch,
+  getWorkspaceRepoMeta,
+  listWorkspaceBranches,
+  switchWorkspaceBranch,
+  type WorkspaceRepoMeta,
+} from "@/lib/workspace-repo-metadata";
 import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import {
   ActionBarMorePrimitive,
@@ -40,11 +55,14 @@ import {
   CopyIcon,
   DownloadIcon,
   FolderOpenIcon,
+  FolderRootIcon,
+  GitBranchIcon,
+  GithubIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
   SquareIcon,
 } from "lucide-react";
-import { type FC, useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { type FC, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 /** Hook to check whether the current thread has a workspace assigned. */
 function useThreadWorkspace() {
@@ -164,15 +182,28 @@ const WorkspacePicker: FC<{
   onWorkspaceSelected: () => void;
 }> = ({ threadId, onWorkspaceSelected }) => {
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
+  const [repoMetaByWorkspaceId, setRepoMetaByWorkspaceId] = useState<
+    Record<string, WorkspaceRepoMeta>
+  >({});
+  const [workspaceLastUsedAtById, setWorkspaceLastUsedAtById] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    db.workspaces
-      .list()
-      .then((rows) => {
+    Promise.all([db.workspaces.list(), db.threads.list()])
+      .then(([rows, threadRows]) => {
         if (!cancelled) {
           setWorkspaces(rows);
+          const nextLastUsedAtById: Record<string, string> = {};
+          for (const thread of threadRows) {
+            const workspaceId = thread.workspace_id?.trim();
+            if (!workspaceId) continue;
+            const current = nextLastUsedAtById[workspaceId];
+            if (!current || thread.updated_at > current) {
+              nextLastUsedAtById[workspaceId] = thread.updated_at;
+            }
+          }
+          setWorkspaceLastUsedAtById(nextLastUsedAtById);
           setIsLoading(false);
         }
       })
@@ -183,6 +214,72 @@ const WorkspacePicker: FC<{
       cancelled = true;
     };
   }, []);
+
+  const orderedWorkspaces = useMemo(() => {
+    const folderRecentSortThreshold = 8;
+    const getDisplayName = (workspace: WorkspaceRow) => {
+      const repoMeta = repoMetaByWorkspaceId[workspace.id];
+      if (repoMeta?.repoName) return repoMeta.repoName;
+      const workspaceNameParts = workspace.name.split(/[\\/]/).filter(Boolean);
+      return workspaceNameParts[workspaceNameParts.length - 1] ?? workspace.name;
+    };
+
+    const alphabeticalSort = (a: WorkspaceRow, b: WorkspaceRow) =>
+      getDisplayName(a).localeCompare(getDisplayName(b), undefined, { sensitivity: "base" });
+
+    const repos = workspaces
+      .filter((workspace) => Boolean(repoMetaByWorkspaceId[workspace.id]))
+      .sort(alphabeticalSort);
+
+    const folders = workspaces.filter((workspace) => !repoMetaByWorkspaceId[workspace.id]);
+    const sortedFolders = [...folders];
+    if (sortedFolders.length >= folderRecentSortThreshold) {
+      sortedFolders.sort((a, b) => {
+        const aLastUsed = workspaceLastUsedAtById[a.id] ?? "";
+        const bLastUsed = workspaceLastUsedAtById[b.id] ?? "";
+        if (aLastUsed !== bLastUsed) return bLastUsed.localeCompare(aLastUsed);
+        return alphabeticalSort(a, b);
+      });
+    } else {
+      sortedFolders.sort(alphabeticalSort);
+    }
+
+    return [...repos, ...sortedFolders];
+  }, [repoMetaByWorkspaceId, workspaceLastUsedAtById, workspaces]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRepoMeta = async () => {
+      if (!workspaces.length) {
+        if (!cancelled) setRepoMetaByWorkspaceId({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        workspaces.map(async (workspace) => {
+          const meta = await getWorkspaceRepoMeta(workspace.cwd);
+          return [workspace.id, meta] as const;
+        }),
+      );
+
+      if (cancelled) return;
+
+      const next: Record<string, WorkspaceRepoMeta> = {};
+      for (const [workspaceId, meta] of entries) {
+        if (meta) next[workspaceId] = meta;
+      }
+      setRepoMetaByWorkspaceId(next);
+    };
+
+    void loadRepoMeta().catch(() => {
+      if (!cancelled) setRepoMetaByWorkspaceId({});
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaces]);
 
   const selectWorkspace = useCallback(
     async (workspace: WorkspaceRow) => {
@@ -217,20 +314,50 @@ const WorkspacePicker: FC<{
             </div>
           ) : workspaces.length ? (
             <div className="flex flex-col gap-2">
-              {workspaces.map((workspace) => (
-                <button
-                  key={workspace.id}
-                  type="button"
-                  className="flex items-center gap-3 rounded-lg border bg-card/60 px-4 py-3 text-left transition-colors hover:bg-muted"
-                  onClick={() => void selectWorkspace(workspace)}
-                >
-                  <FolderOpenIcon className="size-5 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-sm">{workspace.name}</p>
-                    <p className="truncate text-muted-foreground text-xs">{workspace.cwd}</p>
-                  </div>
-                </button>
-              ))}
+              {orderedWorkspaces.map((workspace) => {
+                const repoMeta = repoMetaByWorkspaceId[workspace.id];
+                const workspaceNameParts = workspace.name.split(/[\\/]/).filter(Boolean);
+                const displayWorkspaceName = repoMeta?.repoName
+                  ?? (workspace.name.includes("/") || workspace.name.includes("\\")
+                    ? workspaceNameParts[workspaceNameParts.length - 1] ?? workspace.name
+                    : workspace.name);
+                const workspacePath = repoMeta?.repoRoot ?? workspace.cwd;
+
+                return (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    className="flex items-center gap-3 rounded-lg border bg-card/60 px-4 py-3 text-left transition-colors hover:bg-muted"
+                    onClick={() => void selectWorkspace(workspace)}
+                    title={workspacePath}
+                  >
+                    {repoMeta ? (
+                      repoMeta.isGithub ? (
+                        <GithubIcon className="size-5 shrink-0 text-foreground" />
+                      ) : (
+                        <FolderRootIcon className="size-5 shrink-0 text-muted-foreground" />
+                      )
+                    ) : (
+                      <FolderOpenIcon className="size-5 shrink-0 text-muted-foreground" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-sm" title={workspacePath}>
+                        {displayWorkspaceName}
+                      </p>
+                      {repoMeta ? (
+                        <p className="truncate text-muted-foreground text-xs">
+                          <span className="inline-flex items-center gap-1">
+                            <GitBranchIcon className="size-3" />
+                            <span className="max-w-[12rem] truncate" title={repoMeta.branch}>
+                              {repoMeta.branch}
+                            </span>
+                          </span>
+                        </p>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <p className="text-muted-foreground text-sm">
@@ -307,10 +434,192 @@ const PermissionApprovalBar: FC = () => {
   );
 };
 
+const CREATE_BRANCH_OPTION = "__create_branch__";
+
+const ComposerBranchControl: FC = () => {
+  const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const isRunning = useAuiState(({ thread }) => thread.isRunning);
+  const [cwd, setCwd] = useState<string | null>(null);
+  const [repoMeta, setRepoMeta] = useState<WorkspaceRepoMeta | null>(null);
+  const [branches, setBranches] = useState<string[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState("");
+  const [newBranchName, setNewBranchName] = useState("");
+  const [isBranchDialogOpen, setIsBranchDialogOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      if (!threadId) {
+        if (!cancelled) {
+          setCwd(null);
+          setRepoMeta(null);
+          setBranches([]);
+          setSelectedBranch("");
+        }
+        return;
+      }
+
+      const row = await db.threads.get(threadId);
+      const threadCwd = row?.cwd?.trim() || null;
+      if (!threadCwd) {
+        if (!cancelled) {
+          setCwd(null);
+          setRepoMeta(null);
+          setBranches([]);
+          setSelectedBranch("");
+        }
+        return;
+      }
+
+      const [meta, branchOptions] = await Promise.all([
+        getWorkspaceRepoMeta(threadCwd),
+        listWorkspaceBranches(threadCwd),
+      ]);
+
+      if (cancelled) return;
+      setCwd(threadCwd);
+      setRepoMeta(meta);
+      setBranches(branchOptions?.branches ?? []);
+      setSelectedBranch(row?.git_branch?.trim() || branchOptions?.currentBranch || meta?.branch || "");
+    };
+
+    void load().catch(() => {
+      if (!cancelled) {
+        setRepoMeta(null);
+        setBranches([]);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId]);
+
+  const applyExistingBranch = useCallback(
+    async (nextBranch: string) => {
+      if (!threadId || !cwd || !nextBranch.trim()) return;
+      setError(null);
+      setIsUpdating(true);
+      try {
+        const switched = await switchWorkspaceBranch(cwd, nextBranch);
+        if (!switched) {
+          setError("Could not switch to that branch.");
+          return;
+        }
+        await db.threads.updateGitBranch(threadId, nextBranch.trim());
+        setSelectedBranch(nextBranch.trim());
+      } catch {
+        setError("Could not switch branch.");
+      } finally {
+        setIsUpdating(false);
+      }
+    },
+    [cwd, threadId],
+  );
+
+  const createAndApplyBranch = useCallback(async () => {
+    if (!threadId || !cwd || !newBranchName.trim()) return;
+    const candidate = newBranchName.trim();
+    setError(null);
+    setIsUpdating(true);
+    try {
+      const created = await createWorkspaceBranch(cwd, candidate);
+      if (!created) {
+        setError("Could not create branch. Check branch name.");
+        return;
+      }
+      await db.threads.updateGitBranch(threadId, candidate);
+      setSelectedBranch(candidate);
+      setNewBranchName("");
+      setIsBranchDialogOpen(false);
+      const branchOptions = await listWorkspaceBranches(cwd);
+      setBranches(branchOptions?.branches ?? []);
+    } catch {
+      setError("Could not create branch.");
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [cwd, newBranchName, threadId]);
+
+  if (!repoMeta) return null;
+
+  const handleSelectChange = (value: string) => {
+    if (value === CREATE_BRANCH_OPTION) {
+      setIsBranchDialogOpen(true);
+      return;
+    }
+    void applyExistingBranch(value);
+  };
+
+  return (
+    <>
+      <div className="inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-input/70 bg-background/70 px-1.5 py-0.5 text-xs">
+        {repoMeta.isGithub ? (
+          <GithubIcon className="size-3 shrink-0 text-muted-foreground" />
+        ) : (
+          <GitBranchIcon className="size-3 shrink-0 text-muted-foreground" />
+        )}
+        <select
+          value={selectedBranch}
+          onChange={(event) => handleSelectChange(event.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+          disabled={isUpdating || isRunning}
+          aria-label="Select thread branch"
+          title={selectedBranch}
+        >
+          {selectedBranch ? null : <option value="">Select branch</option>}
+          {branches.map((branch) => (
+            <option key={branch} value={branch}>
+              {branch}
+            </option>
+          ))}
+          <option value={CREATE_BRANCH_OPTION}>Create new branch...</option>
+        </select>
+      </div>
+      <Dialog open={isBranchDialogOpen} onOpenChange={setIsBranchDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Branch</DialogTitle>
+            <DialogDescription>
+              Enter a new branch name for this thread.
+            </DialogDescription>
+          </DialogHeader>
+          <input
+            value={newBranchName}
+            onChange={(event) => setNewBranchName(event.target.value)}
+            placeholder="feature/my-branch"
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm outline-none"
+            disabled={isUpdating}
+          />
+          {error ? <p className="text-destructive text-xs">{error}</p> : null}
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setIsBranchDialogOpen(false)}
+              disabled={isUpdating}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void createAndApplyBranch()} disabled={isUpdating || !newBranchName.trim()}>
+              Create and Switch
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
+
 const ComposerAction: FC = () => {
   return (
     <div className="aui-composer-action-wrapper relative mx-2 mb-2 flex items-center justify-between">
-      <RunningElapsed />
+      <div className="flex min-w-0 items-center gap-2">
+        <RunningElapsed />
+        <ComposerBranchControl />
+      </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
           <TooltipIconButton

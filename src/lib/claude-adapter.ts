@@ -1212,6 +1212,26 @@ interface StreamSpawnConfig {
   cwd?: string;
 }
 
+const ENSURE_BRANCH_SCRIPT = `
+repo_dir="$1"
+target_branch="$2"
+repo_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || exit 0
+current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+if [ -z "$target_branch" ] || [ "$current_branch" = "$target_branch" ]; then
+  exit 0
+fi
+git -C "$repo_root" show-ref --verify --quiet "refs/heads/$target_branch" || exit 2
+git -C "$repo_root" checkout "$target_branch" >/dev/null 2>&1
+`;
+
+async function ensureBranchCheckedOut(cwd: string, branch: string): Promise<boolean> {
+  const target = branch.trim();
+  if (!target) return true;
+  const command = Command.create("claude-stream-sh", ["-c", ENSURE_BRANCH_SCRIPT, "ensure-branch", cwd, target]);
+  const result = await command.execute();
+  return result.code === 0;
+}
+
 /**
  * Shell script that invokes Claude CLI with `< /dev/null` to close stdin
  * immediately (EOF). Without this, Claude CLI detects a pipe on stdin
@@ -1415,11 +1435,14 @@ export function createClaudeAdapter(
             JSON.stringify({ sessionMode, sessionId, cwd: configuredCwd }),
           );
 
-          if (configuredGitBranch?.trim()) {
-            devLog(
-              "[claude-adapter] skipping auto git checkout:",
-              configuredGitBranch,
-            );
+          if (configuredCwd && configuredGitBranch?.trim()) {
+            const switched = await ensureBranchCheckedOut(configuredCwd, configuredGitBranch);
+            if (!switched) {
+              devWarn(
+                "[claude-adapter] failed to checkout configured branch:",
+                configuredGitBranch,
+              );
+            }
           }
 
           let missingConversation = false;
@@ -1666,6 +1689,10 @@ export function createClaudeAdapter(
           // Track usage from result event
           if (streamResultEvent) {
             const re = streamResultEvent as ClaudeResultEvent;
+            const modelId =
+              re.modelUsage && typeof re.modelUsage === "object"
+                ? Object.keys(re.modelUsage)[0] ?? null
+                : null;
             void db.usageSnapshots.insert({
               id: crypto.randomUUID(),
               thread_id: threadKey,
@@ -1677,7 +1704,7 @@ export function createClaudeAdapter(
               cache_read_input_tokens:
                 re.usage?.cache_read_input_tokens ?? null,
               total_cost_usd: re.total_cost_usd ?? re.cost_usd ?? null,
-              model_id: null,
+              model_id: modelId,
               context_window: null,
               captured_at: new Date().toISOString(),
             });

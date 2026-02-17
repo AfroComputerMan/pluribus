@@ -8,7 +8,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { db, type WorkspaceRow } from "@/lib/db";
+import { getWorkspaceRepoMeta, type WorkspaceRepoMeta } from "@/lib/workspace-repo-metadata";
 import { useVisualLayoutId } from "@/lib/visual-layout-context";
 import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import { invoke } from "@tauri-apps/api/core";
@@ -17,12 +19,15 @@ import {
   ArchiveIcon,
   CheckIcon,
   FolderPlusIcon,
+  FolderRootIcon,
+  GitBranchIcon,
+  GithubIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
   XIcon,
 } from "lucide-react";
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ThreadSnapshot = {
@@ -33,7 +38,123 @@ type ThreadSnapshot = {
 
 type ThreadMetaSnapshot = {
   workspaceId: string | null;
+  cwd: string | null;
+  gitBranch: string | null;
+  modelId: string | null;
 };
+
+function basename(inputPath: string): string {
+  const parts = inputPath.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? inputPath;
+}
+
+function formatRelativeDate(isoValue: string): string {
+  const input = new Date(isoValue);
+  if (Number.isNaN(input.getTime())) return "unknown";
+  const diffMs = input.getTime() - Date.now();
+  const absMs = Math.abs(diffMs);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (absMs < hour) {
+    return rtf.format(Math.round(diffMs / minute), "minute");
+  }
+  if (absMs < day) {
+    return rtf.format(Math.round(diffMs / hour), "hour");
+  }
+  return rtf.format(Math.round(diffMs / day), "day");
+}
+
+function getWorktreeLabel(cwd: string | null, repoRoot: string | undefined): string | null {
+  if (!cwd) return null;
+  if (!repoRoot) return basename(cwd);
+  if (cwd === repoRoot) return "repo root";
+  const unixPrefix = `${repoRoot}/`;
+  if (cwd.startsWith(unixPrefix)) return cwd.slice(unixPrefix.length);
+  const windowsPrefix = `${repoRoot}\\`;
+  if (cwd.startsWith(windowsPrefix)) return cwd.slice(windowsPrefix.length);
+  return cwd;
+}
+
+function ThreadDetailsTooltip({
+  modelId,
+  branch,
+  worktree,
+  repoMeta,
+  children,
+}: {
+  modelId: string | null;
+  branch: string | null;
+  worktree: string | null;
+  repoMeta?: WorkspaceRepoMeta;
+  children: ReactNode;
+}) {
+  const modelLabel = modelId ?? "Default model";
+  const branchLabel = branch || repoMeta?.branch || "unknown";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8} className="max-w-80 rounded-lg p-2.5">
+        <div className="grid gap-1.5">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <span className="text-background/70">Model</span>
+            <span className="truncate">{modelLabel}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px]">
+            {repoMeta?.isGithub ? (
+              <GithubIcon className="size-3.5 shrink-0" />
+            ) : (
+              <GitBranchIcon className="size-3.5 shrink-0" />
+            )}
+            <span className="truncate">{branchLabel}</span>
+          </div>
+          {worktree ? (
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <FolderRootIcon className="size-3.5 shrink-0" />
+              <span className="truncate">{worktree}</span>
+            </div>
+          ) : null}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function WorkspaceDetailsTooltip({
+  repoMeta,
+  workspacePath,
+  children,
+}: {
+  repoMeta?: WorkspaceRepoMeta;
+  workspacePath: string;
+  children: ReactNode;
+}) {
+  const repoLabel = repoMeta?.repoSlug ?? repoMeta?.repoName ?? "No repository";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8} className="max-w-80 rounded-lg p-2.5">
+        <div className="grid gap-1.5">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <FolderRootIcon className="size-3.5 shrink-0" />
+            <span className="truncate">{workspacePath}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px]">
+            {repoMeta?.isGithub ? (
+              <GithubIcon className="size-3.5 shrink-0" />
+            ) : (
+              <GitBranchIcon className="size-3.5 shrink-0" />
+            )}
+            <span className="truncate">{repoLabel}</span>
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export const ThreadList: FC = () => {
   const layoutId = useVisualLayoutId();
@@ -56,6 +177,9 @@ export const ThreadList: FC = () => {
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
   const [threadMetaByRemoteId, setThreadMetaByRemoteId] = useState<
     Record<string, ThreadMetaSnapshot>
+  >({});
+  const [repoMetaByWorkspaceId, setRepoMetaByWorkspaceId] = useState<
+    Record<string, WorkspaceRepoMeta>
   >({});
   const [threadMetaVersion, setThreadMetaVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -106,12 +230,23 @@ export const ThreadList: FC = () => {
         return;
       }
 
-      const rows = await Promise.all(remoteIds.map((remoteId) => db.threads.get(remoteId)));
+      const rows = await Promise.all(
+        remoteIds.map(async (remoteId) => {
+          const [threadRow, usageRow] = await Promise.all([
+            db.threads.get(remoteId),
+            db.usageSnapshots.getLatest(remoteId),
+          ]);
+          return { threadRow, usageRow };
+        }),
+      );
       const nextMap: Record<string, ThreadMetaSnapshot> = {};
-      for (const row of rows) {
+      for (const { threadRow: row, usageRow } of rows) {
         if (!row?.remote_id) continue;
         nextMap[row.remote_id] = {
           workspaceId: row.workspace_id,
+          cwd: row.cwd,
+          gitBranch: row.git_branch,
+          modelId: usageRow?.model_id ?? null,
         };
       }
 
@@ -131,6 +266,42 @@ export const ThreadList: FC = () => {
       cancelled = true;
     };
   }, [remoteIds, threadMetaVersion]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRepoMeta = async () => {
+      if (!workspaces.length) {
+        if (!cancelled) setRepoMetaByWorkspaceId({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        workspaces.map(async (workspace) => {
+          const meta = await getWorkspaceRepoMeta(workspace.cwd);
+          return [workspace.id, meta] as const;
+        }),
+      );
+
+      if (cancelled) return;
+
+      const next: Record<string, WorkspaceRepoMeta> = {};
+      for (const [workspaceId, meta] of entries) {
+        if (meta) next[workspaceId] = meta;
+      }
+      setRepoMetaByWorkspaceId(next);
+    };
+
+    void loadRepoMeta().catch((cause) => {
+      if (cancelled) return;
+      const message =
+        cause instanceof Error ? cause.message : "Failed to load repository metadata.";
+      setError(message);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaces]);
 
   const browseWorkspaceDirectory = useCallback(async () => {
     setError(null);
@@ -152,11 +323,8 @@ export const ThreadList: FC = () => {
 
       if (selectedPath) {
         setNewWorkspaceCwd(selectedPath);
-        if (!newWorkspaceName.trim()) {
-          const parts = selectedPath.split(/[\\/]/).filter(Boolean);
-          const basename = parts[parts.length - 1] ?? selectedPath;
-          setNewWorkspaceName(basename);
-        }
+        const repoMeta = await getWorkspaceRepoMeta(selectedPath);
+        setNewWorkspaceName(repoMeta?.repoName ?? basename(selectedPath));
       }
     } catch (cause) {
       const message =
@@ -168,16 +336,20 @@ export const ThreadList: FC = () => {
   }, [newWorkspaceName]);
 
   const createWorkspace = useCallback(async () => {
-    const name = newWorkspaceName.trim();
     const cwd = newWorkspaceCwd.trim();
-    if (!name) {
-      setError("Enter a workspace name.");
-      return;
-    }
     if (!cwd) {
       setError("Enter a workspace directory.");
       return;
     }
+
+    const enteredName = newWorkspaceName.trim();
+    const repoMeta = await getWorkspaceRepoMeta(cwd);
+    const defaultName = repoMeta?.repoName ?? basename(cwd);
+    const name = enteredName
+      ? enteredName === cwd
+        ? defaultName
+        : enteredName
+      : defaultName;
 
     setError(null);
     setIsCreatingWorkspace(true);
@@ -398,6 +570,12 @@ export const ThreadList: FC = () => {
             const threadsInWorkspace = threadGroups.groupedByWorkspace.get(workspace.id) ?? [];
             const isCreatingThread = creatingThreadWorkspaceId === workspace.id;
             const isEditingWorkspace = editingWorkspaceId === workspace.id;
+            const repoMeta = repoMetaByWorkspaceId[workspace.id];
+            const displayWorkspaceName = repoMeta?.repoName
+              ?? (workspace.name.includes("/") || workspace.name.includes("\\")
+                ? basename(workspace.name)
+                : workspace.name);
+            const workspacePath = repoMeta?.repoRoot ?? workspace.cwd;
 
             return (
               <section key={workspace.id} className="aui-workspace-card rounded-lg border bg-card/40 p-2">
@@ -440,14 +618,43 @@ export const ThreadList: FC = () => {
                     ) : (
                       <>
                         <div className="flex items-center gap-2">
-                          <p className="truncate font-medium text-sm">{workspace.name}</p>
+                          {repoMeta ? (
+                            repoMeta.isGithub ? (
+                              <GithubIcon className="size-3.5 text-foreground" />
+                            ) : (
+                              <FolderRootIcon className="size-3.5 text-muted-foreground" />
+                            )
+                          ) : null}
+                          <WorkspaceDetailsTooltip repoMeta={repoMeta} workspacePath={workspacePath}>
+                            <p className="max-w-[10.5rem] cursor-help truncate font-medium text-sm">
+                              {displayWorkspaceName}
+                            </p>
+                          </WorkspaceDetailsTooltip>
                           <span className="aui-workspace-count rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                             {threadsInWorkspace.length}
                           </span>
                         </div>
-                        <p className="aui-workspace-path truncate text-muted-foreground text-xs">
-                          {workspace.cwd}
-                        </p>
+                        {repoMeta ? (
+                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span className="inline-flex items-center gap-1">
+                              <GitBranchIcon className="size-3" />
+                              <span className="max-w-[9rem] truncate" title={repoMeta.branch}>
+                                {repoMeta.branch}
+                              </span>
+                            </span>
+                            {repoMeta.behindCount !== null ? (
+                              <span className="truncate">Behind {repoMeta.behindCount}</span>
+                            ) : null}
+                            {repoMeta.lastCommitAt ? (
+                              <span className="truncate">Updated {formatRelativeDate(repoMeta.lastCommitAt)}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {repoMeta?.repoName && workspace.name !== repoMeta.repoName && !workspace.name.includes("/") ? (
+                          <p className="truncate text-muted-foreground text-xs">
+                            Workspace: {workspace.name}
+                          </p>
+                        ) : null}
                       </>
                     )}
                   </div>
@@ -490,6 +697,12 @@ export const ThreadList: FC = () => {
                     threadsInWorkspace.map((thread) => {
                       const isActive = thread.id === mainThreadId;
                       const isEditingThread = editingThreadId === thread.id;
+                      const threadMeta =
+                        thread.remoteId ? threadMetaByRemoteId[thread.remoteId] : undefined;
+                      const threadBranch = threadMeta?.gitBranch ?? repoMeta?.branch ?? null;
+                      const threadCwd = threadMeta?.cwd ?? workspace.cwd;
+                      const threadWorktree = getWorktreeLabel(threadCwd, repoMeta?.repoRoot);
+                      const statusLabel = isActive ? "Active chat" : "Workspace chat";
 
                       return (
                         <div
@@ -515,16 +728,23 @@ export const ThreadList: FC = () => {
                               className="h-8 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm outline-none"
                             />
                           ) : (
-                            <button
-                              type="button"
-                              className="h-10 min-w-0 flex-1 px-2 text-left"
-                              onClick={() => switchToThread(thread.id)}
+                            <ThreadDetailsTooltip
+                              modelId={threadMeta?.modelId ?? null}
+                              branch={threadBranch}
+                              worktree={threadWorktree}
+                              repoMeta={repoMeta}
                             >
-                              <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
-                              <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
-                                {isActive ? "Active chat" : "Workspace chat"}
-                              </span>
-                            </button>
+                              <button
+                                type="button"
+                                className="h-10 min-w-0 flex-1 px-2 text-left"
+                                onClick={() => switchToThread(thread.id)}
+                              >
+                                <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                                <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
+                                  {statusLabel}
+                                </span>
+                              </button>
+                            </ThreadDetailsTooltip>
                           )}
 
                           <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
@@ -590,6 +810,10 @@ export const ThreadList: FC = () => {
                 {threadGroups.unassigned.map((thread) => {
                   const isActive = thread.id === mainThreadId;
                   const isEditingThread = editingThreadId === thread.id;
+                  const threadMeta =
+                    thread.remoteId ? threadMetaByRemoteId[thread.remoteId] : undefined;
+                  const statusLabel = isActive ? "Active chat" : "Unassigned";
+                  const unassignedWorktree = getWorktreeLabel(threadMeta?.cwd ?? null, undefined);
 
                   return (
                     <div
@@ -615,16 +839,22 @@ export const ThreadList: FC = () => {
                           className="h-8 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm outline-none"
                         />
                       ) : (
-                        <button
-                          type="button"
-                          className="h-10 min-w-0 flex-1 px-2 text-left"
-                          onClick={() => switchToThread(thread.id)}
+                        <ThreadDetailsTooltip
+                          modelId={threadMeta?.modelId ?? null}
+                          branch={threadMeta?.gitBranch ?? null}
+                          worktree={unassignedWorktree}
                         >
-                          <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
-                          <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
-                            {isActive ? "Active chat" : "Unassigned"}
-                          </span>
-                        </button>
+                          <button
+                            type="button"
+                            className="h-10 min-w-0 flex-1 px-2 text-left"
+                            onClick={() => switchToThread(thread.id)}
+                          >
+                            <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                            <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
+                              {statusLabel}
+                            </span>
+                          </button>
+                        </ThreadDetailsTooltip>
                       )}
 
                       <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
