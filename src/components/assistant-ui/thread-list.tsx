@@ -1,6 +1,15 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { db, type WorkspaceRow } from "@/lib/db";
+import { useVisualLayoutId } from "@/lib/visual-layout-context";
 import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import { invoke } from "@tauri-apps/api/core";
 import { ThreadListPrimitive, useAui, useAuiState } from "@assistant-ui/react";
@@ -8,7 +17,6 @@ import {
   ArchiveIcon,
   CheckIcon,
   FolderPlusIcon,
-  MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
@@ -28,6 +36,7 @@ type ThreadMetaSnapshot = {
 };
 
 export const ThreadList: FC = () => {
+  const layoutId = useVisualLayoutId();
   const aui = useAui();
   const isLoading = useAuiState(({ threads }) => threads.isLoading);
   const mainThreadId = useAuiState(({ threads }) => threads.mainThreadId);
@@ -48,6 +57,7 @@ export const ThreadList: FC = () => {
   const [threadMetaByRemoteId, setThreadMetaByRemoteId] = useState<
     Record<string, ThreadMetaSnapshot>
   >({});
+  const [threadMetaVersion, setThreadMetaVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const [showWorkspaceForm, setShowWorkspaceForm] = useState(false);
@@ -63,6 +73,12 @@ export const ThreadList: FC = () => {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
   const editingThreadInputRef = useRef<HTMLInputElement>(null);
+
+  const [deletingWorkspace, setDeletingWorkspace] = useState<WorkspaceRow | null>(null);
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
+
+  const [showDeleteAllUnassigned, setShowDeleteAllUnassigned] = useState(false);
+  const [isDeletingAllUnassigned, setIsDeletingAllUnassigned] = useState(false);
 
   const loadWorkspaces = useCallback(async () => {
     const rows = await db.workspaces.list();
@@ -114,7 +130,7 @@ export const ThreadList: FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [remoteIds]);
+  }, [remoteIds, threadMetaVersion]);
 
   const browseWorkspaceDirectory = useCallback(async () => {
     setError(null);
@@ -247,6 +263,27 @@ export const ThreadList: FC = () => {
     }
   }, [editingWorkspaceId, editingWorkspaceName, loadWorkspaces]);
 
+  const deleteWorkspace = useCallback(
+    async (cascade: boolean) => {
+      if (!deletingWorkspace) return;
+      setError(null);
+      setIsDeletingWorkspace(true);
+      try {
+        await db.workspaces.delete(deletingWorkspace.id, cascade);
+        setDeletingWorkspace(null);
+        await loadWorkspaces();
+        setThreadMetaVersion((v) => v + 1);
+      } catch (cause) {
+        const message =
+          cause instanceof Error ? cause.message : "Failed to delete workspace.";
+        setError(message);
+      } finally {
+        setIsDeletingWorkspace(false);
+      }
+    },
+    [deletingWorkspace, loadWorkspaces],
+  );
+
   const startThreadRename = useCallback((thread: ThreadSnapshot) => {
     setEditingThreadId(thread.id);
     setEditingThreadTitle(thread.title ?? "");
@@ -268,6 +305,23 @@ export const ThreadList: FC = () => {
     setEditingThreadId(null);
   }, [aui, editingThreadId, editingThreadTitle]);
 
+  const deleteAllUnassigned = useCallback(async () => {
+    setError(null);
+    setIsDeletingAllUnassigned(true);
+    try {
+      for (const thread of threadGroups.unassigned) {
+        aui.threads().item({ id: thread.id }).delete();
+      }
+      setShowDeleteAllUnassigned(false);
+    } catch (cause) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to delete unassigned threads.";
+      setError(message);
+    } finally {
+      setIsDeletingAllUnassigned(false);
+    }
+  }, [aui, threadGroups.unassigned]);
+
   const switchToThread = useCallback(
     (threadId: string) => {
       aui.threads().switchToThread(threadId);
@@ -276,7 +330,10 @@ export const ThreadList: FC = () => {
   );
 
   return (
-    <ThreadListPrimitive.Root className="aui-root aui-thread-list-root flex flex-col gap-2">
+    <ThreadListPrimitive.Root
+      className="aui-root aui-thread-list-root flex flex-col gap-2"
+      data-layout={layoutId}
+    >
       <div className="flex items-center justify-between px-1">
         <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
           Workspaces
@@ -284,7 +341,7 @@ export const ThreadList: FC = () => {
       </div>
       <Button
         variant="outline"
-        className="h-8 justify-start gap-2"
+        className="aui-thread-list-create-workspace h-8 justify-start gap-2"
         onClick={() => {
           setShowWorkspaceForm((prev) => !prev);
           setError(null);
@@ -295,7 +352,7 @@ export const ThreadList: FC = () => {
       </Button>
 
       {showWorkspaceForm ? (
-        <div className="grid gap-2 rounded-md border p-2">
+        <div className="aui-workspace-form grid gap-2 rounded-md border p-2">
           <input
             value={newWorkspaceName}
             onChange={(event) => setNewWorkspaceName(event.target.value)}
@@ -334,7 +391,7 @@ export const ThreadList: FC = () => {
 
       {error ? <p className="px-1 text-destructive text-xs">{error}</p> : null}
 
-      {isLoading ? <ThreadListSkeleton /> : null}
+      {isLoading ? <ThreadListSkeleton layoutId={layoutId} /> : null}
       {!isLoading ? (
         <div className="flex flex-col gap-3">
           {workspaces.map((workspace) => {
@@ -343,7 +400,7 @@ export const ThreadList: FC = () => {
             const isEditingWorkspace = editingWorkspaceId === workspace.id;
 
             return (
-              <section key={workspace.id} className="rounded-lg border bg-card/40 p-2">
+              <section key={workspace.id} className="aui-workspace-card rounded-lg border bg-card/40 p-2">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     {isEditingWorkspace ? (
@@ -382,8 +439,15 @@ export const ThreadList: FC = () => {
                       </div>
                     ) : (
                       <>
-                        <p className="truncate font-medium text-sm">{workspace.name}</p>
-                        <p className="truncate text-muted-foreground text-xs">{workspace.cwd}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="truncate font-medium text-sm">{workspace.name}</p>
+                          <span className="aui-workspace-count rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {threadsInWorkspace.length}
+                          </span>
+                        </div>
+                        <p className="aui-workspace-path truncate text-muted-foreground text-xs">
+                          {workspace.cwd}
+                        </p>
                       </>
                     )}
                   </div>
@@ -399,9 +463,18 @@ export const ThreadList: FC = () => {
                         <span className="sr-only">Rename workspace</span>
                       </Button>
                       <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-destructive"
+                        onClick={() => setDeletingWorkspace(workspace)}
+                      >
+                        <TrashIcon className="size-3.5" />
+                        <span className="sr-only">Delete workspace</span>
+                      </Button>
+                      <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 px-2"
+                        className="aui-workspace-new-chat h-7 px-2"
                         onClick={() => void createThreadInWorkspace(workspace)}
                         disabled={Boolean(creatingThreadWorkspaceId)}
                       >
@@ -421,7 +494,7 @@ export const ThreadList: FC = () => {
                       return (
                         <div
                           key={thread.id}
-                          className="group flex items-center gap-1 rounded-md hover:bg-muted data-[active=true]:bg-muted"
+                          className="aui-thread-row group flex items-center gap-1 rounded-md hover:bg-muted data-[active=true]:bg-muted"
                           data-active={isActive ? "true" : undefined}
                         >
                           {isEditingThread ? (
@@ -444,14 +517,17 @@ export const ThreadList: FC = () => {
                           ) : (
                             <button
                               type="button"
-                              className="h-8 min-w-0 flex-1 truncate px-2 text-left text-sm"
+                              className="h-10 min-w-0 flex-1 px-2 text-left"
                               onClick={() => switchToThread(thread.id)}
                             >
-                              {thread.title ?? "New Thread"}
+                              <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                              <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
+                                {isActive ? "Active chat" : "Workspace chat"}
+                              </span>
                             </button>
                           )}
 
-                          <div className="mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
+                          <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
                             <Button
                               variant="ghost"
                               size="icon"
@@ -489,7 +565,7 @@ export const ThreadList: FC = () => {
           })}
 
           {!workspaces.length ? (
-            <section className="rounded-lg border border-dashed p-2">
+            <section className="aui-unassigned-card rounded-lg border border-dashed p-2">
               <p className="text-muted-foreground text-xs">
                 Create a workspace to start grouping chats by project directory.
               </p>
@@ -500,21 +576,84 @@ export const ThreadList: FC = () => {
             <section className="rounded-lg border border-dashed p-2">
               <div className="mb-2 flex items-center justify-between">
                 <p className="font-medium text-sm">Unassigned</p>
-                <MoreHorizontalIcon className="size-3.5 text-muted-foreground" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-destructive"
+                  onClick={() => setShowDeleteAllUnassigned(true)}
+                >
+                  <TrashIcon className="size-3.5" />
+                  <span className="sr-only">Delete all unassigned</span>
+                </Button>
               </div>
               <div className="flex flex-col gap-1">
                 {threadGroups.unassigned.map((thread) => {
                   const isActive = thread.id === mainThreadId;
+                  const isEditingThread = editingThreadId === thread.id;
+
                   return (
-                    <button
+                    <div
                       key={thread.id}
-                      type="button"
-                      className="h-8 truncate rounded px-2 text-left text-sm hover:bg-muted data-[active=true]:bg-muted"
+                      className="aui-thread-row group flex items-center gap-1 rounded-md hover:bg-muted data-[active=true]:bg-muted"
                       data-active={isActive ? "true" : undefined}
-                      onClick={() => switchToThread(thread.id)}
                     >
-                      {thread.title ?? "New Thread"}
-                    </button>
+                      {isEditingThread ? (
+                        <input
+                          ref={editingThreadInputRef}
+                          value={editingThreadTitle}
+                          onChange={(event) => setEditingThreadTitle(event.target.value)}
+                          onBlur={confirmThreadRename}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              confirmThreadRename();
+                            } else if (event.key === "Escape") {
+                              event.preventDefault();
+                              setEditingThreadId(null);
+                            }
+                          }}
+                          className="h-8 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm outline-none"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="h-10 min-w-0 flex-1 px-2 text-left"
+                          onClick={() => switchToThread(thread.id)}
+                        >
+                          <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                          <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
+                            {isActive ? "Active chat" : "Unassigned"}
+                          </span>
+                        </button>
+                      )}
+
+                      <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6"
+                          onClick={() => startThreadRename(thread)}
+                        >
+                          <PencilIcon className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6"
+                          onClick={() => aui.threads().item({ id: thread.id }).archive()}
+                        >
+                          <ArchiveIcon className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 text-destructive"
+                          onClick={() => aui.threads().item({ id: thread.id }).delete()}
+                        >
+                          <TrashIcon className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -522,13 +661,84 @@ export const ThreadList: FC = () => {
           ) : null}
         </div>
       ) : null}
+      <Dialog
+        open={Boolean(deletingWorkspace)}
+        onOpenChange={(open) => {
+          if (!open) setDeletingWorkspace(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete workspace: {deletingWorkspace?.name}</DialogTitle>
+            <DialogDescription>
+              This workspace and its directory reference will be removed. Choose what to do with
+              its chats.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <Button
+              variant="outline"
+              disabled={isDeletingWorkspace}
+              onClick={() => void deleteWorkspace(false)}
+            >
+              Keep chats (move to Unassigned)
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isDeletingWorkspace}
+              onClick={() => void deleteWorkspace(true)}
+            >
+              Delete workspace and all chats
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={isDeletingWorkspace}
+              onClick={() => setDeletingWorkspace(null)}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={showDeleteAllUnassigned}
+        onOpenChange={(open) => {
+          if (!open) setShowDeleteAllUnassigned(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete all unassigned chats</DialogTitle>
+            <DialogDescription>
+              This will permanently delete {threadGroups.unassigned.length} unassigned{" "}
+              {threadGroups.unassigned.length === 1 ? "chat" : "chats"} and their messages.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              disabled={isDeletingAllUnassigned}
+              onClick={() => setShowDeleteAllUnassigned(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isDeletingAllUnassigned}
+              onClick={() => void deleteAllUnassigned()}
+            >
+              Delete all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ThreadListPrimitive.Root>
   );
 };
 
-const ThreadListSkeleton: FC = () => {
+const ThreadListSkeleton: FC<{ layoutId: string }> = ({ layoutId }) => {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="aui-thread-list-skeleton-group flex flex-col gap-1" data-layout={layoutId}>
       {Array.from({ length: 5 }, (_, i) => (
         <div
           key={i}

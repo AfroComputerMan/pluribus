@@ -304,6 +304,21 @@ async function workspacesRename(id: string, name: string): Promise<void> {
   );
 }
 
+async function workspacesDelete(id: string, cascade: boolean): Promise<void> {
+  const conn = await getDb();
+  if (cascade) {
+    // Delete all threads in this workspace (ON DELETE CASCADE handles messages/sessions/etc.)
+    await conn.execute("DELETE FROM threads WHERE workspace_id = $1", [id]);
+  } else {
+    // Orphan threads — move them to "Unassigned"
+    await conn.execute(
+      "UPDATE threads SET workspace_id = NULL, updated_at = $1 WHERE workspace_id = $2",
+      [new Date().toISOString(), id],
+    );
+  }
+  await conn.execute("DELETE FROM workspaces WHERE id = $1", [id]);
+}
+
 // ---------------------------------------------------------------------------
 // messages
 // ---------------------------------------------------------------------------
@@ -675,6 +690,7 @@ export const db = {
     getByCwd: workspacesGetByCwd,
     create: workspacesCreate,
     rename: workspacesRename,
+    delete: workspacesDelete,
   },
   messages: {
     loadByThread: messagesLoadByThread,

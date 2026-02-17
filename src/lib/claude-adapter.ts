@@ -1,4 +1,5 @@
 import { Command, type Child } from "@tauri-apps/plugin-shell";
+import { homeDir } from "@tauri-apps/api/path";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 import { db } from "@/lib/db";
 import { queueDevEventForArchive } from "@/lib/dev-event-batcher";
@@ -1376,6 +1377,16 @@ export function createClaudeAdapter(
           prefetchTitle(threadKey, prompt);
         }
 
+        // Resolve CWD fallback once before the retry loop
+        let fallbackCwd: string | undefined;
+        if (!cwdByThread.get(threadKey)) {
+          try {
+            fallbackCwd = await homeDir();
+          } catch {
+            // homeDir() can fail in some environments; leave undefined
+          }
+        }
+
         let lastAttempt = 0;
 
         while (lastAttempt < 3) {
@@ -1388,7 +1399,7 @@ export function createClaudeAdapter(
           const attemptedSessionId = sessionId;
           const sessionMode = strategy;
 
-          const configuredCwd = cwdByThread.get(threadKey);
+          const configuredCwd = cwdByThread.get(threadKey) ?? fallbackCwd;
           const configuredGitBranch = gitBranchByThread.get(threadKey);
 
           const spawnConfig: StreamSpawnConfig = {
