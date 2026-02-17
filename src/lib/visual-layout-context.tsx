@@ -13,5 +13,5 @@ export function VisualLayoutProvider({ layoutId, children }: VisualLayoutProvide
 }
 
 export function useVisualLayoutId() {
-  return useContext(VisualLayoutContext);
+  return useContext(VisualLayoutContext) ?? DEFAULT_LAYOUT_ID;
 }

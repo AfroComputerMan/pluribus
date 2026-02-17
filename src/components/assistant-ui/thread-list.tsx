@@ -11,17 +11,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { db, type WorkspaceRow } from "@/lib/db";
 import { getWorkspaceRepoMeta, type WorkspaceRepoMeta } from "@/lib/workspace-repo-metadata";
-import { useVisualLayoutId } from "@/lib/visual-layout-context";
 import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import { invoke } from "@tauri-apps/api/core";
 import { ThreadListPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import {
   ArchiveIcon,
   CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   FolderPlusIcon,
   FolderRootIcon,
   GitBranchIcon,
   GithubIcon,
+  LoaderCircleIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
@@ -46,24 +48,6 @@ type ThreadMetaSnapshot = {
 function basename(inputPath: string): string {
   const parts = inputPath.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? inputPath;
-}
-
-function formatRelativeDate(isoValue: string): string {
-  const input = new Date(isoValue);
-  if (Number.isNaN(input.getTime())) return "unknown";
-  const diffMs = input.getTime() - Date.now();
-  const absMs = Math.abs(diffMs);
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (absMs < hour) {
-    return rtf.format(Math.round(diffMs / minute), "minute");
-  }
-  if (absMs < day) {
-    return rtf.format(Math.round(diffMs / hour), "hour");
-  }
-  return rtf.format(Math.round(diffMs / day), "day");
 }
 
 function getWorktreeLabel(cwd: string | null, repoRoot: string | undefined): string | null {
@@ -157,7 +141,6 @@ function WorkspaceDetailsTooltip({
 }
 
 export const ThreadList: FC = () => {
-  const layoutId = useVisualLayoutId();
   const aui = useAui();
   const isLoading = useAuiState(({ threads }) => threads.isLoading);
   const mainThreadId = useAuiState(({ threads }) => threads.mainThreadId);
@@ -203,6 +186,7 @@ export const ThreadList: FC = () => {
 
   const [showDeleteAllUnassigned, setShowDeleteAllUnassigned] = useState(false);
   const [isDeletingAllUnassigned, setIsDeletingAllUnassigned] = useState(false);
+  const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<Record<string, boolean>>({});
 
   const loadWorkspaces = useCallback(async () => {
     const rows = await db.workspaces.list();
@@ -501,75 +485,39 @@ export const ThreadList: FC = () => {
     [aui],
   );
 
+  const toggleWorkspaceCollapsed = useCallback((workspaceId: string) => {
+    setCollapsedWorkspaceIds((current) => ({
+      ...current,
+      [workspaceId]: !current[workspaceId],
+    }));
+  }, []);
+
   return (
-    <ThreadListPrimitive.Root
-      className="aui-root aui-thread-list-root flex flex-col gap-2"
-      data-layout={layoutId}
-    >
-      <div className="flex items-center justify-between px-1">
-        <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-          Workspaces
-        </p>
+    <ThreadListPrimitive.Root className="aui-root aui-thread-list-root flex flex-col">
+      <div className="aui-sidebar-header space-y-3">
+        <p className="aui-sidebar-brand">Pluribus</p>
+        <Button
+          variant="ghost"
+          className="h-8 w-full justify-start px-2 text-sm"
+          onClick={() => {
+            void aui.threads().switchToNewThread();
+          }}
+        >
+          <PlusIcon className="size-3.5" />
+          New thread
+        </Button>
       </div>
-      <Button
-        variant="outline"
-        className="aui-thread-list-create-workspace h-8 justify-start gap-2"
-        onClick={() => {
-          setShowWorkspaceForm((prev) => !prev);
-          setError(null);
-        }}
-      >
-        <FolderPlusIcon className="size-4" />
-        New Workspace
-      </Button>
-
-      {showWorkspaceForm ? (
-        <div className="aui-workspace-form grid gap-2 rounded-md border p-2">
-          <input
-            value={newWorkspaceName}
-            onChange={(event) => setNewWorkspaceName(event.target.value)}
-            placeholder="Workspace title"
-            className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-            disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
-          />
-          <input
-            value={newWorkspaceCwd}
-            onChange={(event) => setNewWorkspaceCwd(event.target.value)}
-            placeholder="/path/to/project"
-            className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-            disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
-          />
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void browseWorkspaceDirectory()}
-              disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
-              className="h-8"
-            >
-              Browse
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => void createWorkspace()}
-              disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
-              className="h-8"
-            >
-              Create
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
+      <div className="aui-sidebar-body min-h-0 flex-1 overflow-y-auto pb-2">
       {error ? <p className="px-1 text-destructive text-xs">{error}</p> : null}
 
-      {isLoading ? <ThreadListSkeleton layoutId={layoutId} /> : null}
+      {isLoading ? <ThreadListSkeleton /> : null}
       {!isLoading ? (
         <div className="flex flex-col gap-3">
           {workspaces.map((workspace) => {
             const threadsInWorkspace = threadGroups.groupedByWorkspace.get(workspace.id) ?? [];
             const isCreatingThread = creatingThreadWorkspaceId === workspace.id;
             const isEditingWorkspace = editingWorkspaceId === workspace.id;
+            const isCollapsed = collapsedWorkspaceIds[workspace.id] ?? false;
             const repoMeta = repoMetaByWorkspaceId[workspace.id];
             const displayWorkspaceName = repoMeta?.repoName
               ?? (workspace.name.includes("/") || workspace.name.includes("\\")
@@ -578,8 +526,8 @@ export const ThreadList: FC = () => {
             const workspacePath = repoMeta?.repoRoot ?? workspace.cwd;
 
             return (
-              <section key={workspace.id} className="aui-workspace-card rounded-lg border bg-card/40 p-2">
-                <div className="mb-2 flex items-start justify-between gap-2">
+              <section key={workspace.id} className="aui-workspace-card">
+                <div className="mb-2 flex items-start justify-between gap-2 px-2">
                   <div className="min-w-0">
                     {isEditingWorkspace ? (
                       <div className="flex items-center gap-1">
@@ -617,16 +565,21 @@ export const ThreadList: FC = () => {
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-center gap-2">
-                          {repoMeta ? (
-                            repoMeta.isGithub ? (
-                              <GithubIcon className="size-3.5 text-foreground" />
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => toggleWorkspaceCollapsed(workspace.id)}
+                            className="inline-flex size-5 items-center justify-center rounded hover:bg-muted"
+                            aria-label={isCollapsed ? "Expand workspace section" : "Collapse workspace section"}
+                          >
+                            {isCollapsed ? (
+                              <ChevronRightIcon className="size-3.5 text-muted-foreground" />
                             ) : (
-                              <FolderRootIcon className="size-3.5 text-muted-foreground" />
-                            )
-                          ) : null}
+                              <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+                            )}
+                          </button>
                           <WorkspaceDetailsTooltip repoMeta={repoMeta} workspacePath={workspacePath}>
-                            <p className="max-w-[10.5rem] cursor-help truncate font-medium text-sm">
+                            <p className="aui-workspace-title max-w-[9.6rem] cursor-help truncate">
                               {displayWorkspaceName}
                             </p>
                           </WorkspaceDetailsTooltip>
@@ -635,20 +588,9 @@ export const ThreadList: FC = () => {
                           </span>
                         </div>
                         {repoMeta ? (
-                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <span className="inline-flex items-center gap-1">
-                              <GitBranchIcon className="size-3" />
-                              <span className="max-w-[9rem] truncate" title={repoMeta.branch}>
-                                {repoMeta.branch}
-                              </span>
-                            </span>
-                            {repoMeta.behindCount !== null ? (
-                              <span className="truncate">Behind {repoMeta.behindCount}</span>
-                            ) : null}
-                            {repoMeta.lastCommitAt ? (
-                              <span className="truncate">Updated {formatRelativeDate(repoMeta.lastCommitAt)}</span>
-                            ) : null}
-                          </div>
+                          <p className="aui-workspace-path mt-1 truncate text-[11px]" title={repoMeta.branch}>
+                            {repoMeta.branch}
+                          </p>
                         ) : null}
                         {repoMeta?.repoName && workspace.name !== repoMeta.repoName && !workspace.name.includes("/") ? (
                           <p className="truncate text-muted-foreground text-xs">
@@ -679,106 +621,103 @@ export const ThreadList: FC = () => {
                         <span className="sr-only">Delete workspace</span>
                       </Button>
                       <Button
-                        variant="outline"
-                        size="sm"
-                        className="aui-workspace-new-chat h-7 px-2"
+                        variant="ghost"
+                        size="icon"
+                        className="aui-workspace-new-chat size-7"
                         onClick={() => void createThreadInWorkspace(workspace)}
                         disabled={Boolean(creatingThreadWorkspaceId)}
+                        aria-label="New thread in workspace"
                       >
-                        <PlusIcon className="mr-1 size-3.5" />
-                        {isCreatingThread ? "Creating" : "New Chat"}
+                        {isCreatingThread ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <PlusIcon className="size-3.5" />}
                       </Button>
                     </div>
                   ) : null}
                 </div>
 
-                <div className="flex flex-col gap-1">
-                  {threadsInWorkspace.length ? (
-                    threadsInWorkspace.map((thread) => {
-                      const isActive = thread.id === mainThreadId;
-                      const isEditingThread = editingThreadId === thread.id;
-                      const threadMeta =
-                        thread.remoteId ? threadMetaByRemoteId[thread.remoteId] : undefined;
-                      const threadBranch = threadMeta?.gitBranch ?? repoMeta?.branch ?? null;
-                      const threadCwd = threadMeta?.cwd ?? workspace.cwd;
-                      const threadWorktree = getWorktreeLabel(threadCwd, repoMeta?.repoRoot);
-                      const statusLabel = isActive ? "Active chat" : "Workspace chat";
-
-                      return (
-                        <div
-                          key={thread.id}
-                          className="aui-thread-row group flex items-center gap-1 rounded-md hover:bg-muted data-[active=true]:bg-muted"
-                          data-active={isActive ? "true" : undefined}
-                        >
-                          {isEditingThread ? (
-                            <input
-                              ref={editingThreadInputRef}
-                              value={editingThreadTitle}
-                              onChange={(event) => setEditingThreadTitle(event.target.value)}
-                              onBlur={confirmThreadRename}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                  event.preventDefault();
-                                  confirmThreadRename();
-                                } else if (event.key === "Escape") {
-                                  event.preventDefault();
-                                  setEditingThreadId(null);
-                                }
-                              }}
-                              className="h-8 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm outline-none"
-                            />
-                          ) : (
-                            <ThreadDetailsTooltip
-                              modelId={threadMeta?.modelId ?? null}
-                              branch={threadBranch}
-                              worktree={threadWorktree}
-                              repoMeta={repoMeta}
-                            >
-                              <button
-                                type="button"
-                                className="h-10 min-w-0 flex-1 px-2 text-left"
-                                onClick={() => switchToThread(thread.id)}
+                <div className="flex flex-col gap-1 px-1">
+                  {!isCollapsed ? (
+                    threadsInWorkspace.length ? (
+                      threadsInWorkspace.map((thread) => {
+                        const isActive = thread.id === mainThreadId;
+                        const isEditingThread = editingThreadId === thread.id;
+                        const threadMeta =
+                          thread.remoteId ? threadMetaByRemoteId[thread.remoteId] : undefined;
+                        const threadBranch = threadMeta?.gitBranch ?? repoMeta?.branch ?? null;
+                        const threadCwd = threadMeta?.cwd ?? workspace.cwd;
+                        const threadWorktree = getWorktreeLabel(threadCwd, repoMeta?.repoRoot);
+                        return (
+                          <div
+                            key={thread.id}
+                            className="aui-thread-row group flex items-center gap-1 rounded-md hover:bg-muted data-[active=true]:bg-muted"
+                            data-active={isActive ? "true" : undefined}
+                          >
+                            {isEditingThread ? (
+                              <input
+                                ref={editingThreadInputRef}
+                                value={editingThreadTitle}
+                                onChange={(event) => setEditingThreadTitle(event.target.value)}
+                                onBlur={confirmThreadRename}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    confirmThreadRename();
+                                  } else if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    setEditingThreadId(null);
+                                  }
+                                }}
+                                className="h-8 min-w-0 flex-1 rounded border border-input bg-background px-2 text-sm outline-none"
+                              />
+                            ) : (
+                              <ThreadDetailsTooltip
+                                modelId={threadMeta?.modelId ?? null}
+                                branch={threadBranch}
+                                worktree={threadWorktree}
+                                repoMeta={repoMeta}
                               >
-                                <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
-                                <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
-                                  {statusLabel}
-                                </span>
-                              </button>
-                            </ThreadDetailsTooltip>
-                          )}
+                                <button
+                                  type="button"
+                                  className="h-9 min-w-0 flex-1 px-2 text-left"
+                                  onClick={() => switchToThread(thread.id)}
+                                >
+                                  <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                                </button>
+                              </ThreadDetailsTooltip>
+                            )}
 
-                          <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-6"
-                              onClick={() => startThreadRename(thread)}
-                            >
-                              <PencilIcon className="size-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-6"
-                              onClick={() => aui.threads().item({ id: thread.id }).archive()}
-                            >
-                              <ArchiveIcon className="size-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-6 text-destructive"
-                              onClick={() => aui.threads().item({ id: thread.id }).delete()}
-                            >
-                              <TrashIcon className="size-3.5" />
-                            </Button>
+                            <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-6"
+                                onClick={() => startThreadRename(thread)}
+                              >
+                                <PencilIcon className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-6"
+                                onClick={() => aui.threads().item({ id: thread.id }).archive()}
+                              >
+                                <ArchiveIcon className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-6 text-destructive"
+                                onClick={() => aui.threads().item({ id: thread.id }).delete()}
+                              >
+                                <TrashIcon className="size-3.5" />
+                              </Button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <p className="px-2 py-1 text-muted-foreground text-xs">No chats yet.</p>
-                  )}
+                        );
+                      })
+                    ) : (
+                      <p className="px-2 py-1 text-muted-foreground text-xs">No chats yet.</p>
+                    )
+                  ) : null}
                 </div>
               </section>
             );
@@ -812,7 +751,6 @@ export const ThreadList: FC = () => {
                   const isEditingThread = editingThreadId === thread.id;
                   const threadMeta =
                     thread.remoteId ? threadMetaByRemoteId[thread.remoteId] : undefined;
-                  const statusLabel = isActive ? "Active chat" : "Unassigned";
                   const unassignedWorktree = getWorktreeLabel(threadMeta?.cwd ?? null, undefined);
 
                   return (
@@ -846,13 +784,10 @@ export const ThreadList: FC = () => {
                         >
                           <button
                             type="button"
-                            className="h-10 min-w-0 flex-1 px-2 text-left"
+                            className="h-9 min-w-0 flex-1 px-2 text-left"
                             onClick={() => switchToThread(thread.id)}
                           >
                             <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
-                            <span className="block text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
-                              {statusLabel}
-                            </span>
                           </button>
                         </ThreadDetailsTooltip>
                       )}
@@ -891,6 +826,57 @@ export const ThreadList: FC = () => {
           ) : null}
         </div>
       ) : null}
+      </div>
+      <div className="aui-sidebar-footer border-t border-border">
+        <Button
+          variant="ghost"
+          className="h-8 w-full justify-start gap-2 px-2 text-sm"
+          onClick={() => {
+            setShowWorkspaceForm((prev) => !prev);
+            setError(null);
+          }}
+        >
+          <FolderPlusIcon className="size-4" />
+          Add workspace
+        </Button>
+        {showWorkspaceForm ? (
+          <div className="aui-workspace-form mt-2 grid gap-2 rounded-md border p-2">
+            <input
+              value={newWorkspaceName}
+              onChange={(event) => setNewWorkspaceName(event.target.value)}
+              placeholder="Workspace title"
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+              disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+            />
+            <input
+              value={newWorkspaceCwd}
+              onChange={(event) => setNewWorkspaceCwd(event.target.value)}
+              placeholder="/path/to/project"
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+              disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void browseWorkspaceDirectory()}
+                disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+                className="h-8"
+              >
+                Browse
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void createWorkspace()}
+                disabled={isCreatingWorkspace || isBrowsingWorkspaceDir}
+                className="h-8"
+              >
+                Create
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
       <Dialog
         open={Boolean(deletingWorkspace)}
         onOpenChange={(open) => {
@@ -966,9 +952,9 @@ export const ThreadList: FC = () => {
   );
 };
 
-const ThreadListSkeleton: FC<{ layoutId: string }> = ({ layoutId }) => {
+const ThreadListSkeleton: FC = () => {
   return (
-    <div className="aui-thread-list-skeleton-group flex flex-col gap-1" data-layout={layoutId}>
+    <div className="aui-thread-list-skeleton-group flex flex-col gap-1">
       {Array.from({ length: 5 }, (_, i) => (
         <div
           key={i}

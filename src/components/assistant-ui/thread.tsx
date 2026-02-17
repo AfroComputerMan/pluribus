@@ -21,7 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useVisualLayoutId } from "@/lib/visual-layout-context";
 import {
   getClaudePermissionRequests,
   respondToClaudePermissionRequest,
@@ -96,14 +95,12 @@ function useThreadWorkspace() {
 }
 
 export const Thread: FC = () => {
-  const layoutId = useVisualLayoutId();
   const { remoteId, isEmpty, hasWorkspace, setHasWorkspace } = useThreadWorkspace();
   const needsWorkspace = isEmpty && hasWorkspace === false;
 
   return (
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root @container flex h-full flex-col bg-background"
-      data-layout={layoutId}
       style={{
         ["--thread-max-width" as string]: "44rem",
       }}
@@ -130,7 +127,7 @@ export const Thread: FC = () => {
           }}
         />
 
-        <ThreadPrimitive.ViewportFooter className="aui-thread-viewport-footer sticky bottom-0 mx-auto mt-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible rounded-t-3xl pb-4 md:pb-6">
+        <ThreadPrimitive.ViewportFooter className="aui-thread-viewport-footer sticky bottom-0 mx-auto mt-auto flex w-full max-w-(--thread-max-width) flex-col gap-3 overflow-visible pb-4 md:pb-6">
           <ThreadScrollToBottom />
           <PermissionApprovalBar />
           {needsWorkspace ? (
@@ -165,12 +162,9 @@ const ThreadWelcome: FC = () => {
     <div className="aui-thread-welcome-root mx-auto my-auto flex w-full max-w-(--thread-max-width) grow flex-col">
       <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center">
         <div className="aui-thread-welcome-message flex size-full flex-col justify-center px-4">
-          <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in font-semibold text-2xl duration-200">
-            Hello there!
+          <h1 className="aui-thread-welcome-message-inner font-semibold text-2xl">
+            What can I help with?
           </h1>
-          <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in text-muted-foreground text-xl delay-75 duration-200">
-            How can I help you today?
-          </p>
         </div>
       </div>
     </div>
@@ -371,12 +365,9 @@ const WorkspacePicker: FC<{
 };
 
 const Composer: FC = () => {
-  const layoutId = useVisualLayoutId();
-
   return (
     <ComposerPrimitive.Root
       className="aui-composer-root relative flex w-full flex-col"
-      data-layout={layoutId}
     >
       <div className="aui-composer-shell flex w-full flex-col rounded-2xl border border-input bg-background px-1 pt-2 outline-none transition-shadow has-[textarea:focus-visible]:border-ring has-[textarea:focus-visible]:ring-2 has-[textarea:focus-visible]:ring-ring/20">
         <ComposerPrimitive.Input
@@ -556,7 +547,7 @@ const ComposerBranchControl: FC = () => {
 
   return (
     <>
-      <div className="inline-flex max-w-[14rem] items-center gap-1 rounded-md border border-input/70 bg-background/70 px-1.5 py-0.5 text-xs">
+      <div className="aui-composer-chip max-w-[14rem]">
         {repoMeta.isGithub ? (
           <GithubIcon className="size-3 shrink-0 text-muted-foreground" />
         ) : (
@@ -617,6 +608,7 @@ const ComposerAction: FC = () => {
   return (
     <div className="aui-composer-action-wrapper relative mx-2 mb-2 flex items-center justify-between">
       <div className="flex min-w-0 items-center gap-2">
+        <ComposerModelChip />
         <RunningElapsed />
         <ComposerBranchControl />
       </div>
@@ -673,18 +665,48 @@ const RunningElapsed: FC = () => {
     };
   }, [isRunning]);
 
-  if (!isRunning) return <div />;
+  if (!isRunning) return <div className="aui-running-elapsed text-muted-foreground">00:00</div>;
 
   const minutes = Math.floor(elapsedSeconds / 60);
   const seconds = elapsedSeconds % 60;
   const formatted = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 
-  const loader = <LoaderCircleIcon className="size-3.5 animate-spin" />;
+  return (
+    <div className="aui-running-elapsed text-muted-foreground">
+      {formatted}
+    </div>
+  );
+};
+
+const ComposerModelChip: FC = () => {
+  const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const [modelLabel, setModelLabel] = useState("Opus");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadModel = async () => {
+      if (!threadId) {
+        if (!cancelled) setModelLabel("Opus");
+        return;
+      }
+      const usage = await db.usageSnapshots.getLatest(threadId);
+      if (!cancelled) setModelLabel(usage?.model_id?.trim() || "Opus");
+    };
+
+    void loadModel().catch(() => {
+      if (!cancelled) setModelLabel("Opus");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId]);
 
   return (
-    <div className="aui-running-elapsed flex items-center gap-1.5 text-muted-foreground text-xs">
-      {loader}
-      <span>{formatted}</span>
+    <div className="aui-composer-chip">
+      <span className="aui-composer-chip-dot" />
+      <span>{modelLabel}</span>
     </div>
   );
 };
@@ -700,22 +722,11 @@ const MessageError: FC = () => {
 };
 
 const AssistantMessage: FC = () => {
-  const layoutId = useVisualLayoutId();
-  const agentLabel = "Assistant";
-
   return (
     <MessagePrimitive.Root
-      className="aui-assistant-message-root fade-in slide-in-from-bottom-1 relative mx-auto w-full max-w-(--thread-max-width) animate-in py-3 duration-150"
+      className="aui-assistant-message-root relative mx-auto w-full max-w-(--thread-max-width) py-3"
       data-role="assistant"
-      data-layout={layoutId}
     >
-      <div className="aui-assistant-message-head mb-1 ml-2 inline-flex items-center gap-2">
-        <span className="aui-agent-dot inline-flex size-2 rounded-full bg-primary" />
-        <span className="aui-agent-label font-semibold text-[0.66rem] uppercase tracking-[0.16em] text-muted-foreground">
-          {agentLabel}
-        </span>
-      </div>
-
       <div className="aui-assistant-message-content wrap-break-word px-2 text-foreground leading-relaxed">
         <MessagePrimitive.Parts
           components={{
@@ -752,11 +763,10 @@ const AssistantMessage: FC = () => {
 const ReasoningGroup: FC<ReasoningGroupProps> = ({ children }) => {
   return (
     <details
-      open
       className="aui-reasoning-group my-2 overflow-hidden rounded-lg border border-border/60 bg-muted/30"
     >
-      <summary className="cursor-pointer px-3 py-2 font-medium text-muted-foreground text-xs">
-        Claude thinking
+      <summary className="aui-reasoning-summary px-3 py-2 font-medium">
+        Thinking...
       </summary>
       <div className="px-3 pb-3">{children}</div>
     </details>
@@ -851,21 +861,13 @@ const AssistantActionBar: FC = () => {
 };
 
 const UserMessage: FC = () => {
-  const layoutId = useVisualLayoutId();
-
   return (
     <MessagePrimitive.Root
-      className="aui-user-message-root fade-in slide-in-from-bottom-1 mx-auto grid w-full max-w-(--thread-max-width) animate-in auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 py-3 duration-150 [&:where(>*)]:col-start-2"
+      className="aui-user-message-root mx-auto grid w-full max-w-(--thread-max-width) auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] content-start gap-y-2 px-2 py-3 [&:where(>*)]:col-start-2"
       data-role="user"
-      data-layout={layoutId}
     >
-      <div className="aui-user-message-head col-start-2 inline-flex items-center justify-end">
-        <span className="aui-user-label rounded-full border border-border/70 px-2 py-0.5 font-medium text-[0.66rem] uppercase tracking-[0.16em] text-muted-foreground">
-          You
-        </span>
-      </div>
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content wrap-break-word rounded-2xl bg-muted px-4 py-2.5 text-foreground">
+        <div className="aui-user-message-content wrap-break-word px-4 py-2.5 text-foreground">
           <MessagePrimitive.Parts />
         </div>
       </div>

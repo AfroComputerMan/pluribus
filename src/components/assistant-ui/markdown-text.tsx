@@ -11,17 +11,13 @@ import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
-import { useVisualLayoutId } from "@/lib/visual-layout-context";
 import { cn } from "@/lib/utils";
 
 const MarkdownTextImpl = () => {
-  const layoutId = useVisualLayoutId();
-
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
       className="aui-md"
-      data-layout={layoutId}
       components={defaultComponents}
     />
   );
