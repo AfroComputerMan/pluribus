@@ -36,13 +36,17 @@ User Input → assistant-ui Runtime → ChatModelAdapter.run()
 
 ### Key Files
 
-- **`src/lib/claude-adapter.ts`** (~800 lines) — Core integration. Implements `ChatModelAdapter`, manages Claude CLI process lifecycle, session persistence, stream parsing, and dev event logging. This is the most complex file in the project.
-- **`src/lib/local-thread-list-adapter.ts`** — Thread list persistence via localStorage.
-- **`src/components/RuntimeProvider.tsx`** — Sets up `useLocalRuntime` with the Claude adapter and thread list adapter. The `onUserPrompt` callback hooks into session management.
-- **`src/components/ThreadWorkspace.tsx`** — Main layout: sidebar thread list + chat area. Currently manages threads via React state with `key={activeThread.id}` to force runtime recreation on switch.
+- **`src/lib/claude-adapter.ts`** (~1900 lines) — Core integration. Implements `ChatModelAdapter`, manages Claude CLI process lifecycle, session persistence, stream parsing, and dev event logging. This is the most complex file in the project.
+- **`src/lib/db.ts`** — SQLite database layer. Schema management, migrations, and all DB operations for threads, messages, and session state.
+- **`src/lib/sqlite-thread-list-adapter.ts`** — Thread list persistence via SQLite (implements assistant-ui's `ThreadListAdapter`).
+- **`src/lib/sqlite-thread-history-adapter.tsx`** — Thread message history persistence via SQLite.
+- **`src/components/RuntimeProvider.tsx`** — Sets up the runtime with the Claude adapter, thread list adapter, and thread history adapter.
+- **`src/components/ThreadWorkspace.tsx`** — Main layout: sidebar thread list + chat area.
 - **`src/components/assistant-ui/thread.tsx`** — Chat UI using assistant-ui primitives (`ThreadPrimitive`, `MessagePrimitive`, `ComposerPrimitive`, etc.).
-- **`src-tauri/src/lib.rs`** — Tauri builder setup with shell plugin.
+- **`src/components/assistant-ui/claude-tool-display.tsx`** — Specialized rendering for Claude CLI tool call events (file edits, shell commands, etc.).
+- **`src-tauri/src/lib.rs`** — Tauri builder setup with shell and SQL plugins.
 - **`src-tauri/capabilities/default.json`** — Shell permission grants (controls which commands the webview can execute).
+- **`src-tauri/migrations/`** — SQLite schema migrations for the `pluribus.db` database.
 
 ### Session Management (claude-adapter.ts)
 
@@ -51,7 +55,15 @@ The adapter maintains per-thread Claude CLI sessions with a retry strategy:
 2. **Session-ID** — If cache is missing but we have an ID, use `--session-id`
 3. **Fresh** — Start a new session
 
-Sessions are stored in an in-memory `Map<string, SessionRecord>` and persisted to localStorage. Thread locking uses a FIFO waiter queue with timeout protection to prevent concurrent CLI invocations per thread.
+Sessions are stored in an in-memory `Map<string, SessionRecord>` and persisted to SQLite. Thread locking uses a FIFO waiter queue with timeout protection to prevent concurrent CLI invocations per thread.
+
+### Persistence Layer
+
+The app uses **SQLite** (via `tauri-plugin-sql`) as its primary persistence backend, stored in `pluribus.db`. The database layer in `db.ts` manages:
+- Thread metadata and ordering
+- Message history per thread
+- Session state (Claude CLI session IDs and resume files)
+- Schema migrations (tracked in `src-tauri/migrations/`)
 
 ### Dev Event System
 
@@ -71,13 +83,11 @@ A circular buffer (500 entries max) logs all stream events from Claude CLI. The 
 - **TypeScript**: Strict mode with `noUnusedLocals` and `noUnusedParameters` enforced
 - **Path alias**: `@/*` maps to `src/*`
 - **File naming**: kebab-case for files, PascalCase for components
-- **State**: Module-level Maps/Sets in claude-adapter.ts for process state; localStorage for persistence; minimal Zustand (installed but lightly used)
+- **Persistence**: SQLite via `tauri-plugin-sql` (`pluribus.db`) for threads, messages, and session state. In-memory Maps/Sets in claude-adapter.ts for runtime process state.
+- **State**: Minimal Zustand (installed but lightly used)
 
-## Known Issues (from REVIEW.md)
+## Known Issues
 
-See `REVIEW.md` for a detailed expert panel review. Key architectural issues to be aware of:
-
-- **Thread switching destroys runtime** — `key={activeThread.id}` on RuntimeProvider unmounts/remounts on every switch, losing messages and UI state. The built-in assistant-ui thread list system (`ThreadListAdapter`) is scaffolded in `thread-list.tsx` but unused.
 - **Adapter sends only last message** — `extractUserPrompt()` discards conversation history (Claude CLI manages its own via `--resume`). This means edit/branch/regenerate operations in the UI diverge from the CLI session.
 - **No attachment adapter** — The UI has attachment components wired up but no `adapters.attachments` is passed to `useLocalRuntime`, so attachments are non-functional.
-- **Shell security** — Review recommends replacing `sh -c` invocation with direct `Command.create("claude", [...args])` and tightening Tauri capabilities.
+- **Shell security** — The adapter invokes Claude CLI via a `sh -c` wrapper (`claude-stream-sh`). Replacing this with a direct `Command.create("claude", [...args])` invocation would be more secure.
