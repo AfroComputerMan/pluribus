@@ -1,5 +1,16 @@
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
+import {
+  ReadTool,
+  EditTool,
+  WriteTool,
+  BashTool,
+  GrepTool,
+  GlobTool,
+  WebSearchTool,
+  WebFetchTool,
+  TaskTool,
+} from "@/components/assistant-ui/claude-tool-display";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -247,7 +258,20 @@ const AssistantMessage: FC = () => {
             Text: MarkdownText,
             Reasoning: ReasoningPart,
             ReasoningGroup,
-            tools: { Fallback: ToolFallback },
+            tools: {
+              by_name: {
+                Task: TaskTool,
+                Read: ReadTool,
+                Edit: EditTool,
+                Write: WriteTool,
+                Bash: BashTool,
+                Grep: GrepTool,
+                Glob: GlobTool,
+                WebSearch: WebSearchTool,
+                WebFetch: WebFetchTool,
+              },
+              Fallback: ToolFallback,
+            },
           }}
         />
         <MessageError />

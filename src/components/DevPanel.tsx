@@ -321,15 +321,11 @@ export function DevPanel() {
                     <div key={record.threadKey} className="rounded border p-2">
                       <div className="mb-1 flex items-center justify-between gap-2">
                         <Badge variant="secondary">{record.status}</Badge>
-                        <Badge variant="outline">{record.localCache}</Badge>
                       </div>
                       <div className="font-mono text-[11px]">{record.sessionId}</div>
                       <div className="mt-1 text-muted-foreground">
-                        strategy={record.strategy} • updated {formatTs(record.lastUpdatedAt)}
+                        updated {formatTs(record.lastUpdatedAt)}
                       </div>
-                      {record.lastError && (
-                        <div className="mt-1 text-destructive">{record.lastError}</div>
-                      )}
                     </div>
                   ))
                 )}

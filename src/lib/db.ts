@@ -64,11 +64,7 @@ export interface SessionRow {
   thread_id: string;
   session_id: string;
   status: string;
-  local_cache: string;
-  strategy: string;
-  last_checked_at: string | null;
   last_updated_at: string;
-  last_error: string | null;
 }
 
 export interface DevEventRow {
@@ -352,7 +348,7 @@ async function messagesDeleteByThread(threadId: string): Promise<void> {
 async function sessionsGet(threadId: string): Promise<SessionRow | null> {
   const conn = await getDb();
   const rows = await conn.select<SessionRow[]>(
-    "SELECT * FROM sessions WHERE thread_id = $1",
+    "SELECT thread_id, session_id, status, last_updated_at FROM sessions WHERE thread_id = $1",
     [threadId],
   );
   return rows[0] ?? null;
@@ -361,25 +357,17 @@ async function sessionsGet(threadId: string): Promise<SessionRow | null> {
 async function sessionsUpsert(row: SessionRow): Promise<void> {
   const conn = await getDb();
   await conn.execute(
-    `INSERT INTO sessions (thread_id, session_id, status, local_cache, strategy, last_checked_at, last_updated_at, last_error)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO sessions (thread_id, session_id, status, last_updated_at)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (thread_id) DO UPDATE SET
        session_id = $2,
        status = $3,
-       local_cache = $4,
-       strategy = $5,
-       last_checked_at = $6,
-       last_updated_at = $7,
-       last_error = $8`,
+       last_updated_at = $4`,
     [
       row.thread_id,
       row.session_id,
       row.status,
-      row.local_cache,
-      row.strategy,
-      row.last_checked_at,
       row.last_updated_at,
-      row.last_error,
     ],
   );
 }

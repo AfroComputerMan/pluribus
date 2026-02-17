@@ -6,6 +6,8 @@ import { prefetchTitle } from "@/lib/sqlite-thread-list-adapter";
 
 type ClaudeStreamEventBase = {
   index?: number;
+  parent_tool_use_id?: string | null;
+  tool_use_result?: unknown;
   delta?: {
     type?: string;
     text?: string;
@@ -78,6 +80,11 @@ type ClaudeAssistantEvent = ClaudeStreamEventBase & {
   message?: ClaudeStreamEventBase["message"];
 };
 
+type ClaudeUserEvent = ClaudeStreamEventBase & {
+  type: "user";
+  message?: ClaudeStreamEventBase["message"];
+};
+
 type ClaudeResultEvent = ClaudeStreamEventBase & {
   type: "result";
   result?: string;
@@ -137,6 +144,7 @@ type ClaudeStreamEventEnvelope = ClaudeStreamEventBase & {
 type ClaudeStreamEvent =
   | ClaudeSystemEvent
   | ClaudeAssistantEvent
+  | ClaudeUserEvent
   | ClaudeResultEvent
   | ClaudeContentBlockStartEvent
   | ClaudeContentBlockDeltaEvent
@@ -158,14 +166,35 @@ const activeChildByThread = new Map<string, Child>();
 
 /** Accumulates incremental state for a single content block during streaming. */
 interface ContentBlockAccumulator {
+  key: string;
+  scopeId: string;
+  parentId?: string;
+  streamIndex: number | null;
   blockType: "text" | "thinking" | "tool_use";
   text: string;
   toolCallId: string;
   toolName: string;
   argsJson: string;
-  result: string | undefined;
+  result: unknown;
   isError: boolean;
 }
+
+interface StreamProcessingState {
+  orderedAccumulators: ContentBlockAccumulator[];
+  accumulatorByKey: Map<string, ContentBlockAccumulator>;
+  keyByScopeIndex: Map<string, string>;
+  startCountByScopeIndex: Map<string, number>;
+  keyByToolCallId: Map<string, string>;
+  latestToolCallIdByScope: Map<string, string>;
+  pendingToolResultByCallId: Map<
+    string,
+    { result: unknown; isError: boolean; scopeId: string }
+  >;
+  unhandledEventKinds: Map<string, number>;
+  unresolvedToolResults: number;
+}
+
+const ROOT_SCOPE_ID = "root";
 
 export type ClaudeDevEventCategory =
   | "hooks"
@@ -190,6 +219,8 @@ export interface ClaudeDevSnapshot {
   latestInitEvent: ClaudeDevEvent | null;
   latestUsageEvent: ClaudeDevEvent | null;
   latestSessionId: string | null;
+  streamUnhandledCounts: Record<string, number>;
+  unresolvedToolResultCount: number;
 }
 
 export interface ClaudeAdapterOptions {
@@ -198,25 +229,15 @@ export interface ClaudeAdapterOptions {
 }
 
 export type ClaudeSessionStatus =
-  | "unknown"
-  | "resume_ok"
+  | "active"
   | "stale"
-  | "in_use"
-  | "session_id_ok"
-  | "fallback_new"
   | "error";
-
-export type ClaudeSessionLocalCache = "unknown" | "present" | "missing";
 
 export interface ClaudeSessionRecord {
   threadKey: string;
   sessionId: string;
   status: ClaudeSessionStatus;
-  localCache: ClaudeSessionLocalCache;
-  strategy: "resume" | "session-id" | "none";
-  lastCheckedAt: number | null;
   lastUpdatedAt: number;
-  lastError: string | null;
 }
 
 export interface ClaudePermissionRequest {
@@ -233,6 +254,8 @@ let devSnapshot: Omit<ClaudeDevSnapshot, "events"> = {
   latestInitEvent: null,
   latestUsageEvent: null,
   latestSessionId: null,
+  streamUnhandledCounts: {},
+  unresolvedToolResultCount: 0,
 };
 const devEventsBuffer: Array<ClaudeDevEvent | undefined> = new Array(
   MAX_DEV_EVENTS,
@@ -249,6 +272,8 @@ let cachedDevSnapshot: ClaudeDevSnapshot = {
   latestInitEvent: null,
   latestUsageEvent: null,
   latestSessionId: null,
+  streamUnhandledCounts: {},
+  unresolvedToolResultCount: 0,
 };
 
 const sessionRecords = new Map<string, ClaudeSessionRecord>();
@@ -361,13 +386,7 @@ async function hydrateSessionCache(threadKey: string): Promise<void> {
       threadKey,
       sessionId: row.session_id,
       status: row.status as ClaudeSessionStatus,
-      localCache: row.local_cache as ClaudeSessionLocalCache,
-      strategy: row.strategy as "resume" | "session-id" | "none",
-      lastCheckedAt: row.last_checked_at
-        ? new Date(row.last_checked_at).getTime()
-        : null,
       lastUpdatedAt: new Date(row.last_updated_at).getTime(),
-      lastError: row.last_error,
     });
   }
 }
@@ -390,12 +409,8 @@ function upsertSessionRecord(
   const next: ClaudeSessionRecord = {
     threadKey,
     sessionId,
-    status: current?.status ?? "unknown",
-    localCache: current?.localCache ?? "unknown",
-    strategy: current?.strategy ?? "none",
-    lastCheckedAt: current?.lastCheckedAt ?? null,
+    status: current?.status ?? "active",
     lastUpdatedAt: Date.now(),
-    lastError: current?.lastError ?? null,
     ...patch,
   };
   sessionRecords.set(threadKey, next);
@@ -406,13 +421,7 @@ function upsertSessionRecord(
     thread_id: threadKey,
     session_id: sessionId,
     status: next.status,
-    local_cache: next.localCache,
-    strategy: next.strategy,
-    last_checked_at: next.lastCheckedAt
-      ? new Date(next.lastCheckedAt).toISOString()
-      : null,
     last_updated_at: new Date(next.lastUpdatedAt).toISOString(),
-    last_error: next.lastError,
   });
 }
 
@@ -424,10 +433,7 @@ function setSessionForThread(threadKey: string, id: string): void {
   sessionByThread.set(threadKey, id);
 
   upsertSessionRecord(threadKey, id, {
-    status: "unknown",
-    localCache: "unknown",
-    strategy: "none",
-    lastError: null,
+    status: "active",
   });
 }
 
@@ -440,7 +446,7 @@ function getEventCategory(event: ClaudeStreamEvent): ClaudeDevEventCategory {
   if (event.type === "system" && event.subtype?.startsWith("hook_"))
     return "hooks";
   if (event.type === "system" && event.subtype === "init") return "mcp";
-  if (event.type === "assistant") return "messages";
+  if (event.type === "assistant" || event.type === "user") return "messages";
   if (event.type === "result") return "usage";
   if (event.slash_commands?.length) return "commands";
   if (event.skills?.length) return "skills";
@@ -509,6 +515,8 @@ function pushDevEvent(
           ? event
           : devSnapshot.latestUsageEvent,
     latestSessionId: parsed.session_id ?? devSnapshot.latestSessionId,
+    streamUnhandledCounts: devSnapshot.streamUnhandledCounts,
+    unresolvedToolResultCount: devSnapshot.unresolvedToolResultCount,
   };
   devSnapshotVersion += 1;
 
@@ -552,6 +560,8 @@ export function clearClaudeDevSnapshot(): void {
     latestInitEvent: null,
     latestUsageEvent: null,
     latestSessionId: null,
+    streamUnhandledCounts: {},
+    unresolvedToolResultCount: 0,
   };
   devSnapshotVersion += 1;
   notifyDevListeners();
@@ -573,19 +583,8 @@ export function subscribeClaudeSessionRecords(
 export async function refreshClaudeSessionRecords(): Promise<void> {
   const entries = Array.from(sessionRecords.values());
   for (const record of entries) {
-    const cwd = cwdByThread.get(record.threadKey);
-    if (!cwd) {
-      upsertSessionRecord(record.threadKey, record.sessionId, {
-        localCache: "unknown",
-        lastCheckedAt: Date.now(),
-      });
-      continue;
-    }
     upsertSessionRecord(record.threadKey, record.sessionId, {
-      localCache: "unknown",
       status: record.status,
-      lastCheckedAt: Date.now(),
-      lastError: record.lastError,
     });
   }
 }
@@ -650,19 +649,14 @@ function extractUserPrompt(
 }
 
 function chooseSessionStrategy(
-  threadKey: string,
+  _threadKey: string,
   sessionId: string | null,
 ): {
-  strategy: "resume" | "session-id" | "none";
+  strategy: "resume" | "none";
   sessionId: string | null;
 } {
   if (!sessionId) {
     return { strategy: "none", sessionId: null };
-  }
-
-  const record = sessionRecords.get(threadKey);
-  if (record?.localCache === "missing" || record?.status === "stale") {
-    return { strategy: "session-id", sessionId };
   }
 
   return { strategy: "resume", sessionId };
@@ -673,9 +667,20 @@ function chooseSessionStrategy(
 // ---------------------------------------------------------------------------
 
 function makeAccumulator(
+  state: StreamProcessingState,
   blockType: ContentBlockAccumulator["blockType"],
+  options: {
+    key: string;
+    scopeId: string;
+    parentId?: string;
+    streamIndex: number | null;
+  },
 ): ContentBlockAccumulator {
-  return {
+  const acc: ContentBlockAccumulator = {
+    key: options.key,
+    scopeId: options.scopeId,
+    parentId: options.parentId,
+    streamIndex: options.streamIndex,
     blockType,
     text: "",
     toolCallId: "",
@@ -684,6 +689,124 @@ function makeAccumulator(
     result: undefined,
     isError: false,
   };
+  state.orderedAccumulators.push(acc);
+  state.accumulatorByKey.set(options.key, acc);
+  return acc;
+}
+
+function makeStreamProcessingState(): StreamProcessingState {
+  return {
+    orderedAccumulators: [],
+    accumulatorByKey: new Map(),
+    keyByScopeIndex: new Map(),
+    startCountByScopeIndex: new Map(),
+    keyByToolCallId: new Map(),
+    latestToolCallIdByScope: new Map(),
+    pendingToolResultByCallId: new Map(),
+    unhandledEventKinds: new Map(),
+    unresolvedToolResults: 0,
+  };
+}
+
+function toScopeId(parentToolUseId?: string | null): string {
+  const trimmed = parentToolUseId?.trim();
+  return trimmed ? trimmed : ROOT_SCOPE_ID;
+}
+
+function toParentPartId(scopeId: string): string | undefined {
+  return scopeId === ROOT_SCOPE_ID ? undefined : scopeId;
+}
+
+function makeScopeIndexKey(scopeId: string, index: number): string {
+  return `${scopeId}:${index}`;
+}
+
+function createIndexedAccumulator(
+  state: StreamProcessingState,
+  blockType: ContentBlockAccumulator["blockType"],
+  options: {
+    scopeId: string;
+    parentId?: string;
+    streamIndex: number;
+    source: "stream" | "assistant" | "delta";
+  },
+): ContentBlockAccumulator {
+  const scopeIndexKey = makeScopeIndexKey(options.scopeId, options.streamIndex);
+  const nextStartCount = (state.startCountByScopeIndex.get(scopeIndexKey) ?? 0) + 1;
+  state.startCountByScopeIndex.set(scopeIndexKey, nextStartCount);
+
+  const key = `${scopeIndexKey}:${nextStartCount}:${options.source}`;
+  const acc = makeAccumulator(state, blockType, {
+    key,
+    scopeId: options.scopeId,
+    parentId: options.parentId,
+    streamIndex: options.streamIndex,
+  });
+  state.keyByScopeIndex.set(scopeIndexKey, acc.key);
+  return acc;
+}
+
+function serializeToolResultPayload(input: unknown): unknown {
+  if (input == null) return input;
+  if (typeof input === "string" || typeof input === "number" || typeof input === "boolean") {
+    return input;
+  }
+  try {
+    JSON.stringify(input);
+    return input;
+  } catch {
+    return String(input);
+  }
+}
+
+function applyToolResultToState(
+  state: StreamProcessingState,
+  toolCallId: string | null | undefined,
+  payload: unknown,
+  isError: boolean,
+  scopeId: string,
+): boolean {
+  const normalizedToolCallId = toolCallId?.trim();
+  if (!normalizedToolCallId) {
+    const latestInScope = state.latestToolCallIdByScope.get(scopeId);
+    if (latestInScope) {
+      return applyToolResultToState(
+        state,
+        latestInScope,
+        payload,
+        isError,
+        scopeId,
+      );
+    }
+    state.unresolvedToolResults += 1;
+    return false;
+  }
+
+  const key = state.keyByToolCallId.get(normalizedToolCallId);
+  if (!key) {
+    state.pendingToolResultByCallId.set(normalizedToolCallId, {
+      result: payload,
+      isError,
+      scopeId,
+    });
+    state.unresolvedToolResults += 1;
+    return false;
+  }
+
+  const acc = state.accumulatorByKey.get(key);
+  if (!acc || acc.blockType !== "tool_use") {
+    return false;
+  }
+
+  const changed =
+    acc.result !== payload || acc.isError !== isError;
+  acc.result = payload;
+  acc.isError = isError;
+  return changed;
+}
+
+function noteUnhandledEventKind(state: StreamProcessingState, key: string): void {
+  state.unhandledEventKinds.set(key, (state.unhandledEventKinds.get(key) ?? 0) + 1);
 }
 
 /**
@@ -710,8 +833,8 @@ function unwrapStreamEvent(
         type: "content_block_start",
         index: inner.index ?? 0,
         content_block: inner.content_block ?? { type: "text" },
-        // Propagate session_id from envelope
         session_id: envelope.session_id,
+        parent_tool_use_id: envelope.parent_tool_use_id ?? null,
       } as ClaudeContentBlockStartEvent;
 
     case "content_block_delta":
@@ -720,6 +843,7 @@ function unwrapStreamEvent(
         index: inner.index ?? 0,
         delta: inner.delta ?? { type: "text_delta" },
         session_id: envelope.session_id,
+        parent_tool_use_id: envelope.parent_tool_use_id ?? null,
       } as ClaudeContentBlockDeltaEvent;
 
     case "content_block_stop":
@@ -727,6 +851,7 @@ function unwrapStreamEvent(
         type: "content_block_stop",
         index: inner.index ?? 0,
         session_id: envelope.session_id,
+        parent_tool_use_id: envelope.parent_tool_use_id ?? null,
       } as ClaudeContentBlockStopEvent;
 
     // message_start, message_delta, message_stop — not needed,
@@ -750,19 +875,27 @@ type ContentPart = NonNullable<ChatModelRunResult["content"]>[number];
  * Convert the accumulator array into content parts that assistant-ui expects.
  */
 function buildContentFromAccumulators(
-  accumulators: ContentBlockAccumulator[],
+  state: StreamProcessingState,
 ): NonNullable<ChatModelRunResult["content"]> {
   const content: ContentPart[] = [] as ContentPart[];
-  for (const acc of accumulators) {
+  for (const acc of state.orderedAccumulators) {
     switch (acc.blockType) {
       case "thinking":
         if (acc.text) {
-          content.push({ type: "reasoning", text: acc.text });
+          content.push({
+            type: "reasoning",
+            text: acc.text,
+            parentId: acc.parentId,
+          });
         }
         break;
       case "text":
         if (acc.text) {
-          content.push({ type: "text", text: acc.text });
+          content.push({
+            type: "text",
+            text: acc.text,
+            parentId: acc.parentId,
+          });
         }
         break;
       case "tool_use": {
@@ -780,6 +913,9 @@ function buildContentFromAccumulators(
           toolName: acc.toolName,
           args,
           argsText: acc.argsJson,
+          result: acc.result,
+          isError: acc.isError,
+          parentId: acc.parentId,
         } as ContentPart);
         break;
       }
@@ -795,7 +931,7 @@ function buildContentFromAccumulators(
  */
 function processStreamEvent(
   event: ClaudeStreamEvent,
-  accumulators: ContentBlockAccumulator[],
+  state: StreamProcessingState,
 ): {
   contentChanged: boolean;
   sessionId: string | null;
@@ -806,6 +942,8 @@ function processStreamEvent(
   errors: string[] | null;
   subtype: string | null;
 } {
+  const scopeId = toScopeId(event.parent_tool_use_id);
+  const parentId = toParentPartId(scopeId);
   let contentChanged = false;
   let sessionId: string | null = event.session_id ?? null;
   let resultEvent: ClaudeStreamEvent | null = null;
@@ -829,14 +967,32 @@ function processStreamEvent(
           : block.type === "tool_use"
             ? "tool_use"
             : "text";
-      const acc = makeAccumulator(blockType);
+      const acc = createIndexedAccumulator(state, blockType, {
+        scopeId,
+        parentId,
+        streamIndex: idx,
+        source: "stream",
+      });
+      acc.blockType = blockType;
+      acc.scopeId = scopeId;
+      acc.parentId = parentId;
+      acc.streamIndex = idx;
       if (block.type === "tool_use") {
-        acc.toolCallId = block.id ?? "";
+        acc.toolCallId = block.id ?? acc.toolCallId;
         acc.toolName = block.name ?? "";
+        if (acc.toolCallId) {
+          state.keyByToolCallId.set(acc.toolCallId, acc.key);
+          state.latestToolCallIdByScope.set(scopeId, acc.toolCallId);
+          const pending = state.pendingToolResultByCallId.get(acc.toolCallId);
+          if (pending) {
+            acc.result = pending.result;
+            acc.isError = pending.isError;
+            state.pendingToolResultByCallId.delete(acc.toolCallId);
+          }
+        }
       }
       if (block.text) acc.text = block.text;
       if (block.thinking) acc.text = block.thinking;
-      accumulators[idx] = acc;
       contentChanged = true;
       break;
     }
@@ -844,11 +1000,16 @@ function processStreamEvent(
     case "content_block_delta": {
       const idx = event.index;
       const delta = event.delta;
-      let acc = accumulators[idx];
+      const scopedIdxKey = makeScopeIndexKey(scopeId, idx);
+      const accKey = state.keyByScopeIndex.get(scopedIdxKey);
+      let acc = accKey ? state.accumulatorByKey.get(accKey) : undefined;
       if (!acc) {
-        // Safety: if we missed the start event, create a text accumulator
-        acc = makeAccumulator("text");
-        accumulators[idx] = acc;
+        acc = createIndexedAccumulator(state, "text", {
+          scopeId,
+          parentId,
+          streamIndex: idx,
+          source: "delta",
+        });
       }
       if (delta.text) {
         acc.text += delta.text;
@@ -866,36 +1027,90 @@ function processStreamEvent(
     }
 
     case "content_block_stop":
-      // Block is complete — no action needed, accumulator already has full state
+      // Block is complete — signal change so final accumulated state is yielded
+      contentChanged = true;
       break;
 
-    case "assistant": {
-      // assistant events carry full message snapshots
+    case "assistant":
+    case "user": {
       if (event.message?.content) {
         for (const block of event.message.content) {
-          if (block.type === "tool_result" && block.tool_use_id) {
-            // Reconcile tool results back to their tool_use accumulators
-            for (const acc of accumulators) {
-              if (
-                acc.blockType === "tool_use" &&
-                acc.toolCallId === block.tool_use_id
-              ) {
-                acc.result =
-                  typeof block.content === "string"
-                    ? block.content
-                    : JSON.stringify(block.content ?? block.result ?? "");
-                acc.isError = block.is_error ?? false;
-                contentChanged = true;
-                break;
+          if (block.type === "tool_use") {
+            const toolCallId = block.id ?? "";
+            if (!toolCallId) continue;
+            const toolKey =
+              state.keyByToolCallId.get(toolCallId) ??
+              `${scopeId}:tool:${toolCallId}`;
+            let acc = state.accumulatorByKey.get(toolKey);
+            if (!acc) {
+              acc = makeAccumulator(state, "tool_use", {
+                key: toolKey,
+                scopeId,
+                parentId,
+                streamIndex: null,
+              });
+            }
+            acc.toolCallId = toolCallId;
+            acc.toolName = block.tool_name ?? block.name ?? acc.toolName;
+            if (block.input !== undefined) {
+              try {
+                acc.argsJson = JSON.stringify(block.input);
+              } catch {
+                acc.argsJson = String(block.input);
               }
+            }
+            state.keyByToolCallId.set(toolCallId, acc.key);
+            state.latestToolCallIdByScope.set(scopeId, toolCallId);
+            const pending = state.pendingToolResultByCallId.get(toolCallId);
+            if (pending) {
+              acc.result = pending.result;
+              acc.isError = pending.isError;
+              state.pendingToolResultByCallId.delete(toolCallId);
+            }
+            contentChanged = true;
+            continue;
+          }
+
+          if (block.type === "tool_result" && block.tool_use_id) {
+            const payload = serializeToolResultPayload(
+              block.content ?? block.result ?? block.error ?? null,
+            );
+            if (
+              applyToolResultToState(
+                state,
+                block.tool_use_id,
+                payload,
+                block.is_error ?? false,
+                scopeId,
+              )
+            ) {
+              contentChanged = true;
             }
           }
         }
       }
 
+      if (event.tool_use_result !== undefined) {
+        const firstToolResult = event.message?.content.find(
+          (block) => block.type === "tool_result",
+        );
+        const fallbackCallId = firstToolResult?.tool_use_id;
+        if (
+          applyToolResultToState(
+            state,
+            fallbackCallId,
+            serializeToolResultPayload(event.tool_use_result),
+            false,
+            scopeId,
+          )
+        ) {
+          contentChanged = true;
+        }
+      }
+
       // assistant events with content_block / delta (alternative format)
       if (event.content_block) {
-        const idx = event.index ?? accumulators.length;
+        const idx = event.index ?? state.orderedAccumulators.length;
         const block = event.content_block;
         const blockType =
           block.type === "thinking"
@@ -903,21 +1118,29 @@ function processStreamEvent(
             : block.type === "tool_use"
               ? "tool_use"
               : "text";
-        if (!accumulators[idx]) {
-          const acc = makeAccumulator(blockType);
-          if (block.type === "tool_use") {
-            acc.toolCallId = block.id ?? "";
-            acc.toolName = block.tool_name ?? block.name ?? "";
+        const acc = createIndexedAccumulator(state, blockType, {
+          scopeId,
+          parentId,
+          streamIndex: idx,
+          source: "assistant",
+        });
+        if (block.type === "tool_use") {
+          acc.toolCallId = block.id ?? acc.toolCallId;
+          acc.toolName = block.tool_name ?? block.name ?? acc.toolName;
+          if (acc.toolCallId) {
+            state.keyByToolCallId.set(acc.toolCallId, acc.key);
+            state.latestToolCallIdByScope.set(scopeId, acc.toolCallId);
           }
-          if (block.text) acc.text = block.text;
-          if (block.thinking) acc.text = block.thinking;
-          accumulators[idx] = acc;
-          contentChanged = true;
         }
+        if (block.text) acc.text = block.text;
+        if (block.thinking) acc.text = block.thinking;
+        contentChanged = true;
       }
       if (event.delta) {
-        const idx = event.index ?? accumulators.length - 1;
-        const acc = accumulators[idx];
+        const idx = event.index ?? state.orderedAccumulators.length - 1;
+        const scopedIdxKey = makeScopeIndexKey(scopeId, idx);
+        const key = state.keyByScopeIndex.get(scopedIdxKey);
+        const acc = key ? state.accumulatorByKey.get(key) : undefined;
         if (acc) {
           if (event.delta.text) {
             acc.text += event.delta.text;
@@ -953,6 +1176,10 @@ function processStreamEvent(
       }
       break;
     }
+
+    default:
+      noteUnhandledEventKind(state, `type:${String((event as { type?: string }).type)}`);
+      break;
   }
 
   return {
@@ -979,7 +1206,7 @@ type StreamQueueItem =
 
 interface StreamSpawnConfig {
   prompt: string;
-  sessionMode: "resume" | "session-id" | "none";
+  sessionMode: "resume" | "none";
   sessionId: string | null;
   cwd?: string;
 }
@@ -994,7 +1221,7 @@ interface StreamSpawnConfig {
  * there is no lingering parent shell process.
  */
 const CLAUDE_SHELL_SCRIPT =
-  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --resume "$CLAUDE_SESSION_ID" < /dev/null; elif [ "$CLAUDE_MODE" = "session-id" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --session-id "$CLAUDE_SESSION_ID" < /dev/null; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages < /dev/null; fi';
+  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --debug-to-stderr --resume "$CLAUDE_SESSION_ID" < /dev/null; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --debug-to-stderr < /dev/null; fi';
 
 /**
  * Spawn Claude CLI and yield stream events as an async iterable.
@@ -1159,12 +1386,7 @@ export function createClaudeAdapter(
             knownSessionId,
           );
           const attemptedSessionId = sessionId;
-          const sessionMode =
-            strategy === "resume"
-              ? "resume"
-              : strategy === "session-id"
-                ? "session-id"
-                : "none";
+          const sessionMode = strategy;
 
           const configuredCwd = cwdByThread.get(threadKey);
           const configuredGitBranch = gitBranchByThread.get(threadKey);
@@ -1199,10 +1421,106 @@ export function createClaudeAdapter(
           let streamResultIsError = false;
           let streamResultText: string | null = null;
 
-          // Accumulators for incremental content blocks
-          const accumulators: ContentBlockAccumulator[] = [];
+          const streamState = makeStreamProcessingState();
+          let stdoutLineBuffer = "";
           let lastYieldTime = 0;
           let pendingYield = false;
+
+          const processNdjsonLine = (
+            line: string,
+          ): boolean => {
+            let rawParsed: ClaudeStreamEvent;
+            try {
+              rawParsed = JSON.parse(line) as ClaudeStreamEvent;
+            } catch {
+              devWarn(
+                "[claude-adapter] non-JSON stdout line:",
+                line.slice(0, 120),
+              );
+              return false;
+            }
+
+            devLog(
+              "[claude-adapter] parsed type:",
+              rawParsed.type,
+              rawParsed.type === "stream_event"
+                ? `-> inner: ${(rawParsed as ClaudeStreamEventEnvelope).event?.type}`
+                : "",
+            );
+
+            let parsed: ClaudeStreamEvent;
+            if (rawParsed.type === "stream_event") {
+              const innerType =
+                (rawParsed as ClaudeStreamEventEnvelope).event?.type ??
+                "unknown";
+              const unwrapped = unwrapStreamEvent(
+                rawParsed as ClaudeStreamEventEnvelope,
+              );
+              if (!unwrapped) {
+                devLog("[claude-adapter] unwrap: skipped (null)");
+                noteUnhandledEventKind(
+                  streamState,
+                  `stream_event:${innerType}`,
+                );
+                pushDevEvent(line, rawParsed, threadKey);
+                return false;
+              }
+              devLog("[claude-adapter] unwrap: ->", unwrapped.type);
+              parsed = unwrapped;
+            } else {
+              parsed = rawParsed;
+            }
+
+            pushDevEvent(line, parsed, threadKey);
+
+            const result = processStreamEvent(parsed, streamState);
+
+            devLog(
+              "[claude-adapter] processStreamEvent:",
+              parsed.type,
+              "contentChanged:",
+              result.contentChanged,
+              "accumulators:",
+              streamState.orderedAccumulators.length,
+              "textLen:",
+              streamState.orderedAccumulators.reduce(
+                (sum, acc) => sum + acc.text.length,
+                0,
+              ),
+            );
+
+            if (result.sessionId) {
+              latestSessionId = result.sessionId;
+              knownSessionId = result.sessionId;
+            }
+            if (result.missingConversation) {
+              missingConversation = true;
+              const staleSessionId =
+                attemptedSessionId ?? knownSessionId;
+              if (staleSessionId) {
+                upsertSessionRecord(threadKey, staleSessionId, {
+                  status: "stale",
+                });
+              }
+            }
+            if (result.resultEvent) {
+              streamResultEvent = result.resultEvent;
+              streamResultIsError = result.isError;
+              streamResultText = result.resultText;
+            }
+
+            if (result.contentChanged) {
+              const now = Date.now();
+              if (now - lastYieldTime >= YIELD_THROTTLE_MS) {
+                lastYieldTime = now;
+                pendingYield = false;
+                return true;
+              } else {
+                pendingYield = true;
+              }
+            }
+            return false;
+          };
 
           for await (const item of spawnClaudeStreaming(
             spawnConfig,
@@ -1227,10 +1545,6 @@ export function createClaudeAdapter(
                   if (staleSessionId) {
                     upsertSessionRecord(threadKey, staleSessionId, {
                       status: "stale",
-                      localCache: "missing",
-                      strategy,
-                      lastCheckedAt: Date.now(),
-                      lastError: "No conversation found with session ID",
                     });
                   }
                 }
@@ -1238,10 +1552,7 @@ export function createClaudeAdapter(
                   sessionInUse = true;
                   if (knownSessionId) {
                     upsertSessionRecord(threadKey, knownSessionId, {
-                      status: "in_use",
-                      strategy,
-                      lastCheckedAt: Date.now(),
-                      lastError: trimmed,
+                      status: "error",
                     });
                   }
                 }
@@ -1255,100 +1566,18 @@ export function createClaudeAdapter(
                   "chars,",
                   item.line.slice(0, 80),
                 );
-
-                // Defensive: split on newlines in case Tauri batches lines
-                const lines = item.line.split("\n");
-                for (const rawLine of lines) {
+                stdoutLineBuffer += item.line;
+                let newlineIdx = stdoutLineBuffer.indexOf("\n");
+                while (newlineIdx >= 0) {
+                  const rawLine = stdoutLineBuffer.slice(0, newlineIdx);
+                  stdoutLineBuffer = stdoutLineBuffer.slice(newlineIdx + 1);
                   const line = rawLine.trim();
-                  if (!line) continue;
-
-                  let rawParsed: ClaudeStreamEvent;
-                  try {
-                    rawParsed = JSON.parse(line) as ClaudeStreamEvent;
-                  } catch {
-                    devWarn(
-                      "[claude-adapter] non-JSON stdout line:",
-                      line.slice(0, 120),
-                    );
-                    continue;
-                  }
-
-                  devLog(
-                    "[claude-adapter] parsed type:",
-                    rawParsed.type,
-                    rawParsed.type === "stream_event"
-                      ? `-> inner: ${(rawParsed as ClaudeStreamEventEnvelope).event?.type}`
-                      : "",
-                  );
-
-                  // Unwrap stream_event envelopes into the inner event types
-                  let parsed: ClaudeStreamEvent;
-                  if (rawParsed.type === "stream_event") {
-                    const unwrapped = unwrapStreamEvent(
-                      rawParsed as ClaudeStreamEventEnvelope,
-                    );
-                    if (!unwrapped) {
-                      devLog("[claude-adapter] unwrap: skipped (null)");
-                      // Still log the raw envelope to dev panel for visibility
-                      pushDevEvent(line, rawParsed, threadKey);
-                      continue;
-                    }
-                    devLog(
-                      "[claude-adapter] unwrap: ->",
-                      unwrapped.type,
-                    );
-                    parsed = unwrapped;
-                  } else {
-                    parsed = rawParsed;
-                  }
-
-                  // Log every event to dev panel
-                  pushDevEvent(line, parsed, threadKey);
-
-                  // Process the event and update accumulators
-                  const result = processStreamEvent(parsed, accumulators);
-
-                  devLog(
-                    "[claude-adapter] processStreamEvent:",
-                    parsed.type,
-                    "contentChanged:",
-                    result.contentChanged,
-                    "accumulators:",
-                    accumulators.length,
-                    "textLen:",
-                    accumulators.reduce((s, a) => s + a.text.length, 0),
-                  );
-
-                  if (result.sessionId) {
-                    latestSessionId = result.sessionId;
-                    knownSessionId = result.sessionId;
-                  }
-                  if (result.missingConversation) {
-                    missingConversation = true;
-                    const staleSessionId =
-                      attemptedSessionId ?? knownSessionId;
-                    if (staleSessionId) {
-                      upsertSessionRecord(threadKey, staleSessionId, {
-                        status: "stale",
-                        localCache: "missing",
-                        strategy,
-                        lastCheckedAt: Date.now(),
-                        lastError: "No conversation found with session ID",
-                      });
-                    }
-                  }
-                  if (result.resultEvent) {
-                    streamResultEvent = result.resultEvent;
-                    streamResultIsError = result.isError;
-                    streamResultText = result.resultText;
-                  }
-
-                  // Yield throttled content updates (~60fps)
-                  if (result.contentChanged) {
-                    const now = Date.now();
-                    if (now - lastYieldTime >= YIELD_THROTTLE_MS) {
-                      const content =
-                        buildContentFromAccumulators(accumulators);
+                  if (line) {
+                    const shouldYield = processNdjsonLine(line);
+                    if (shouldYield) {
+                      const content = buildContentFromAccumulators(
+                        streamState,
+                      );
                       if (content.length > 0) {
                         devLog(
                           "[claude-adapter] yielding content:",
@@ -1356,18 +1585,31 @@ export function createClaudeAdapter(
                           "parts",
                         );
                         yield { content } satisfies ChatModelRunResult;
-                        lastYieldTime = now;
-                        pendingYield = false;
                       }
-                    } else {
-                      pendingYield = true;
                     }
                   }
+                  newlineIdx = stdoutLineBuffer.indexOf("\n");
                 }
                 break;
               }
 
               case "close": {
+                const trailing = stdoutLineBuffer.trim();
+                if (trailing) {
+                  const shouldYield = processNdjsonLine(trailing);
+                  if (shouldYield) {
+                    const content = buildContentFromAccumulators(streamState);
+                    if (content.length > 0) {
+                      devLog(
+                        "[claude-adapter] yielding content:",
+                        content.length,
+                        "parts",
+                      );
+                      yield { content } satisfies ChatModelRunResult;
+                    }
+                  }
+                }
+                stdoutLineBuffer = "";
                 exitCode = item.code;
                 exitSignal = item.signal;
                 devLog(
@@ -1389,7 +1631,7 @@ export function createClaudeAdapter(
 
           if (wasAborted) {
             // Flush final content before breaking out
-            const content = buildContentFromAccumulators(accumulators);
+            const content = buildContentFromAccumulators(streamState);
             if (content.length > 0) {
               yield {
                 content,
@@ -1400,8 +1642,8 @@ export function createClaudeAdapter(
           }
 
           // Flush any pending content that wasn't yielded due to throttling
-          if (pendingYield || accumulators.length > 0) {
-            const content = buildContentFromAccumulators(accumulators);
+          if (pendingYield || streamState.orderedAccumulators.length > 0) {
+            const content = buildContentFromAccumulators(streamState);
             if (content.length > 0) {
               yield {
                 content,
@@ -1431,7 +1673,10 @@ export function createClaudeAdapter(
           }
 
           // If no content was yielded from accumulators, fall back to result text
-          if (accumulators.length === 0 && streamResultText) {
+          if (
+            streamState.orderedAccumulators.length === 0 &&
+            streamResultText
+          ) {
             if (!streamResultIsError) {
               yield {
                 content: [{ type: "text", text: streamResultText }],
@@ -1444,6 +1689,15 @@ export function createClaudeAdapter(
               } satisfies ChatModelRunResult;
             }
           }
+
+          devSnapshot = {
+            ...devSnapshot,
+            streamUnhandledCounts: Object.fromEntries(
+              streamState.unhandledEventKinds,
+            ),
+            unresolvedToolResultCount: streamState.unresolvedToolResults,
+          };
+          devSnapshotVersion += 1;
 
           // --- Retry logic (structurally identical to before) ---
 
@@ -1471,19 +1725,7 @@ export function createClaudeAdapter(
 
           if (knownSessionId && !missingConversation && !sessionInUse) {
             upsertSessionRecord(threadKey, knownSessionId, {
-              status:
-                strategy === "resume"
-                  ? "resume_ok"
-                  : strategy === "session-id"
-                    ? "session_id_ok"
-                    : "fallback_new",
-              strategy,
-              localCache:
-                strategy === "session-id"
-                  ? "present"
-                  : (sessionRecords.get(threadKey)?.localCache ?? "unknown"),
-              lastCheckedAt: Date.now(),
-              lastError: null,
+              status: "active",
             });
           }
 
@@ -1493,26 +1735,13 @@ export function createClaudeAdapter(
             if (staleSessionId) {
               upsertSessionRecord(threadKey, staleSessionId, {
                 status: "stale",
-                localCache: "missing",
-                strategy: "none",
-                lastCheckedAt: Date.now(),
-                lastError: "Resume failed; retrying with a fresh session",
               });
             }
             knownSessionId = null;
             continue;
           }
 
-          if (missingConversation && strategy === "session-id") {
-            clearSessionForThread(threadKey);
-            knownSessionId = null;
-            continue;
-          }
-
-          if (
-            sessionInUse &&
-            (strategy === "session-id" || strategy === "resume")
-          ) {
+          if (sessionInUse && strategy === "resume") {
             clearSessionForThread(threadKey);
             knownSessionId = null;
             continue;
