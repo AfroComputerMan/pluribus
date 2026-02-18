@@ -18,6 +18,8 @@ type PendingThreadOptions = {
   cwd?: string | null;
   workspaceId?: string | null;
   gitBranch?: string | null;
+  model?: string | null;
+  effort?: string | null;
 };
 
 const pendingThreadOptionsById = new Map<string, PendingThreadOptions>();
@@ -76,7 +78,9 @@ export function setPendingThreadOptions(
   const normalizedCwd = options.cwd?.trim() || null;
   const normalizedWorkspaceId = options.workspaceId?.trim() || null;
   const normalizedGitBranch = options.gitBranch?.trim() || null;
-  if (!normalizedCwd && !normalizedWorkspaceId && !normalizedGitBranch) {
+  const normalizedModel = options.model?.trim() || null;
+  const normalizedEffort = options.effort?.trim() || null;
+  if (!normalizedCwd && !normalizedWorkspaceId && !normalizedGitBranch && !normalizedModel && !normalizedEffort) {
     pendingThreadOptionsById.delete(threadId);
     return;
   }
@@ -84,6 +88,8 @@ export function setPendingThreadOptions(
     cwd: normalizedCwd,
     workspaceId: normalizedWorkspaceId,
     gitBranch: normalizedGitBranch,
+    model: normalizedModel,
+    effort: normalizedEffort,
   });
 }
 
