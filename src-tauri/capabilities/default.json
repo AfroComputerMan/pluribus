@@ -23,6 +23,11 @@
           "cmd": "sh",
           "args": true,
           "sidecar": false
+        },
+        {
+          "name": "git",
+          "cmd": "git",
+          "args": true
         }
       ]
     },
@@ -39,6 +44,11 @@
           "cmd": "sh",
           "args": true,
           "sidecar": false
+        },
+        {
+          "name": "git",
+          "cmd": "git",
+          "args": true
         }
       ]
     },
