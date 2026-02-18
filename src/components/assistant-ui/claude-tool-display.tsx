@@ -198,15 +198,6 @@ function firstText(...values: unknown[]): string {
   return "";
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function detectLanguageFromPath(path?: string): HighlightLanguage | undefined {
   if (!path) return undefined;
 
@@ -261,7 +252,7 @@ function highlightText(text: string, language?: HighlightLanguage): string {
   try {
     return hljs.highlightAuto(text, AUTO_DETECT_LANGUAGES).value;
   } catch {
-    return escapeHtml(text);
+    return text;
   }
 }
 
