@@ -534,3 +534,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Settings overlay
+ * --------------------------------------------------------------------------- */
+
+.settings-overlay-main {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
