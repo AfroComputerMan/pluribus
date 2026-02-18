@@ -635,11 +635,30 @@ const ComposerBranchControl: FC = () => {
 };
 
 const ComposerAction: FC = () => {
+  const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const [modelId, setModelId] = useState<string>(() => {
+    const stored = localStorage.getItem("pluribus:lastModel");
+    return stored ?? "claude-opus-4-6";
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!threadId) return;
+      const row = await db.threads.get(threadId);
+      if (!cancelled) {
+        setModelId(resolveModel(row?.model ?? null));
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [threadId]);
+
   return (
     <div className="aui-composer-action-wrapper relative mx-2 mb-2 flex items-center justify-between">
       <div className="flex min-w-0 items-center gap-2">
-        <ComposerModelSelector />
-        <ComposerEffortSelector />
+        <ComposerModelSelector modelId={modelId} onModelChange={setModelId} />
+        <ComposerEffortSelector modelId={modelId} />
         <RunningElapsed />
         <ComposerBranchControl />
       </div>
@@ -709,32 +728,15 @@ const RunningElapsed: FC = () => {
   );
 };
 
-const ComposerModelSelector: FC = () => {
+const ComposerModelSelector: FC<{ modelId: string; onModelChange: (id: string) => void }> = ({ modelId, onModelChange }) => {
   const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
   const isRunning = useAuiState(({ thread }) => thread.isRunning);
-  const [modelId, setModelId] = useState<string>(() => {
-    const stored = localStorage.getItem("pluribus:lastModel");
-    return stored ?? "claude-opus-4-6";
-  });
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (!threadId) return;
-      const row = await db.threads.get(threadId);
-      if (!cancelled) {
-        setModelId(resolveModel(row?.model ?? null));
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [threadId]);
 
   const model = getModelById(modelId);
 
   const handleSelect = async (id: string) => {
-    setModelId(id);
+    onModelChange(id);
     setOpen(false);
     localStorage.setItem("pluribus:lastModel", id);
     if (threadId) {
@@ -783,15 +785,12 @@ const ComposerModelSelector: FC = () => {
   );
 };
 
-const ComposerEffortSelector: FC = () => {
+const ComposerEffortSelector: FC<{ modelId: string }> = ({ modelId }) => {
   const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
   const isRunning = useAuiState(({ thread }) => thread.isRunning);
   const [effort, setEffort] = useState<EffortLevel>(() => {
     const stored = localStorage.getItem("pluribus:lastEffort");
     return (stored as EffortLevel) ?? "high";
-  });
-  const [modelId, setModelId] = useState<string>(() => {
-    return localStorage.getItem("pluribus:lastModel") ?? "claude-opus-4-6";
   });
   const [open, setOpen] = useState(false);
 
@@ -802,7 +801,6 @@ const ComposerEffortSelector: FC = () => {
       const row = await db.threads.get(threadId);
       if (!cancelled) {
         setEffort(resolveEffort(row?.effort ?? null));
-        setModelId(resolveModel(row?.model ?? null));
       }
     };
     void load();
