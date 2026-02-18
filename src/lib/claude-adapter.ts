@@ -1232,7 +1232,11 @@ async function ensureBranchCheckedOut(cwd: string, branch: string): Promise<bool
   if (refResult.code !== 0) return false; // branch doesn't exist
 
   const checkoutResult = await Command.create("git", ["-C", repoRoot, "checkout", target]).execute();
-  return checkoutResult.code === 0;
+  if (checkoutResult.code !== 0) {
+    devWarn("[claude-adapter] git checkout failed:", checkoutResult.stderr.trim());
+    return false;
+  }
+  return true;
 }
 
 /**
