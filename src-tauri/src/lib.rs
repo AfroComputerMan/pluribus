@@ -32,6 +32,12 @@ pub fn run() {
             sql: include_str!("../migrations/004_workspaces_and_thread_branch.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "thread_model_effort",
+            sql: include_str!("../migrations/005_thread_model_effort.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
