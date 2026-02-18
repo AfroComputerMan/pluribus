@@ -2,6 +2,7 @@ import { Command, type Child } from "@tauri-apps/plugin-shell";
 import { homeDir } from "@tauri-apps/api/path";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 import { db } from "@/lib/db";
+import { resolveModel, resolveEffort, getModelById } from "@/lib/models";
 import { queueDevEventForArchive } from "@/lib/dev-event-batcher";
 import { prefetchTitle } from "@/lib/sqlite-thread-list-adapter";
 
@@ -1206,6 +1207,8 @@ interface StreamSpawnConfig {
   sessionMode: "resume" | "none";
   sessionId: string | null;
   cwd?: string;
+  model?: string;
+  effort?: string;
 }
 
 const ENSURE_BRANCH_SCRIPT = `
@@ -1238,7 +1241,7 @@ async function ensureBranchCheckedOut(cwd: string, branch: string): Promise<bool
  * there is no lingering parent shell process.
  */
 const CLAUDE_SHELL_SCRIPT =
-  'if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --debug-to-stderr --resume "$CLAUDE_SESSION_ID" < /dev/null; else exec claude -p "$CLAUDE_PROMPT" --output-format stream-json --verbose --include-partial-messages --debug-to-stderr < /dev/null; fi';
+  'MODEL_FLAG=""; [ -n "$CLAUDE_MODEL" ] && MODEL_FLAG="--model $CLAUDE_MODEL"; EFFORT_FLAG=""; [ -n "$CLAUDE_EFFORT" ] && EFFORT_FLAG="--effort $CLAUDE_EFFORT"; if [ "$CLAUDE_MODE" = "resume" ]; then exec claude -p "$CLAUDE_PROMPT" $MODEL_FLAG $EFFORT_FLAG --output-format stream-json --verbose --include-partial-messages --debug-to-stderr --resume "$CLAUDE_SESSION_ID" < /dev/null; else exec claude -p "$CLAUDE_PROMPT" $MODEL_FLAG $EFFORT_FLAG --output-format stream-json --verbose --include-partial-messages --debug-to-stderr < /dev/null; fi';
 
 /**
  * Spawn Claude CLI and yield stream events as an async iterable.
@@ -1261,6 +1264,8 @@ async function* spawnClaudeStreaming(
       CLAUDE_MODE: config.sessionMode,
       CLAUDE_PROMPT: config.prompt,
       CLAUDE_SESSION_ID: config.sessionId ?? "",
+      CLAUDE_MODEL: config.model ?? "",
+      CLAUDE_EFFORT: config.effort ?? "",
     },
   });
 
@@ -1418,11 +1423,18 @@ export function createClaudeAdapter(
           const configuredCwd = cwdByThread.get(threadKey) ?? fallbackCwd;
           const configuredGitBranch = gitBranchByThread.get(threadKey);
 
+          const threadRow = await db.threads.get(threadKey);
+          const effectiveModel = resolveModel(threadRow?.model ?? null);
+          const effectiveEffort = resolveEffort(threadRow?.effort ?? null);
+          const modelDef = getModelById(effectiveModel);
+
           const spawnConfig: StreamSpawnConfig = {
             prompt,
             sessionMode,
             sessionId,
             cwd: configuredCwd,
+            model: effectiveModel,
+            effort: modelDef?.supportsEffort ? effectiveEffort : undefined,
           };
 
           devLog(
