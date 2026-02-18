@@ -1211,24 +1211,28 @@ interface StreamSpawnConfig {
   effort?: string;
 }
 
-const ENSURE_BRANCH_SCRIPT = `
-repo_dir="$1"
-target_branch="$2"
-repo_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || exit 0
-current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-if [ -z "$target_branch" ] || [ "$current_branch" = "$target_branch" ]; then
-  exit 0
-fi
-git -C "$repo_root" show-ref --verify --quiet "refs/heads/$target_branch" || exit 2
-git -C "$repo_root" checkout "$target_branch" >/dev/null 2>&1
-`;
-
 async function ensureBranchCheckedOut(cwd: string, branch: string): Promise<boolean> {
   const target = branch.trim();
   if (!target) return true;
-  const command = Command.create("claude-stream-sh", ["-c", ENSURE_BRANCH_SCRIPT, "ensure-branch", cwd, target]);
-  const result = await command.execute();
-  return result.code === 0;
+
+  const rootResult = await Command.create("git", ["-C", cwd, "rev-parse", "--show-toplevel"]).execute();
+  if (rootResult.code !== 0 || !rootResult.stdout.trim()) return true; // not a repo, skip silently
+
+  const repoRoot = rootResult.stdout.trim();
+
+  const headResult = await Command.create("git", ["-C", repoRoot, "rev-parse", "--abbrev-ref", "HEAD"]).execute();
+  const currentBranch = headResult.stdout.trim();
+  if (currentBranch === target) return true;
+
+  const refResult = await Command.create("git", [
+    "-C", repoRoot,
+    "show-ref", "--verify", "--quiet",
+    `refs/heads/${target}`,
+  ]).execute();
+  if (refResult.code !== 0) return false; // branch doesn't exist
+
+  const checkoutResult = await Command.create("git", ["-C", repoRoot, "checkout", target]).execute();
+  return checkoutResult.code === 0;
 }
 
 /**
