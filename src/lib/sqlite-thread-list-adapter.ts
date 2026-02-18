@@ -71,6 +71,12 @@ export function prefetchTitle(remoteId: string, userText: string): void {
     .catch(() => { /* CLI unavailable — generateTitle() will use fallback */ });
 }
 
+export function getPendingThreadOptions(
+  threadId: string,
+): PendingThreadOptions | undefined {
+  return pendingThreadOptionsById.get(threadId);
+}
+
 export function setPendingThreadOptions(
   threadId: string,
   options: PendingThreadOptions,

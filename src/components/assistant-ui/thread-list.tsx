@@ -30,9 +30,11 @@ import {
   LoaderCircleIcon,
   PencilIcon,
   PlusIcon,
+  SettingsIcon,
   TrashIcon,
   XIcon,
 } from "lucide-react";
+import { SettingsOverlay } from "@/components/settings-overlay";
 import type { FC, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -184,6 +186,7 @@ export const ThreadList: FC = () => {
 
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingThreadTitle, setEditingThreadTitle] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const editingThreadInputRef = useRef<HTMLInputElement>(null);
 
   const [deletingWorkspace, setDeletingWorkspace] = useState<WorkspaceRow | null>(null);
@@ -192,6 +195,25 @@ export const ThreadList: FC = () => {
   const [showDeleteAllUnassigned, setShowDeleteAllUnassigned] = useState(false);
   const [isDeletingAllUnassigned, setIsDeletingAllUnassigned] = useState(false);
   const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<Record<string, boolean>>({});
+  // Tracks the workspace for a newly-switched thread before its first message (no remoteId yet).
+  const [pendingNewThreadWorkspace, setPendingNewThreadWorkspace] = useState<{
+    threadId: string;
+    workspaceId: string;
+  } | null>(null);
+
+  // Clear pending workspace state when the thread navigates away or becomes initialized.
+  useEffect(() => {
+    if (!pendingNewThreadWorkspace) return;
+    const { threadId } = pendingNewThreadWorkspace;
+    // User navigated to a different thread.
+    if (mainThreadId !== threadId) {
+      setPendingNewThreadWorkspace(null);
+      return;
+    }
+    // Thread was initialized (first message sent) — it now has a remoteId.
+    const hasRemoteId = threads.some((t) => t.id === threadId && t.remoteId !== null);
+    if (hasRemoteId) setPendingNewThreadWorkspace(null);
+  }, [mainThreadId, pendingNewThreadWorkspace, threads]);
 
   const loadWorkspaces = useCallback(async () => {
     const rows = await db.workspaces.list();
@@ -377,6 +399,10 @@ export const ThreadList: FC = () => {
           model: localStorage.getItem("pluribus:lastModel"),
           effort: localStorage.getItem("pluribus:lastEffort"),
         });
+        // Show the new thread under this workspace immediately (before first message).
+        setPendingNewThreadWorkspace({ threadId, workspaceId: workspace.id });
+        // Expand the workspace section so the new thread is visible.
+        setCollapsedWorkspaceIds((prev) => ({ ...prev, [workspace.id]: false }));
       } catch (cause) {
         const message =
           cause instanceof Error ? cause.message : "Failed to create thread.";
@@ -393,6 +419,15 @@ export const ThreadList: FC = () => {
     const unassigned: ThreadSnapshot[] = [];
 
     for (const thread of threads) {
+      // Before the first message is sent, the thread has no remoteId. If this is the
+      // pending new thread, place it under the intended workspace immediately.
+      if (!thread.remoteId && pendingNewThreadWorkspace?.threadId === thread.id) {
+        const current = groupedByWorkspace.get(pendingNewThreadWorkspace.workspaceId) ?? [];
+        current.push(thread);
+        groupedByWorkspace.set(pendingNewThreadWorkspace.workspaceId, current);
+        continue;
+      }
+
       const workspaceId =
         thread.remoteId ? threadMetaByRemoteId[thread.remoteId]?.workspaceId ?? null : null;
       if (!workspaceId) {
@@ -406,7 +441,7 @@ export const ThreadList: FC = () => {
     }
 
     return { groupedByWorkspace, unassigned };
-  }, [threadMetaByRemoteId, threads]);
+  }, [threadMetaByRemoteId, threads, pendingNewThreadWorkspace]);
 
   const startWorkspaceRename = useCallback((workspace: WorkspaceRow) => {
     setEditingWorkspaceId(workspace.id);
@@ -842,18 +877,29 @@ export const ThreadList: FC = () => {
       ) : null}
       </div>
       <div className="aui-sidebar-footer border-t border-border">
-        <Button
-          variant="ghost"
-          className="h-8 w-full justify-start gap-2 px-2 text-sm"
-          onClick={() => {
-            setShowWorkspaceForm((prev) => !prev);
-            setError(null);
-            setWorkspaceCreationError(null);
-          }}
-        >
-          <FolderPlusIcon className="size-4" />
-          Add workspace
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            className="h-8 flex-1 justify-start gap-2 px-2 text-sm"
+            onClick={() => {
+              setShowWorkspaceForm((prev) => !prev);
+              setError(null);
+              setWorkspaceCreationError(null);
+            }}
+          >
+            <FolderPlusIcon className="size-4" />
+            Add workspace
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings"
+            title="Settings"
+          >
+            <SettingsIcon className="size-4" />
+          </Button>
+        </div>
         {showWorkspaceForm ? (
           <div className="aui-workspace-form mt-2 grid gap-2 rounded-md border p-2">
             <input
@@ -979,6 +1025,15 @@ export const ThreadList: FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SettingsOverlay
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        workspaces={workspaces.map((w) => ({ id: w.id, name: w.name, cwd: w.cwd }))}
+        currentThread={(() => {
+          const active = threads.find((t) => t.id === mainThreadId);
+          return active ? { id: active.id, title: active.title ?? "Untitled" } : null;
+        })()}
+      />
     </ThreadListPrimitive.Root>
   );
 };

@@ -43,7 +43,7 @@ import {
   switchWorkspaceBranch,
   type WorkspaceRepoMeta,
 } from "@/lib/workspace-repo-metadata";
-import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
+import { getPendingThreadOptions, setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -85,7 +85,11 @@ function useThreadWorkspace() {
 
   useEffect(() => {
     if (!remoteId) {
-      setHasWorkspace(false);
+      // Thread hasn't been initialized yet (no first message sent). Check if a
+      // workspace was pre-assigned via the workspace "+" button so we can skip
+      // the workspace picker and show the composer immediately.
+      const pending = threadId ? getPendingThreadOptions(threadId) : undefined;
+      setHasWorkspace(Boolean(pending?.workspaceId));
       return;
     }
 
@@ -101,7 +105,7 @@ function useThreadWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [remoteId]);
+  }, [remoteId, threadId]);
 
   return { threadId, remoteId, isEmpty, hasWorkspace, setHasWorkspace };
 }
