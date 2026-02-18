@@ -36,6 +36,8 @@ export interface ThreadRow {
   cwd: string | null;
   workspace_id: string | null;
   git_branch: string | null;
+  model: string | null;
+  effort: string | null;
   dev_panel_open: number;
   created_at: string;
   updated_at: string;
@@ -119,18 +121,6 @@ export interface UsageSnapshotRow {
   captured_at: string;
 }
 
-export class DuplicateThreadWorkspaceError extends Error {
-  readonly existingThreadId: string;
-  readonly cwd: string;
-
-  constructor(existingThreadId: string, cwd: string) {
-    super("A thread already exists for this workspace.");
-    this.name = "DuplicateThreadWorkspaceError";
-    this.existingThreadId = existingThreadId;
-    this.cwd = cwd;
-  }
-}
-
 export class DuplicateWorkspaceCwdError extends Error {
   readonly existingWorkspaceId: string;
   readonly cwd: string;
@@ -163,37 +153,6 @@ function cwdComparisonKey(cwd: string | null | undefined): string | null {
   return normalized.replace(/\\/g, "/");
 }
 
-async function threadsFindRegularByCwd(
-  cwd: string,
-  excludeId?: string | null,
-): Promise<ThreadRow | null> {
-  const targetKey = cwdComparisonKey(cwd);
-  if (!targetKey) return null;
-  const conn = await getDb();
-  const rows = await conn.select<ThreadRow[]>(
-    `SELECT * FROM threads
-     WHERE status = 'regular' AND cwd IS NOT NULL AND ($1 IS NULL OR id <> $1)
-     ORDER BY updated_at DESC`,
-    [excludeId ?? null],
-  );
-  for (const row of rows) {
-    if (cwdComparisonKey(row.cwd) === targetKey) {
-      return row;
-    }
-  }
-  return null;
-}
-
-async function assertNoRegularThreadDuplicateByCwd(
-  cwd: string | null,
-  excludeId?: string | null,
-): Promise<void> {
-  if (!cwd) return;
-  const duplicate = await threadsFindRegularByCwd(cwd, excludeId);
-  if (!duplicate) return;
-  throw new DuplicateThreadWorkspaceError(duplicate.id, cwd);
-}
-
 async function threadsList(): Promise<ThreadRow[]> {
   const conn = await getDb();
   return conn.select<ThreadRow[]>(
@@ -217,6 +176,8 @@ async function threadsCreate(
     cwd?: string | null;
     workspaceId?: string | null;
     gitBranch?: string | null;
+    model?: string | null;
+    effort?: string | null;
   },
 ): Promise<ThreadRow> {
   const conn = await getDb();
@@ -224,23 +185,47 @@ async function threadsCreate(
   const cwd = normalizeCwd(opts?.cwd);
   const workspaceId = opts?.workspaceId?.trim() || null;
   const gitBranch = opts?.gitBranch?.trim() || null;
-  await assertNoRegularThreadDuplicateByCwd(cwd, id);
+  const model = opts?.model?.trim() || null;
+  const effort = opts?.effort?.trim() || null;
   await conn.execute(
-    `INSERT INTO threads (id, remote_id, status, cwd, workspace_id, git_branch, created_at, updated_at)
-     VALUES ($1, $1, 'regular', $2, $3, $4, $5, $5)
+    `INSERT INTO threads (id, remote_id, status, cwd, workspace_id, git_branch, model, effort, created_at, updated_at)
+     VALUES ($1, $1, 'regular', $2, $3, $4, $5, $6, $7, $7)
      ON CONFLICT (id) DO NOTHING`,
-    [id, cwd, workspaceId, gitBranch, now],
+    [id, cwd, workspaceId, gitBranch, model, effort, now],
   );
   const row = await threadsGet(id);
   if (!row) throw new Error(`Failed to create thread: ${id}`);
   return row;
 }
 
+/**
+ * If `title` already exists among regular threads (excluding `excludeId`),
+ * appends " (1)", " (2)", etc. until the title is unique.
+ */
+async function deduplicateTitle(
+  title: string,
+  excludeId?: string | null,
+): Promise<string> {
+  const conn = await getDb();
+  const rows = await conn.select<{ title: string }[]>(
+    `SELECT title FROM threads
+     WHERE status = 'regular' AND title IS NOT NULL AND ($1 IS NULL OR id <> $1)`,
+    [excludeId ?? null],
+  );
+  const existingTitles = new Set(rows.map((r) => r.title));
+  if (!existingTitles.has(title)) return title;
+
+  let n = 1;
+  while (existingTitles.has(`${title} (${n})`)) n++;
+  return `${title} (${n})`;
+}
+
 async function threadsRename(id: string, title: string): Promise<void> {
   const conn = await getDb();
+  const uniqueTitle = await deduplicateTitle(title, id);
   await conn.execute(
     "UPDATE threads SET title = $1, updated_at = $2 WHERE id = $3",
-    [title, new Date().toISOString(), id],
+    [uniqueTitle, new Date().toISOString(), id],
   );
 }
 
@@ -253,8 +238,6 @@ async function threadsArchive(id: string): Promise<void> {
 }
 
 async function threadsUnarchive(id: string): Promise<void> {
-  const row = await threadsGet(id);
-  await assertNoRegularThreadDuplicateByCwd(normalizeCwd(row?.cwd), id);
   const conn = await getDb();
   await conn.execute(
     "UPDATE threads SET status = 'regular', updated_at = $1 WHERE id = $2",
@@ -280,7 +263,6 @@ async function threadsUpdateSessionId(
 
 async function threadsUpdateCwd(id: string, cwd: string): Promise<void> {
   const normalizedCwd = normalizeCwd(cwd);
-  await assertNoRegularThreadDuplicateByCwd(normalizedCwd, id);
   const conn = await getDb();
   await conn.execute(
     "UPDATE threads SET cwd = $1, updated_at = $2 WHERE id = $3",
@@ -294,7 +276,6 @@ async function threadsUpdateWorkspace(
   cwd: string | null,
 ): Promise<void> {
   const normalizedCwd = normalizeCwd(cwd);
-  await assertNoRegularThreadDuplicateByCwd(normalizedCwd, id);
   const conn = await getDb();
   await conn.execute(
     "UPDATE threads SET workspace_id = $1, cwd = $2, updated_at = $3 WHERE id = $4",
@@ -310,6 +291,28 @@ async function threadsUpdateGitBranch(
   await conn.execute(
     "UPDATE threads SET git_branch = $1, updated_at = $2 WHERE id = $3",
     [gitBranch, new Date().toISOString(), id],
+  );
+}
+
+async function threadsUpdateModel(
+  id: string,
+  model: string | null,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET model = $1, updated_at = $2 WHERE id = $3",
+    [model, new Date().toISOString(), id],
+  );
+}
+
+async function threadsUpdateEffort(
+  id: string,
+  effort: string | null,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET effort = $1, updated_at = $2 WHERE id = $3",
+    [effort, new Date().toISOString(), id],
   );
 }
 
@@ -809,6 +812,8 @@ export const db = {
     updateCwd: threadsUpdateCwd,
     updateWorkspace: threadsUpdateWorkspace,
     updateGitBranch: threadsUpdateGitBranch,
+    updateModel: threadsUpdateModel,
+    updateEffort: threadsUpdateEffort,
     getDevPanelOpen: threadsGetDevPanelOpen,
     setDevPanelOpen: threadsSetDevPanelOpen,
   },
