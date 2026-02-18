@@ -1,0 +1,49 @@
+/* ═══════════════════════════════════════════════════════════
+   Pluribus — Cascade loading animation
+
+   Replaces the default assistant-ui pulsing dot with a
+   three-dot sequential brightness chase using box-shadow.
+   Overrides the zero-specificity :where() selectors in dot.css.
+   ═══════════════════════════════════════════════════════════ */
+
+@keyframes pluribus-cascade {
+  0%, 100% {
+    background-color: var(--accent);
+    box-shadow:
+      8px 0 0 color-mix(in srgb, var(--accent) 20%, transparent),
+      16px 0 0 color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  33% {
+    background-color: color-mix(in srgb, var(--accent) 20%, transparent);
+    box-shadow:
+      8px 0 0 var(--accent),
+      16px 0 0 color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  66% {
+    background-color: color-mix(in srgb, var(--accent) 20%, transparent);
+    box-shadow:
+      8px 0 0 color-mix(in srgb, var(--accent) 20%, transparent),
+      16px 0 0 var(--accent);
+  }
+}
+
+.aui-md[data-status="running"]:empty::after,
+.aui-md[data-status="running"] > :not(ol):not(ul):not(pre):last-child::after,
+.aui-md[data-status="running"] > pre:last-child code::after,
+.aui-md[data-status="running"] > :is(ol, ul):last-child > li:last-child:not(:has(* > li))::after,
+.aui-md[data-status="running"] > :is(ol, ul):last-child > li:last-child > :is(ol, ul):last-child > li:last-child:not(:has(* > li))::after,
+.aui-md[data-status="running"] > :is(ol, ul):last-child > li:last-child > :is(ol, ul):last-child > li:last-child > :is(ol, ul):last-child > li:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow:
+    8px 0 0 color-mix(in srgb, var(--accent) 20%, transparent),
+    16px 0 0 color-mix(in srgb, var(--accent) 20%, transparent);
+  animation: pluribus-cascade 1.4s ease-in-out infinite;
+  vertical-align: middle;
+  margin-left: 8px;
+  margin-right: 0.25rem;
+}

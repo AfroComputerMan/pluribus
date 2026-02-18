@@ -1,4 +1,5 @@
 import "./App.css";
+import "./loading-animations.css";
 import { lazy, Suspense } from "react";
 import { ThreadWorkspace } from "@/components/ThreadWorkspace";
 import { RuntimeProvider } from "@/components/RuntimeProvider";
