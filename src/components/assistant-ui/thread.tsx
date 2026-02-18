@@ -21,12 +21,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   getClaudePermissionRequests,
   respondToClaudePermissionRequest,
   subscribeClaudePermissionRequests,
 } from "@/lib/claude-adapter";
-import { db, DuplicateThreadWorkspaceError, type WorkspaceRow } from "@/lib/db";
+import { db, type WorkspaceRow } from "@/lib/db";
+import {
+  CLAUDE_MODELS,
+  EFFORT_LEVELS,
+  resolveModel,
+  resolveEffort,
+  getModelById,
+  type EffortLevel,
+} from "@/lib/models";
 import {
   createWorkspaceBranch,
   getWorkspaceRepoMeta,
@@ -51,6 +60,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CheckIcon,
+  ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
   FolderOpenIcon,
@@ -65,6 +75,8 @@ import { type FC, useCallback, useEffect, useMemo, useState, useSyncExternalStor
 
 /** Hook to check whether the current thread has a workspace assigned. */
 function useThreadWorkspace() {
+  // Use the internal thread list item id (always available, even before initialize).
+  const threadId = useAuiState(({ threadListItem }) => threadListItem.id ?? null);
   const remoteId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
   const isEmpty = useAuiState(({ thread }) => thread.isEmpty);
 
@@ -91,11 +103,11 @@ function useThreadWorkspace() {
     };
   }, [remoteId]);
 
-  return { remoteId, isEmpty, hasWorkspace, setHasWorkspace };
+  return { threadId, remoteId, isEmpty, hasWorkspace, setHasWorkspace };
 }
 
 export const Thread: FC = () => {
-  const { remoteId, isEmpty, hasWorkspace, setHasWorkspace } = useThreadWorkspace();
+  const { threadId, isEmpty, hasWorkspace, setHasWorkspace } = useThreadWorkspace();
   const needsWorkspace = isEmpty && hasWorkspace === false;
 
   return (
@@ -111,7 +123,7 @@ export const Thread: FC = () => {
       >
         {needsWorkspace ? (
           <WorkspacePicker
-            threadId={remoteId}
+            threadId={threadId}
             onWorkspaceSelected={() => setHasWorkspace(true)}
           />
         ) : (
@@ -281,17 +293,18 @@ const WorkspacePicker: FC<{
       if (!threadId) return;
       setSelectionError(null);
       try {
-        await db.threads.updateWorkspace(threadId, workspace.id, workspace.cwd);
+        // Always set pending options so initialize() picks them up for new threads.
         setPendingThreadOptions(threadId, {
           workspaceId: workspace.id,
           cwd: workspace.cwd,
         });
+        // Try updating the DB row (no-op if thread hasn't been initialized yet).
+        const existing = await db.threads.get(threadId);
+        if (existing) {
+          await db.threads.updateWorkspace(threadId, workspace.id, workspace.cwd);
+        }
         onWorkspaceSelected();
       } catch (cause) {
-        if (cause instanceof DuplicateThreadWorkspaceError) {
-          setSelectionError("A thread for this workspace already exists.");
-          return;
-        }
         const message =
           cause instanceof Error ? cause.message : "Failed to select workspace.";
         setSelectionError(message);
@@ -623,7 +636,8 @@ const ComposerAction: FC = () => {
   return (
     <div className="aui-composer-action-wrapper relative mx-2 mb-2 flex items-center justify-between">
       <div className="flex min-w-0 items-center gap-2">
-        <ComposerModelChip />
+        <ComposerModelSelector />
+        <ComposerEffortSelector />
         <RunningElapsed />
         <ComposerBranchControl />
       </div>
@@ -693,36 +707,148 @@ const RunningElapsed: FC = () => {
   );
 };
 
-const ComposerModelChip: FC = () => {
+const ComposerModelSelector: FC = () => {
   const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
-  const [modelLabel, setModelLabel] = useState("Opus");
+  const isRunning = useAuiState(({ thread }) => thread.isRunning);
+  const [modelId, setModelId] = useState<string>(() => {
+    const stored = localStorage.getItem("pluribus:lastModel");
+    return stored ?? "claude-opus-4-6";
+  });
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-
-    const loadModel = async () => {
-      if (!threadId) {
-        if (!cancelled) setModelLabel("Opus");
-        return;
+    const load = async () => {
+      if (!threadId) return;
+      const row = await db.threads.get(threadId);
+      if (!cancelled) {
+        setModelId(resolveModel(row?.model ?? null));
       }
-      const usage = await db.usageSnapshots.getLatest(threadId);
-      if (!cancelled) setModelLabel(usage?.model_id?.trim() || "Opus");
     };
-
-    void loadModel().catch(() => {
-      if (!cancelled) setModelLabel("Opus");
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    void load();
+    return () => { cancelled = true; };
   }, [threadId]);
 
+  const model = getModelById(modelId);
+
+  const handleSelect = async (id: string) => {
+    setModelId(id);
+    setOpen(false);
+    localStorage.setItem("pluribus:lastModel", id);
+    if (threadId) {
+      await db.threads.updateModel(threadId, id);
+    }
+    const newModel = getModelById(id);
+    if (!newModel?.supportsEffort && threadId) {
+      await db.threads.updateEffort(threadId, null);
+    }
+  };
+
   return (
-    <div className="aui-composer-chip">
-      <span className="aui-composer-chip-dot" />
-      <span>{modelLabel}</span>
-    </div>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild disabled={isRunning}>
+        <button
+          className="aui-composer-chip aui-composer-chip-interactive"
+          aria-label="Select model"
+        >
+          <span className="aui-composer-chip-dot" />
+          <span>{model?.label ?? modelId}</span>
+          <ChevronDownIcon className="size-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="aui-model-popover w-auto min-w-[10rem] p-1"
+        side="top"
+        align="start"
+        sideOffset={8}
+      >
+        {CLAUDE_MODELS.map((m) => (
+          <button
+            key={m.id}
+            className={`aui-model-option ${m.id === modelId ? "aui-model-option-active" : ""}`}
+            onClick={() => void handleSelect(m.id)}
+          >
+            <span
+              className="aui-composer-chip-dot"
+              style={{ opacity: m.id === modelId ? 1 : 0.3 }}
+            />
+            <span>{m.label}</span>
+            <span className="aui-model-option-family">{m.family}</span>
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+const ComposerEffortSelector: FC = () => {
+  const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const isRunning = useAuiState(({ thread }) => thread.isRunning);
+  const [effort, setEffort] = useState<EffortLevel>(() => {
+    const stored = localStorage.getItem("pluribus:lastEffort");
+    return (stored as EffortLevel) ?? "high";
+  });
+  const [modelId, setModelId] = useState<string>(() => {
+    return localStorage.getItem("pluribus:lastModel") ?? "claude-opus-4-6";
+  });
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!threadId) return;
+      const row = await db.threads.get(threadId);
+      if (!cancelled) {
+        setEffort(resolveEffort(row?.effort ?? null));
+        setModelId(resolveModel(row?.model ?? null));
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [threadId]);
+
+  const model = getModelById(modelId);
+  if (!model?.supportsEffort) return null;
+
+  const handleSelect = async (level: EffortLevel) => {
+    setEffort(level);
+    setOpen(false);
+    localStorage.setItem("pluribus:lastEffort", level);
+    if (threadId) {
+      await db.threads.updateEffort(threadId, level);
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild disabled={isRunning}>
+        <button
+          className="aui-composer-chip aui-composer-chip-interactive"
+          aria-label="Select effort level"
+        >
+          <span className="aui-effort-dot" data-level={effort} />
+          <span>{effort}</span>
+          <ChevronDownIcon className="size-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="aui-model-popover w-auto min-w-[8rem] p-1"
+        side="top"
+        align="start"
+        sideOffset={8}
+      >
+        {EFFORT_LEVELS.map((level) => (
+          <button
+            key={level}
+            className={`aui-model-option ${level === effort ? "aui-model-option-active" : ""}`}
+            onClick={() => void handleSelect(level)}
+          >
+            <span className="aui-effort-dot" data-level={level} style={{ opacity: level === effort ? 1 : 0.4 }} />
+            <span>{level}</span>
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 };
 

@@ -321,6 +321,78 @@
   background: var(--accent);
 }
 
+/* Interactive chip — cursor + hover */
+.aui-composer-chip-interactive {
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.aui-composer-chip-interactive:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.aui-composer-chip-interactive:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Model/effort popover */
+.aui-model-popover {
+  background: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 0.5rem !important;
+  font-family: var(--app-font-mono);
+  font-size: 0.68rem;
+  box-shadow: none !important;
+}
+
+/* Option row */
+.aui-model-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.25rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  border: none;
+  background: transparent;
+  font-family: var(--app-font-mono);
+  font-size: 0.68rem;
+}
+.aui-model-option:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.aui-model-option-active {
+  color: var(--foreground);
+}
+
+/* Family tag inside option */
+.aui-model-option-family {
+  margin-left: auto;
+  opacity: 0.4;
+  font-size: 0.6rem;
+}
+
+/* Effort dot — teal accent per design language */
+.aui-effort-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.aui-effort-dot[data-level="low"] {
+  opacity: 0.35;
+}
+.aui-effort-dot[data-level="medium"] {
+  opacity: 0.65;
+}
+.aui-effort-dot[data-level="high"] {
+  opacity: 1;
+}
+
 .aui-running-elapsed {
   font-family: var(--app-font-mono);
   font-size: 0.68rem;
