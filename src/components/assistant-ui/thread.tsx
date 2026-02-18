@@ -297,6 +297,8 @@ const WorkspacePicker: FC<{
         setPendingThreadOptions(threadId, {
           workspaceId: workspace.id,
           cwd: workspace.cwd,
+          model: localStorage.getItem("pluribus:lastModel"),
+          effort: localStorage.getItem("pluribus:lastEffort"),
         });
         // Try updating the DB row (no-op if thread hasn't been initialized yet).
         const existing = await db.threads.get(threadId);

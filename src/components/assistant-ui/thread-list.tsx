@@ -11,7 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   db,
-  DuplicateThreadWorkspaceError,
   DuplicateWorkspaceCwdError,
   type WorkspaceRow,
 } from "@/lib/db";
@@ -370,32 +369,17 @@ export const ThreadList: FC = () => {
       setError(null);
       setCreatingThreadWorkspaceId(workspace.id);
       try {
-        const workspaceCwd = workspace.cwd.trim();
-        const existingThread = (await db.threads.list()).find((thread) => {
-          const threadWorkspaceId = thread.workspace_id?.trim() ?? null;
-          if (threadWorkspaceId && threadWorkspaceId === workspace.id) return true;
-          const threadCwd = thread.cwd?.trim() ?? null;
-          return Boolean(threadCwd && threadCwd === workspaceCwd);
-        });
-
-        if (existingThread) {
-          aui.threads().switchToThread(existingThread.id);
-          setError("A thread for this workspace already exists. Switched to the existing thread.");
-          return;
-        }
-
         await aui.threads().switchToNewThread();
         const threadId = aui.threads().getState().mainThreadId;
         setPendingThreadOptions(threadId, {
           workspaceId: workspace.id,
           cwd: workspace.cwd,
+          model: localStorage.getItem("pluribus:lastModel"),
+          effort: localStorage.getItem("pluribus:lastEffort"),
         });
       } catch (cause) {
-        const message = cause instanceof DuplicateThreadWorkspaceError
-          ? "A thread for this workspace already exists."
-          : cause instanceof Error
-            ? cause.message
-            : "Failed to create thread.";
+        const message =
+          cause instanceof Error ? cause.message : "Failed to create thread.";
         setError(message);
       } finally {
         setCreatingThreadWorkspaceId(null);
