@@ -18,176 +18,108 @@ export interface WorkspaceBranchOptions {
   branches: string[];
 }
 
-const WORKSPACE_GIT_META_SCRIPT = `
-repo_dir="$1"
-repo_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || exit 0
-branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-remote_url="$(git -C "$repo_root" config --get remote.origin.url 2>/dev/null || true)"
-last_commit_at="$(git -C "$repo_root" log -1 --format=%cI 2>/dev/null || true)"
-counts="$(git -C "$repo_root" rev-list --left-right --count @{upstream}...HEAD 2>/dev/null || true)"
-behind=""
-ahead=""
-if [ -n "$counts" ]; then
-  set -- $counts
-  behind="$1"
-  ahead="$2"
-fi
-repo_name="$(basename "$repo_root")"
-repo_slug=""
-is_github=0
-if [ -n "$remote_url" ]; then
-  case "$remote_url" in
-    *github.com*)
-      is_github=1
-      repo_slug="$(printf '%s' "$remote_url" | sed -E 's#^git@github.com:##; s#^https?://github.com/##; s#\\.git$##')"
-      if [ -n "$repo_slug" ]; then
-        repo_name="\${repo_slug##*/}"
-      fi
-      ;;
-  esac
-fi
-printf 'REPO_ROOT=%s\\n' "$repo_root"
-printf 'REPO_NAME=%s\\n' "$repo_name"
-printf 'REPO_SLUG=%s\\n' "$repo_slug"
-printf 'BRANCH=%s\\n' "$branch"
-printf 'REMOTE_URL=%s\\n' "$remote_url"
-printf 'IS_GITHUB=%s\\n' "$is_github"
-printf 'LAST_COMMIT_AT=%s\\n' "$last_commit_at"
-printf 'BEHIND=%s\\n' "$behind"
-printf 'AHEAD=%s\\n' "$ahead"
-`;
+async function runGit(
+  args: string[],
+  opts?: { cwd?: string },
+): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  const result = await Command.create("git", args, opts).execute();
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim(), code: result.code };
+}
 
-function parseMeta(stdout: string): WorkspaceRepoMeta | null {
-  const lines = stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+function parseRepoSlug(remoteUrl: string): {
+  repoSlug: string | null;
+  repoName: string | null;
+  isGithub: boolean;
+} {
+  const githubSsh = remoteUrl.match(/^git@github\.com:(.+?)(?:\.git)?$/);
+  const githubHttps = remoteUrl.match(/^https?:\/\/github\.com\/(.+?)(?:\.git)?$/);
+  const slug = githubSsh?.[1] ?? githubHttps?.[1] ?? null;
+  if (!slug) return { repoSlug: null, repoName: null, isGithub: false };
+  const repoName = slug.split("/").pop() ?? null;
+  return { repoSlug: slug, repoName, isGithub: true };
+}
 
-  if (!lines.length) return null;
+export async function getWorkspaceRepoMeta(cwd: string): Promise<WorkspaceRepoMeta | null> {
+  const rootResult = await runGit(["-C", cwd, "rev-parse", "--show-toplevel"]);
+  if (rootResult.code !== 0 || !rootResult.stdout) return null;
+  const repoRoot = rootResult.stdout;
 
-  const map = new Map<string, string>();
-  for (const line of lines) {
-    const separator = line.indexOf("=");
-    if (separator <= 0) continue;
-    const key = line.slice(0, separator);
-    const value = line.slice(separator + 1);
-    map.set(key, value);
+  const [branchResult, remoteResult, logResult, countsResult] = await Promise.all([
+    runGit(["-C", repoRoot, "rev-parse", "--abbrev-ref", "HEAD"]),
+    runGit(["-C", repoRoot, "config", "--get", "remote.origin.url"]),
+    runGit(["-C", repoRoot, "log", "-1", "--format=%cI"]),
+    runGit(["-C", repoRoot, "rev-list", "--left-right", "--count", "@{upstream}...HEAD"]),
+  ]);
+
+  const branch = branchResult.stdout || "";
+  if (!branch) return null;
+
+  const remoteUrl = remoteResult.code === 0 ? remoteResult.stdout || null : null;
+  const lastCommitAt = logResult.code === 0 ? logResult.stdout || null : null;
+
+  let behindCount: number | null = null;
+  let aheadCount: number | null = null;
+  if (countsResult.code === 0 && countsResult.stdout) {
+    const parts = countsResult.stdout.split(/\s+/);
+    const behind = Number.parseInt(parts[0] ?? "", 10);
+    const ahead = Number.parseInt(parts[1] ?? "", 10);
+    if (!Number.isNaN(behind)) behindCount = behind;
+    if (!Number.isNaN(ahead)) aheadCount = ahead;
   }
 
-  const repoRoot = map.get("REPO_ROOT")?.trim() ?? "";
-  const repoName = map.get("REPO_NAME")?.trim() ?? "";
-  const branch = map.get("BRANCH")?.trim() ?? "";
-  if (!repoRoot || !repoName || !branch) return null;
-
-  const repoSlug = map.get("REPO_SLUG")?.trim() || null;
-  const remoteUrl = map.get("REMOTE_URL")?.trim() || null;
-  const lastCommitAt = map.get("LAST_COMMIT_AT")?.trim() || null;
-
-  const behindRaw = map.get("BEHIND")?.trim();
-  const behindCount =
-    behindRaw && !Number.isNaN(Number.parseInt(behindRaw, 10))
-      ? Number.parseInt(behindRaw, 10)
-      : null;
-
-  const aheadRaw = map.get("AHEAD")?.trim();
-  const aheadCount =
-    aheadRaw && !Number.isNaN(Number.parseInt(aheadRaw, 10))
-      ? Number.parseInt(aheadRaw, 10)
-      : null;
+  const repoNameFallback = repoRoot.split("/").pop() ?? repoRoot;
+  const { repoSlug, repoName: parsedName, isGithub } = remoteUrl
+    ? parseRepoSlug(remoteUrl)
+    : { repoSlug: null, repoName: null, isGithub: false };
 
   return {
     repoRoot,
-    repoName,
+    repoName: parsedName ?? repoNameFallback,
     repoSlug,
     branch,
     remoteUrl,
-    isGithub: map.get("IS_GITHUB")?.trim() === "1",
+    isGithub,
     lastCommitAt,
     behindCount,
     aheadCount,
   };
 }
 
-function parseKeyValueMap(stdout: string): Map<string, string> {
-  const lines = stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const map = new Map<string, string>();
-  for (const line of lines) {
-    const separator = line.indexOf("=");
-    if (separator <= 0) continue;
-    const key = line.slice(0, separator);
-    const value = line.slice(separator + 1);
-    map.set(key, value);
-  }
-  return map;
-}
-
-export async function getWorkspaceRepoMeta(cwd: string): Promise<WorkspaceRepoMeta | null> {
-  const command = Command.create("claude-stream-sh", ["-c", WORKSPACE_GIT_META_SCRIPT, "git-meta", cwd]);
-  const result = await command.execute();
-  if (result.code !== 0) return null;
-  return parseMeta(result.stdout);
-}
-
-const LIST_BRANCHES_SCRIPT = `
-repo_dir="$1"
-repo_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || exit 0
-current_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-printf 'REPO_ROOT=%s\\n' "$repo_root"
-printf 'CURRENT_BRANCH=%s\\n' "$current_branch"
-git -C "$repo_root" for-each-ref --format='BRANCH=%(refname:short)' refs/heads 2>/dev/null || true
-`;
-
 export async function listWorkspaceBranches(cwd: string): Promise<WorkspaceBranchOptions | null> {
-  const command = Command.create("claude-stream-sh", ["-c", LIST_BRANCHES_SCRIPT, "list-branches", cwd]);
-  const result = await command.execute();
-  if (result.code !== 0) return null;
+  const rootResult = await runGit(["-C", cwd, "rev-parse", "--show-toplevel"]);
+  if (rootResult.code !== 0 || !rootResult.stdout) return null;
+  const repoRoot = rootResult.stdout;
 
-  const lines = result.stdout
+  const [branchResult, refsResult] = await Promise.all([
+    runGit(["-C", repoRoot, "rev-parse", "--abbrev-ref", "HEAD"]),
+    runGit(["-C", repoRoot, "for-each-ref", "--format=%(refname:short)", "refs/heads"]),
+  ]);
+
+  const currentBranch = branchResult.stdout || "";
+  if (!currentBranch) return null;
+
+  const branches = refsResult.stdout
     .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const map = parseKeyValueMap(result.stdout);
-  const repoRoot = map.get("REPO_ROOT")?.trim() ?? "";
-  const currentBranch = map.get("CURRENT_BRANCH")?.trim() ?? "";
-  if (!repoRoot || !currentBranch) return null;
-
-  const branches = lines
-    .filter((line) => line.startsWith("BRANCH="))
-    .map((line) => line.slice("BRANCH=".length).trim())
+    .map((b) => b.trim())
     .filter(Boolean);
 
   return { repoRoot, currentBranch, branches };
 }
 
-const SWITCH_BRANCH_SCRIPT = `
-repo_dir="$1"
-next_branch="$2"
-repo_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || exit 1
-git -C "$repo_root" checkout "$next_branch" >/dev/null 2>&1
-`;
-
 export async function switchWorkspaceBranch(cwd: string, branch: string): Promise<boolean> {
   const target = branch.trim();
   if (!target) return false;
-  const command = Command.create("claude-stream-sh", ["-c", SWITCH_BRANCH_SCRIPT, "switch-branch", cwd, target]);
-  const result = await command.execute();
+  const rootResult = await runGit(["-C", cwd, "rev-parse", "--show-toplevel"]);
+  if (rootResult.code !== 0 || !rootResult.stdout) return false;
+  const result = await runGit(["-C", rootResult.stdout, "checkout", target]);
   return result.code === 0;
 }
-
-const CREATE_BRANCH_SCRIPT = `
-repo_dir="$1"
-next_branch="$2"
-repo_root="$(git -C "$repo_dir" rev-parse --show-toplevel 2>/dev/null)" || exit 1
-git -C "$repo_root" checkout -b "$next_branch" >/dev/null 2>&1
-`;
 
 export async function createWorkspaceBranch(cwd: string, branch: string): Promise<boolean> {
   const target = branch.trim();
   if (!target) return false;
-  const command = Command.create("claude-stream-sh", ["-c", CREATE_BRANCH_SCRIPT, "create-branch", cwd, target]);
-  const result = await command.execute();
+  const rootResult = await runGit(["-C", cwd, "rev-parse", "--show-toplevel"]);
+  if (rootResult.code !== 0 || !rootResult.stdout) return false;
+  const result = await runGit(["-C", rootResult.stdout, "checkout", "-b", target]);
   return result.code === 0;
 }
