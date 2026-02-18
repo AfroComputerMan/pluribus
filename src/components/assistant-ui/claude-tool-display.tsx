@@ -265,6 +265,38 @@ function highlightText(text: string, language?: HighlightLanguage): string {
   }
 }
 
+function domNodesToReact(nodes: NodeList): ReactNode[] {
+  const result: ReactNode[] = [];
+  let key = 0;
+  for (const node of nodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? "";
+      if (text) result.push(text);
+    } else if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === "SPAN") {
+      const el = node as Element;
+      result.push(
+        <span key={key} className={el.getAttribute("class") ?? undefined}>
+          {domNodesToReact(el.childNodes)}
+        </span>,
+      );
+    } else {
+      // Non-span element — render its text content only, never its markup
+      const text = node.textContent ?? "";
+      if (text) result.push(text);
+    }
+    key++;
+  }
+  return result;
+}
+
+function parseHljsHtml(html: string): ReactNode {
+  if (!html) return null;
+  const doc = new DOMParser().parseFromString(`<span>${html}</span>`, "text/html");
+  const root = doc.body.firstChild;
+  if (!root) return null;
+  return domNodesToReact(root.childNodes);
+}
+
 function HighlightedCode({
   text,
   language,
@@ -274,14 +306,13 @@ function HighlightedCode({
   language?: HighlightLanguage;
   error?: boolean;
 }) {
-  const html = useMemo(() => highlightText(text, language), [text, language]);
+  const nodes = useMemo(() => parseHljsHtml(highlightText(text, language)), [text, language]);
 
   return (
     <pre className="whitespace-pre-wrap text-[11px] leading-relaxed font-mono">
-      <code
-        className={cn("hljs", "bg-transparent p-0", error && "text-red-200/90")}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <code className={cn("hljs", "bg-transparent p-0", error && "text-red-200/90")}>
+        {nodes}
+      </code>
     </pre>
   );
 }
