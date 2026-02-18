@@ -121,6 +121,16 @@ export interface UsageSnapshotRow {
   captured_at: string;
 }
 
+export interface ConfigOverrideRow {
+  id: number;
+  scope_type: "workspace" | "thread";
+  scope_id: string;
+  item_type: "mcp_server" | "skill" | "permission" | "command";
+  item_name: string;
+  enabled: number; // 0 or 1
+  created_at: string;
+}
+
 export class DuplicateWorkspaceCwdError extends Error {
   readonly existingWorkspaceId: string;
   readonly cwd: string;
@@ -796,6 +806,62 @@ async function usageSnapshotsGetLatest(
 }
 
 // ---------------------------------------------------------------------------
+// Config overrides
+// ---------------------------------------------------------------------------
+
+async function configOverridesList(
+  scopeType: ConfigOverrideRow["scope_type"],
+  scopeId: string,
+): Promise<ConfigOverrideRow[]> {
+  const d = await getDb();
+  return d.select<ConfigOverrideRow[]>(
+    "SELECT * FROM config_overrides WHERE scope_type = $1 AND scope_id = $2",
+    [scopeType, scopeId],
+  );
+}
+
+async function configOverridesUpsert(
+  scopeType: ConfigOverrideRow["scope_type"],
+  scopeId: string,
+  itemType: ConfigOverrideRow["item_type"],
+  itemName: string,
+  enabled: boolean,
+): Promise<void> {
+  const d = await getDb();
+  await d.execute(
+    `INSERT INTO config_overrides (scope_type, scope_id, item_type, item_name, enabled)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (scope_type, scope_id, item_type, item_name)
+     DO UPDATE SET enabled = $5`,
+    [scopeType, scopeId, itemType, itemName, enabled ? 1 : 0],
+  );
+}
+
+async function configOverridesDelete(
+  scopeType: ConfigOverrideRow["scope_type"],
+  scopeId: string,
+  itemType: ConfigOverrideRow["item_type"],
+  itemName: string,
+): Promise<void> {
+  const d = await getDb();
+  await d.execute(
+    "DELETE FROM config_overrides WHERE scope_type = $1 AND scope_id = $2 AND item_type = $3 AND item_name = $4",
+    [scopeType, scopeId, itemType, itemName],
+  );
+}
+
+async function configOverridesDeleteByScope(
+  scopeType: ConfigOverrideRow["scope_type"],
+  scopeId: string,
+): Promise<void> {
+  const d = await getDb();
+  await d.execute(
+    "DELETE FROM config_overrides WHERE scope_type = $1 AND scope_id = $2",
+    [scopeType, scopeId],
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Public API — namespaced for clean imports
 // ---------------------------------------------------------------------------
 
@@ -856,5 +922,11 @@ export const db = {
     insert: usageSnapshotsInsert,
     getByThread: usageSnapshotsGetByThread,
     getLatest: usageSnapshotsGetLatest,
+  },
+  configOverrides: {
+    list: configOverridesList,
+    upsert: configOverridesUpsert,
+    delete: configOverridesDelete,
+    deleteByScope: configOverridesDeleteByScope,
   },
 } as const;

@@ -38,6 +38,12 @@ pub fn run() {
             sql: include_str!("../migrations/005_thread_model_effort.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "config_overrides",
+            sql: include_str!("../migrations/006_config_overrides.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
