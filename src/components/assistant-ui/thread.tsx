@@ -794,6 +794,8 @@ const ComposerEffortSelector: FC<{ modelId: string }> = ({ modelId }) => {
   });
   const [open, setOpen] = useState(false);
 
+  // Re-read effort from DB when thread changes or when model changes
+  // (switching to a non-effort model clears effort in DB)
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -805,7 +807,7 @@ const ComposerEffortSelector: FC<{ modelId: string }> = ({ modelId }) => {
     };
     void load();
     return () => { cancelled = true; };
-  }, [threadId]);
+  }, [threadId, modelId]);
 
   const model = getModelById(modelId);
   if (!model?.supportsEffort) return null;

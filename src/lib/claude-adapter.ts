@@ -1408,6 +1408,13 @@ export function createClaudeAdapter(
           }
         }
 
+        // Resolve model/effort once before the retry loop (values don't change between retries).
+        // Uses the thread row already fetched above, falling back to localStorage → defaults.
+        const threadRowForModel = await db.threads.get(threadKey);
+        const effectiveModel = resolveModel(threadRowForModel?.model ?? null);
+        const effectiveEffort = resolveEffort(threadRowForModel?.effort ?? null);
+        const modelDef = getModelById(effectiveModel);
+
         let lastAttempt = 0;
 
         while (lastAttempt < 3) {
@@ -1422,11 +1429,6 @@ export function createClaudeAdapter(
 
           const configuredCwd = cwdByThread.get(threadKey) ?? fallbackCwd;
           const configuredGitBranch = gitBranchByThread.get(threadKey);
-
-          const threadRow = await db.threads.get(threadKey);
-          const effectiveModel = resolveModel(threadRow?.model ?? null);
-          const effectiveEffort = resolveEffort(threadRow?.effort ?? null);
-          const modelDef = getModelById(effectiveModel);
 
           const spawnConfig: StreamSpawnConfig = {
             prompt,
