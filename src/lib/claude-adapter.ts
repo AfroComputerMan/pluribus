@@ -207,6 +207,34 @@ export type ClaudeDevEventCategory =
   | "messages"
   | "other";
 
+/** Minimal shape of an SDKMessage forwarded from the Agent SDK sidecar. */
+export interface SidecarSdkMessage {
+  type: "assistant" | "user" | "result" | "system" | "stream_event";
+  subtype?: string;
+  session_id?: string;
+  message?: {
+    content: Array<{
+      type: string;
+      text?: string;
+      id?: string;
+      name?: string;
+      input?: unknown;
+      thinking?: string;
+    }>;
+  };
+  result?: string;
+  total_cost_usd?: number;
+  usage?: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+  };
+  tools?: string[];
+  model?: string;
+  cwd?: string;
+}
+
 export interface ClaudeDevEvent {
   id: string;
   at: number;
@@ -214,6 +242,8 @@ export interface ClaudeDevEvent {
   raw: string;
   parsed: ClaudeStreamEvent;
   category: ClaudeDevEventCategory;
+  /** Present only when emitted by agent-sdk-adapter. The raw SDKMessage object. */
+  sdkMessage?: SidecarSdkMessage;
 }
 
 export interface ClaudeDevSnapshot {
@@ -565,6 +595,24 @@ export function clearClaudeDevSnapshot(): void {
   notifyDevListeners();
 }
 
+/**
+ * Push a dev event into the shared circular buffer and notify listeners.
+ * Called by agent-sdk-adapter.ts so SDK-mode events appear in DevPanel.
+ */
+export function pushClaudeDevEvent(event: ClaudeDevEvent): void {
+  pushDevEventToBuffer(event);
+  if (event.parsed.type === "system" && event.parsed.subtype === "init") {
+    devSnapshot = { ...devSnapshot, latestInitEvent: event, latestSessionId: event.parsed.session_id ?? null };
+    devSnapshotVersion += 1;
+  }
+  if (event.parsed.type === "result") {
+    devSnapshot = { ...devSnapshot, latestUsageEvent: event };
+    devSnapshotVersion += 1;
+  }
+  devEventsVersion += 1;
+  notifyDevListeners();
+}
+
 export function getClaudeSessionRecords(): ClaudeSessionRecord[] {
   return sessionRecordsSnapshot;
 }
@@ -634,7 +682,7 @@ function releaseThreadRunLock(threadKey: string): void {
   activeThreadRuns.delete(threadKey);
 }
 
-function extractUserPrompt(
+export function extractUserPrompt(
   messages: Parameters<ChatModelAdapter["run"]>[0]["messages"],
 ): string {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
