@@ -518,7 +518,12 @@
   }
 }
 
-@media (max-width: 1024px) {
+/* Narrow layout: single-column, drawer handles nav */
+.workspace-narrow {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 767px) {
   .workspace-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -533,6 +538,16 @@
   .workspace-grid.nav-collapsed.utility-collapsed {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Sheet drawer overrides */
+.workspace-drawer-sheet {
+  background: var(--card) !important;
+  border-right: 1px solid var(--border) !important;
+}
+
+.workspace-drawer-notes {
+  flex-shrink: 0;
 }
 
 /* ---------------------------------------------------------------------------
