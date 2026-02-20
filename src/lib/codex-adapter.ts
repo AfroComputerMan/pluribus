@@ -13,6 +13,7 @@ import type {
 } from "@assistant-ui/react";
 import { db } from "@/lib/db";
 import { useCodexApprovalStore } from "@/lib/codex-approval-store";
+import { getModelById, isCodexModel } from "@/lib/models";
 
 // ---------------------------------------------------------------------------
 // Protocol types (match Rust AgentEvent serde output with snake_case)
@@ -72,11 +73,25 @@ function extractUserText(
     .join("\n");
 }
 
-async function getOrCreateCodexThread(threadKey: string): Promise<string> {
+async function getOrCreateCodexThread(
+  threadKey: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): Promise<string> {
   const existing = await db.sessions.get(threadKey);
   if (existing?.session_id) return existing.session_id;
 
-  const codexThreadId = await invoke<string>("codex_start_thread", {});
+  // Build invoke args; omit reasoningEffort if the model doesn't support it
+  const modelDef = model ? getModelById(model) : undefined;
+  const effortArg =
+    reasoningEffort && modelDef?.supportsEffort && isCodexModel(model ?? "")
+      ? reasoningEffort
+      : undefined;
+
+  const codexThreadId = await invoke<string>("codex_start_thread", {
+    model: model ?? null,
+    reasoningEffort: effortArg ?? null,
+  });
   await db.sessions.upsert({
     thread_id: threadKey,
     session_id: codexThreadId,
@@ -110,12 +125,15 @@ export function createCodexAdapter(): ChatModelAdapter {
         (options as { unstable_threadId?: string }).unstable_threadId?.trim() ??
         "__global__";
 
-      const codexThreadId = await getOrCreateCodexThread(threadKey);
+      // Resolve thread settings from DB
+      const threadRow = await db.threads.get(threadKey);
+      const model = threadRow?.model ?? undefined;
+      const effort = threadRow?.effort ?? undefined;
+
+      const codexThreadId = await getOrCreateCodexThread(threadKey, model, effort);
       const userText = extractUserText(messages);
       if (!userText.trim()) return;
 
-      // Resolve cwd from thread row
-      const threadRow = await db.threads.get(threadKey);
       const cwd = threadRow?.cwd ?? undefined;
 
       // Start the turn via Rust backend

@@ -31,10 +31,13 @@ import {
 import { db, type WorkspaceRow } from "@/lib/db";
 import {
   CLAUDE_MODELS,
+  CODEX_MODELS,
   EFFORT_LEVELS,
+  CODEX_EFFORT_LEVELS,
   resolveModel,
   resolveEffort,
   getModelById,
+  isCodexModel,
   type EffortLevel,
 } from "@/lib/models";
 import {
@@ -772,7 +775,23 @@ const ComposerModelSelector: FC<{ modelId: string; onModelChange: (id: string) =
         align="start"
         sideOffset={8}
       >
+        <div className="px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">Claude</div>
         {CLAUDE_MODELS.map((m) => (
+          <button
+            key={m.id}
+            className={`aui-model-option ${m.id === modelId ? "aui-model-option-active" : ""}`}
+            onClick={() => void handleSelect(m.id)}
+          >
+            <span
+              className="aui-composer-chip-dot"
+              style={{ opacity: m.id === modelId ? 1 : 0.3 }}
+            />
+            <span>{m.label}</span>
+            <span className="aui-model-option-family">{m.family}</span>
+          </button>
+        ))}
+        <div className="mt-1 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">Codex</div>
+        {CODEX_MODELS.map((m) => (
           <button
             key={m.id}
             className={`aui-model-option ${m.id === modelId ? "aui-model-option-active" : ""}`}
@@ -818,6 +837,8 @@ const ComposerEffortSelector: FC<{ modelId: string }> = ({ modelId }) => {
   const model = getModelById(modelId);
   if (!model?.supportsEffort) return null;
 
+  const effortLevels = isCodexModel(modelId) ? CODEX_EFFORT_LEVELS : EFFORT_LEVELS;
+
   const handleSelect = async (level: EffortLevel) => {
     setEffort(level);
     setOpen(false);
@@ -845,7 +866,7 @@ const ComposerEffortSelector: FC<{ modelId: string }> = ({ modelId }) => {
         align="start"
         sideOffset={8}
       >
-        {EFFORT_LEVELS.map((level) => (
+        {effortLevels.map((level) => (
           <button
             key={level}
             className={`aui-model-option ${level === effort ? "aui-model-option-active" : ""}`}

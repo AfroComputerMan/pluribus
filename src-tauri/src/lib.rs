@@ -1,5 +1,6 @@
 use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
+use tokio::sync::Mutex;
 
 mod codex;
 use codex::commands::{
@@ -69,17 +70,7 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                match CodexService::start(handle.clone()).await {
-                    Ok(svc) => {
-                        handle.manage(svc);
-                    }
-                    Err(e) => {
-                        eprintln!("CodexService failed to start: {e}");
-                    }
-                }
-            });
+            app.manage(Mutex::new(Option::<CodexService>::None));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

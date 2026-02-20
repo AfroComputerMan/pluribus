@@ -15,22 +15,56 @@ export interface ClaudeModel {
   supportsEffort: boolean;
 }
 
+export interface CodexModel {
+  /** Full model ID passed to Codex API, e.g. "gpt-5.3-codex" */
+  id: string;
+  /** Human-readable label for the UI, e.g. "Codex 5.3" */
+  label: string;
+  /** Model family */
+  family: string;
+  /** Whether the model supports reasoning effort */
+  supportsEffort: boolean;
+}
+
 export const CLAUDE_MODELS: ClaudeModel[] = [
   { id: "claude-opus-4-6",   alias: "opus",   label: "Opus 4.6",   family: "4.6", supportsEffort: true },
   { id: "claude-sonnet-4-6", alias: "sonnet", label: "Sonnet 4.6", family: "4.6", supportsEffort: true },
   { id: "claude-haiku-4-5",  alias: "haiku",  label: "Haiku 4.5",  family: "4.5", supportsEffort: false },
 ];
 
-export type EffortLevel = "low" | "medium" | "high";
+export const CODEX_MODELS: CodexModel[] = [
+  { id: "gpt-5.3-codex",       label: "Codex 5.3",       family: "5.3", supportsEffort: true  },
+  { id: "gpt-5.3-codex-spark", label: "Codex 5.3 Spark", family: "5.3", supportsEffort: false },
+  { id: "gpt-5.2-codex",       label: "Codex 5.2",       family: "5.2", supportsEffort: true  },
+  { id: "gpt-5.1-codex-max",   label: "Codex 5.1 Max",   family: "5.1", supportsEffort: true  },
+  { id: "gpt-5.1-codex",       label: "Codex 5.1",       family: "5.1", supportsEffort: true  },
+  { id: "gpt-5-codex",         label: "Codex 5",         family: "5",   supportsEffort: false },
+  { id: "gpt-5-codex-mini",    label: "Codex 5 Mini",    family: "5",   supportsEffort: false },
+];
 
+export type EffortLevel = "low" | "medium" | "high" | "xhigh";
+
+/** Claude-compatible effort levels (no xhigh) */
 export const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high"];
 
+/** Codex-compatible effort levels (includes xhigh) */
+export const CODEX_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh"];
+
+/** All valid effort levels for validation */
+const ALL_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh"];
+
 export const DEFAULT_MODEL_ID = "claude-opus-4-6";
+export const DEFAULT_CODEX_MODEL_ID = "gpt-5.3-codex";
 export const DEFAULT_EFFORT: EffortLevel = "high";
 
-/** Lookup a model by its full ID. Returns `undefined` if not found. */
-export function getModelById(id: string): ClaudeModel | undefined {
-  return CLAUDE_MODELS.find((m) => m.id === id);
+/** Returns true if the model ID belongs to the Codex family. */
+export function isCodexModel(id: string): boolean {
+  return CODEX_MODELS.some((m) => m.id === id);
+}
+
+/** Lookup a model by its full ID, searching both Claude and Codex registries. */
+export function getModelById(id: string): ClaudeModel | CodexModel | undefined {
+  return CLAUDE_MODELS.find((m) => m.id === id) ?? CODEX_MODELS.find((m) => m.id === id);
 }
 
 /** Resolve the effective model for a thread, falling back through the chain:
@@ -44,10 +78,10 @@ export function resolveModel(threadModel: string | null): string {
 
 /** Resolve the effective effort level for a thread. */
 export function resolveEffort(threadEffort: string | null): EffortLevel {
-  if (threadEffort && EFFORT_LEVELS.includes(threadEffort as EffortLevel))
+  if (threadEffort && ALL_EFFORT_LEVELS.includes(threadEffort as EffortLevel))
     return threadEffort as EffortLevel;
   const stored = localStorage.getItem("pluribus:lastEffort");
-  if (stored && EFFORT_LEVELS.includes(stored as EffortLevel))
+  if (stored && ALL_EFFORT_LEVELS.includes(stored as EffortLevel))
     return stored as EffortLevel;
   return DEFAULT_EFFORT;
 }
