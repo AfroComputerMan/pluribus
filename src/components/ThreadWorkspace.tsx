@@ -1,15 +1,73 @@
 import { Thread } from "@/components/assistant-ui/thread";
 import { ThreadList } from "@/components/assistant-ui/thread-list";
 import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
-import { PanelLeftCloseIcon, PanelLeftOpenIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
+import {
+  MenuIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
+} from "lucide-react";
 import { useState } from "react";
 
 export function ThreadWorkspace() {
   const [isNavOpen, setIsNavOpen] = useState(true);
   const [isUtilityOpen, setIsUtilityOpen] = useState(true);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const isNarrow = useMediaQuery("(max-width: 767px)");
 
   const shellClassName = "app-shell h-full w-full";
+
+  if (isNarrow) {
+    return (
+      <div className={shellClassName}>
+        <div className="workspace-grid workspace-narrow">
+          <section className="workspace-thread">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="workspace-panel-toggle absolute top-2 left-2 z-20"
+              onClick={() => setIsDrawerOpen(true)}
+              aria-label="Open sidebar"
+            >
+              <MenuIcon className="size-4" />
+            </Button>
+            <Thread />
+          </section>
+        </div>
+
+        <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+          <SheetContent
+            side="left"
+            className="workspace-drawer-sheet flex flex-col p-0 w-[280px]"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Navigation</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <ThreadList />
+            </div>
+            <div className="workspace-drawer-notes border-t border-border">
+              <p className="workspace-utility-label px-3 pt-3 pb-1">Notes</p>
+              <textarea
+                className="workspace-utility-notes mx-3 mb-3"
+                style={{ minHeight: "8rem", width: "calc(100% - 1.5rem)" }}
+                placeholder="Capture scratch notes, commands, and reminders..."
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+    );
+  }
 
   return (
     <div className={shellClassName}>
