@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "bun run build:sidecar && tsc && vite build",
+    "build:sidecar": "mkdir -p src-tauri/binaries && bun build --compile sidecar/agent-sdk-bridge/index.ts --outfile src-tauri/binaries/agent-sdk-bridge",
     "preview": "vite preview",
     "tauri": "tauri"
   },

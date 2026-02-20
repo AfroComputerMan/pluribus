@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Compiled sidecar binary — built via `bun run build:sidecar`
+src-tauri/binaries/agent-sdk-bridge
+src-tauri/binaries/agent-sdk-bridge-*

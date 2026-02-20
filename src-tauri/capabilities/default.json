@@ -28,6 +28,10 @@
           "name": "git",
           "cmd": "git",
           "args": true
+        },
+        {
+          "name": "binaries/agent-sdk-bridge",
+          "sidecar": true
         }
       ]
     },
