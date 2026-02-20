@@ -33,6 +33,7 @@ import {
   type ConfigScope,
 } from "@/lib/claude-config-reader";
 import { db, type ConfigOverrideRow } from "@/lib/db";
+import type { AdapterType } from "@/components/RuntimeProvider";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -409,6 +410,22 @@ export function SettingsOverlay({
   const [overrides, setOverrides] = useState<ConfigOverrideRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabSection>("mcp_servers");
+  const [adapterType, setAdapterType] = useState<AdapterType>("shell");
+  const [adapterChanged, setAdapterChanged] = useState(false);
+
+  // Load adapter type when overlay opens
+  useEffect(() => {
+    if (!open) return;
+    db.globalSettings.get("adapter_type").then((v) => {
+      setAdapterType(v === "agent-sdk" ? "agent-sdk" : "shell");
+    }).catch(console.error);
+  }, [open]);
+
+  const handleAdapterChange = async (next: AdapterType) => {
+    setAdapterType(next);
+    await db.globalSettings.set("adapter_type", next);
+    setAdapterChanged(true);
+  };
 
   // Load config when overlay opens
   useEffect(() => {
@@ -548,6 +565,35 @@ export function SettingsOverlay({
           >
             <XIcon className="size-4" />
           </Button>
+        </div>
+
+        {/* Engine selector */}
+        <div className="flex items-center gap-3 border-b border-border px-4 py-2">
+          <span className="text-[0.69rem] font-semibold uppercase tracking-[0.11em] text-muted-foreground">
+            Engine
+          </span>
+          <div className="flex items-center gap-1.5">
+            {(["shell", "agent-sdk"] as AdapterType[]).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => void handleAdapterChange(opt)}
+                className={cn(
+                  "rounded px-2.5 py-1 font-mono text-[0.72rem] transition-colors duration-120",
+                  adapterType === opt
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {opt === "shell" ? "Shell (Claude CLI)" : "Agent SDK"}
+              </button>
+            ))}
+          </div>
+          {adapterChanged && (
+            <span className="font-mono text-[0.64rem] text-muted-foreground/70">
+              Restart to apply
+            </span>
+          )}
         </div>
 
         {/* Tab bar */}
