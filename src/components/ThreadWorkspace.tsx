@@ -8,6 +8,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { NARROW_BREAKPOINT } from "@/lib/breakpoints";
 import { cn } from "@/lib/utils";
 import {
   MenuIcon,
@@ -16,13 +17,17 @@ import {
   PanelRightCloseIcon,
   PanelRightOpenIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function ThreadWorkspace() {
   const [isNavOpen, setIsNavOpen] = useState(true);
   const [isUtilityOpen, setIsUtilityOpen] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const isNarrow = useMediaQuery("(max-width: 767px)");
+  const isNarrow = useMediaQuery(NARROW_BREAKPOINT);
+
+  useEffect(() => {
+    if (!isNarrow) setIsDrawerOpen(false);
+  }, [isNarrow]);
 
   const shellClassName = "app-shell h-full w-full";
 
