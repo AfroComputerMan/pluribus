@@ -1,11 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { useCodexApprovalStore } from "@/lib/codex-approval-store";
+import { useThreadStatusStore } from "@/lib/thread-status-store";
 import { cn } from "@/lib/utils";
 
-async function respondToApproval(approvalId: string, allow: boolean) {
+async function respondToApproval(approvalId: string, allow: boolean, threadId: string) {
   await invoke("codex_approve_tool", { approvalId, allow });
   useCodexApprovalStore.getState().dismiss(approvalId);
+  useThreadStatusStore.getState().setStatus(threadId, "running");
 }
 
 export function ApprovalBanner() {
@@ -35,13 +37,13 @@ export function ApprovalBanner() {
         <Button
           size="sm"
           variant="outline"
-          onClick={() => respondToApproval(pending.approval_id, false)}
+          onClick={() => respondToApproval(pending.approval_id, false, pending.thread_id)}
         >
           Deny
         </Button>
         <Button
           size="sm"
-          onClick={() => respondToApproval(pending.approval_id, true)}
+          onClick={() => respondToApproval(pending.approval_id, true, pending.thread_id)}
         >
           Allow
         </Button>

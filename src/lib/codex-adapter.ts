@@ -13,6 +13,7 @@ import type {
 } from "@assistant-ui/react";
 import { db } from "@/lib/db";
 import { useCodexApprovalStore } from "@/lib/codex-approval-store";
+import { useThreadStatusStore } from "@/lib/thread-status-store";
 import { getModelById, isCodexModel } from "@/lib/models";
 
 // ---------------------------------------------------------------------------
@@ -258,6 +259,7 @@ export function createCodexAdapter(): ChatModelAdapter {
                 command: event.command,
                 reason: event.reason,
               });
+              useThreadStatusStore.getState().setStatus(event.thread_id, "waiting-approval");
               break;
             }
 
