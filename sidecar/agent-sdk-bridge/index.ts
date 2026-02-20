@@ -21,6 +21,19 @@
 import { createInterface } from "node:readline";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
+// Resolve the claude CLI path once at startup.
+// Bun.which() searches PATH from the real environment, bypassing the
+// compiled binary's virtual FS — necessary because the SDK auto-detection
+// fails when running inside a bun --compile bundle (it sees /$bunfs/root/...).
+const claudePath = Bun.which("claude");
+if (!claudePath) {
+  process.stderr.write(
+    "[agent-sdk-bridge] ERROR: 'claude' not found in PATH. Make sure Claude Code is installed.\n"
+  );
+  process.exit(1);
+}
+process.stderr.write(`[agent-sdk-bridge] claude path: ${claudePath}\n`);
+
 // Map of active queryId -> AbortController for interrupt support
 const activeAborts = new Map<string, AbortController>();
 
@@ -48,6 +61,7 @@ async function handleQuery(params: {
   try {
     const sdkOptions: Record<string, unknown> = {
       abortController,
+      pathToClaudeCodeExecutable: claudePath,
       ...(sessionId ? { resume: sessionId } : {}),
       ...(model ? { model } : {}),
       ...(cwd ? { cwd } : {}),
