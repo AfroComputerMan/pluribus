@@ -12,6 +12,7 @@ import { createAgentSdkAdapter } from "@/lib/agent-sdk-adapter";
 import { createCodexAdapter } from "@/lib/codex-adapter";
 import { db } from "@/lib/db";
 import { isCodexModel, DEFAULT_MODEL_ID } from "@/lib/models";
+import { useThreadStatusStore } from "@/lib/thread-status-store";
 
 export function createRouterAdapter(): ChatModelAdapter {
   const sdkAdapter = createAgentSdkAdapter();
@@ -25,13 +26,22 @@ export function createRouterAdapter(): ChatModelAdapter {
 
       const row = await db.threads.get(threadKey);
       const modelId = row?.model ?? DEFAULT_MODEL_ID;
+      const title = row?.title ?? undefined;
 
       const adapter = isCodexModel(modelId)
         ? (codexInstance ??= createCodexAdapter())
         : sdkAdapter;
 
-      for await (const chunk of adapter.run(options) as AsyncIterable<ChatModelRunResult>) {
-        yield chunk;
+      const { setStatus } = useThreadStatusStore.getState();
+      setStatus(threadKey, "running", title);
+      try {
+        for await (const chunk of adapter.run(options) as AsyncIterable<ChatModelRunResult>) {
+          yield chunk;
+        }
+        setStatus(threadKey, "idle", title);
+      } catch (err) {
+        setStatus(threadKey, "error", title);
+        throw err;
       }
     },
   };
