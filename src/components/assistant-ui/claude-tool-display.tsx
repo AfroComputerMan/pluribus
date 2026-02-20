@@ -7,6 +7,7 @@ import {
   FileTextIcon,
   FolderIcon,
   GlobeIcon,
+  MessageSquareIcon,
   PencilIcon,
   SearchIcon,
   TerminalIcon,
@@ -798,8 +799,9 @@ const SubAgentActivityView: FC<{ items: SubAgentItem[] }> = ({ items }) => {
         }
         if (item.type === "text") {
           return (
-            <div key={i} className="px-2 py-1.5 text-sm">
-              {item.text}
+            <div key={i} className="flex items-start gap-1.5 px-2 py-1.5">
+              <MessageSquareIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground/60" />
+              <p className="text-[12px] italic text-muted-foreground leading-snug">{item.text}</p>
             </div>
           );
         }
