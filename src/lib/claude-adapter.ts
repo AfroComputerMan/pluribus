@@ -212,14 +212,27 @@ export interface SidecarSdkMessage {
   type: "assistant" | "user" | "result" | "system" | "stream_event";
   subtype?: string;
   session_id?: string;
+  /**
+   * Set on assistant/user messages that originate from a sub-agent.
+   * The value is the tool_use_id of the Task tool call that spawned the sub-agent,
+   * which lets us group the sub-agent's activity under its parent Task card.
+   * Null means the message is from the top-level agent.
+   */
+  parent_tool_use_id?: string | null;
   message?: {
     content: Array<{
       type: string;
+      // text / thinking
       text?: string;
+      thinking?: string;
+      // tool_use
       id?: string;
       name?: string;
       input?: unknown;
-      thinking?: string;
+      // tool_result (present in user turns)
+      tool_use_id?: string;
+      is_error?: boolean;
+      content?: Array<{ type: string; text?: string }> | string;
     }>;
   };
   result?: string;

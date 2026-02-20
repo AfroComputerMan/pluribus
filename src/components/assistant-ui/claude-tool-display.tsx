@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type FC, type ReactNode } from "react";
 import type { ToolCallMessagePartComponent, ToolCallMessagePartStatus } from "@assistant-ui/react";
 import {
   AlertCircleIcon,
@@ -717,11 +717,111 @@ const WebFetchToolImpl: ToolCallMessagePartComponent = ({ argsText, result, stat
   );
 };
 
-const TaskToolImpl: ToolCallMessagePartComponent = ({ toolName, argsText, result, status }) => {
+// ---------------------------------------------------------------------------
+// Sub-agent activity rendering (used by TaskTool)
+// ---------------------------------------------------------------------------
+
+/** Mirrors the SubAgentItem type in agent-sdk-adapter.ts (structural match). */
+type SubAgentItem =
+  | { type: "thinking"; text: string }
+  | { type: "text"; text: string }
+  | { type: "tool"; toolCallId: string; toolName: string; args: Record<string, unknown>; argsText: string; result?: string; isError?: boolean };
+
+type TaskArtifact = { subAgent: SubAgentItem[] };
+
+function isTaskArtifact(v: unknown): v is TaskArtifact {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "subAgent" in v &&
+    Array.isArray((v as TaskArtifact).subAgent)
+  );
+}
+
+/**
+ * Renders a single sub-agent tool call using the appropriate specialized
+ * renderer (same ones used for top-level tool calls). Constructs the props
+ * needed by each renderer from the stored SubAgentItem data.
+ */
+const SubAgentToolItem: FC<{ item: Extract<SubAgentItem, { type: "tool" }> }> = ({ item }) => {
+  const status: ToolCallMessagePartStatus =
+    item.result !== undefined ? { type: "complete" } : { type: "running" };
+
+  // Build the minimal props each tool renderer expects.
+  // addResult / resume are no-ops — sub-agent tools are read-only in the display.
+  const props = {
+    type: "tool-call" as const,
+    toolCallId: item.toolCallId,
+    toolName: item.toolName,
+    args: item.args as Record<string, never>,
+    argsText: item.argsText,
+    result: item.result,
+    isError: item.isError,
+    status,
+    addResult: () => {},
+    resume: () => {},
+  };
+
+  switch (item.toolName) {
+    case "Read": return <ReadToolImpl {...props} />;
+    case "Edit": return <EditToolImpl {...props} />;
+    case "Write": return <WriteToolImpl {...props} />;
+    case "Bash": return <BashToolImpl {...props} />;
+    case "Grep": return <GrepToolImpl {...props} />;
+    case "Glob": return <GlobToolImpl {...props} />;
+    case "WebSearch": return <WebSearchToolImpl {...props} />;
+    case "WebFetch": return <WebFetchToolImpl {...props} />;
+    default:
+      return (
+        <ToolFrame status={status} icon={BotIcon} label="tool" title={item.toolName}>
+          {item.result !== undefined && <GenericResult result={item.result} />}
+        </ToolFrame>
+      );
+  }
+};
+
+const SubAgentActivityView: FC<{ items: SubAgentItem[] }> = ({ items }) => {
+  return (
+    <div className="divide-y divide-border/30">
+      {items.map((item, i) => {
+        if (item.type === "thinking") {
+          return (
+            <details key={i} className="px-2 py-1.5">
+              <summary className="cursor-pointer select-none text-[10px] text-muted-foreground hover:text-foreground">
+                Thinking...
+              </summary>
+              <div className="mt-1 whitespace-pre-wrap text-[11px] text-muted-foreground/80">
+                {item.text}
+              </div>
+            </details>
+          );
+        }
+        if (item.type === "text") {
+          return (
+            <div key={i} className="px-2 py-1.5 text-sm">
+              {item.text}
+            </div>
+          );
+        }
+        if (item.type === "tool") {
+          return <SubAgentToolItem key={item.toolCallId} item={item} />;
+        }
+        return null;
+      })}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// TaskTool
+// ---------------------------------------------------------------------------
+
+const TaskToolImpl: ToolCallMessagePartComponent = ({ toolName, argsText, result, status, artifact }) => {
   const args = safeParseArgs(argsText);
   const description = firstText(args?.description);
   const subagentType = firstText(args?.subagent_type);
   const prompt = firstText(args?.prompt);
+  const subAgent = isTaskArtifact(artifact) ? artifact.subAgent : null;
 
   return (
     <ToolFrame
@@ -739,6 +839,11 @@ const TaskToolImpl: ToolCallMessagePartComponent = ({ toolName, argsText, result
       {prompt && (
         <Section title="prompt">
           <CodePanel text={prompt} maxLines={8} language="markdown" />
+        </Section>
+      )}
+      {subAgent && subAgent.length > 0 && (
+        <Section title="activity">
+          <SubAgentActivityView items={subAgent} />
         </Section>
       )}
       <GenericResult result={result} />

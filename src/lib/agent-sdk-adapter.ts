@@ -240,7 +240,7 @@ class AgentSdkSidecar {
 const sidecar = new AgentSdkSidecar();
 
 // ---------------------------------------------------------------------------
-// SDK message → assistant-ui content parts
+// Content part types
 // ---------------------------------------------------------------------------
 
 /**
@@ -249,34 +249,28 @@ const sidecar = new AgentSdkSidecar();
  */
 type ContentPart = NonNullable<ChatModelRunResult["content"]>[number];
 
-function sdkMessageToContentParts(msg: SidecarSdkMessage): ContentPart[] {
-  if (msg.type !== "assistant" || !msg.message?.content) return [];
+/**
+ * A single item in a sub-agent's activity log stored in the Task tool call's
+ * `artifact` field. Mirrors what claude-tool-display.tsx renders.
+ */
+type SubAgentItem =
+  | { type: "thinking"; text: string }
+  | { type: "text"; text: string }
+  | { type: "tool"; toolCallId: string; toolName: string; args: Record<string, unknown>; argsText: string; result?: string; isError?: boolean };
 
-  const parts: ContentPart[] = [];
-
-  for (const block of msg.message.content) {
-    if (block.type === "text" && block.text) {
-      parts.push({ type: "text", text: block.text });
-    } else if (block.type === "tool_use" && block.id && block.name) {
-      const argsText = JSON.stringify(block.input ?? {});
-      let args: Record<string, never> = {};
-      try {
-        args = JSON.parse(argsText) as Record<string, never>;
-      } catch { /* use empty object */ }
-      parts.push({
-        type: "tool-call" as const,
-        toolCallId: block.id,
-        toolName: block.name,
-        args,
-        argsText,
-      } as ContentPart);
-    }
-    if (block.type === "thinking" && block.thinking) {
-      parts.push({ type: "text", text: `<thinking>\n${block.thinking}\n</thinking>` });
-    }
-  }
-
-  return parts;
+/**
+ * Extract a plain-text string from a tool_result content field, which can be
+ * either a raw string or an array of typed content blocks.
+ */
+function extractToolResultText(
+  content: Array<{ type: string; text?: string }> | string | undefined,
+): string {
+  if (!content) return "";
+  if (typeof content === "string") return content;
+  return content
+    .map((c) => (c.type === "text" ? (c.text ?? "") : ""))
+    .filter(Boolean)
+    .join("\n");
 }
 
 function sdkMessageCategory(msg: SidecarSdkMessage): ClaudeDevEventCategory {
@@ -331,7 +325,23 @@ export function createAgentSdkAdapter(): ChatModelAdapter {
         const queryId = crypto.randomUUID();
         log("starting query:", queryId, { sessionId, model, cwd });
 
-        let pendingContent: ReturnType<typeof sdkMessageToContentParts> = [];
+        // All content parts accumulated across every SDK turn for this run.
+        // Each yield sends the full snapshot so assistant-ui replaces rather
+        // than discards previous parts.
+        const pendingContent: ContentPart[] = [];
+
+        // Maps toolCallId → index in pendingContent for O(1) result injection
+        // when the subsequent user turn arrives with tool_result blocks.
+        const toolCallIdxById = new Map<string, number>();
+
+        // Sub-agent activity: keyed by the parent_tool_use_id of the Task call.
+        // Items accumulate as the sub-agent runs and are stored in the Task
+        // tool call's `artifact` field so TaskTool can render them nested.
+        const subAgentItemsByParent = new Map<string, SubAgentItem[]>();
+        // Maps parent_tool_use_id → (subAgentToolCallId → index in subAgentItems)
+        // for injecting tool results into sub-agent tool items.
+        const subAgentToolIdxByParent = new Map<string, Map<string, number>>();
+
         let devSeq = 0;
 
         for await (const item of sidecar.runQuery({
@@ -350,7 +360,6 @@ export function createAgentSdkAdapter(): ChatModelAdapter {
                 content: pendingContent,
                 status: { type: "complete", reason: "stop" },
               } satisfies ChatModelRunResult;
-              pendingContent = [];
             }
 
             if (finalSessionId) {
@@ -383,10 +392,129 @@ export function createAgentSdkAdapter(): ChatModelAdapter {
             sdkMessage: sdkMsg,
           });
 
-          const parts = sdkMessageToContentParts(sdkMsg);
-          if (parts.length > 0) {
-            pendingContent = parts;
-            yield { content: parts } satisfies ChatModelRunResult;
+          // ── assistant turn ──────────────────────────────────────────────
+          if (sdkMsg.type === "assistant" && sdkMsg.message?.content) {
+            const parentId = sdkMsg.parent_tool_use_id ?? null;
+
+            if (parentId) {
+              // Sub-agent message: accumulate into the parent Task's artifact.
+              const items = subAgentItemsByParent.get(parentId) ?? [];
+              const toolIdx = subAgentToolIdxByParent.get(parentId) ?? new Map<string, number>();
+
+              for (const block of sdkMsg.message.content) {
+                if (block.type === "thinking" && block.thinking) {
+                  items.push({ type: "thinking", text: block.thinking });
+                } else if (block.type === "text" && block.text) {
+                  items.push({ type: "text", text: block.text });
+                } else if (block.type === "tool_use" && block.id && block.name) {
+                  const argsText = JSON.stringify(block.input ?? {});
+                  let args: Record<string, unknown> = {};
+                  try { args = JSON.parse(argsText) as Record<string, unknown>; } catch { /* empty */ }
+                  toolIdx.set(block.id, items.length);
+                  items.push({ type: "tool", toolCallId: block.id, toolName: block.name, args, argsText });
+                }
+              }
+
+              subAgentItemsByParent.set(parentId, items);
+              subAgentToolIdxByParent.set(parentId, toolIdx);
+
+              // Push updated sub-agent items into the parent Task tool call's artifact.
+              const parentTaskIdx = toolCallIdxById.get(parentId);
+              if (parentTaskIdx !== undefined) {
+                pendingContent[parentTaskIdx] = {
+                  ...pendingContent[parentTaskIdx],
+                  artifact: { subAgent: [...items] },
+                } as ContentPart;
+                yield { content: [...pendingContent] } satisfies ChatModelRunResult;
+              }
+            } else {
+              // Top-level message: accumulate into pendingContent.
+              let changed = false;
+              for (const block of sdkMsg.message.content) {
+                if (block.type === "thinking" && block.thinking) {
+                  pendingContent.push({ type: "reasoning", text: block.thinking } as ContentPart);
+                  changed = true;
+                } else if (block.type === "text" && block.text) {
+                  pendingContent.push({ type: "text", text: block.text });
+                  changed = true;
+                } else if (block.type === "tool_use" && block.id && block.name) {
+                  const argsText = JSON.stringify(block.input ?? {});
+                  let args: Record<string, never> = {};
+                  try { args = JSON.parse(argsText) as Record<string, never>; } catch { /* empty */ }
+                  toolCallIdxById.set(block.id, pendingContent.length);
+                  pendingContent.push({
+                    type: "tool-call" as const,
+                    toolCallId: block.id,
+                    toolName: block.name,
+                    args,
+                    argsText,
+                  } as ContentPart);
+                  changed = true;
+                }
+              }
+              if (changed) {
+                yield { content: [...pendingContent] } satisfies ChatModelRunResult;
+              }
+            }
+          }
+
+          // ── user turn ────────────────────────────────────────────────────
+          if (sdkMsg.type === "user" && sdkMsg.message?.content) {
+            const parentId = sdkMsg.parent_tool_use_id ?? null;
+
+            if (parentId) {
+              // Sub-agent tool results: inject into sub-agent items in the artifact.
+              const items = subAgentItemsByParent.get(parentId);
+              const toolIdx = subAgentToolIdxByParent.get(parentId);
+              if (items && toolIdx) {
+                let changed = false;
+                for (const block of sdkMsg.message.content) {
+                  if (block.type === "tool_result" && block.tool_use_id) {
+                    const idx = toolIdx.get(block.tool_use_id);
+                    if (idx !== undefined) {
+                      const existing = items[idx];
+                      if (existing?.type === "tool") {
+                        items[idx] = {
+                          ...existing,
+                          result: extractToolResultText(block.content),
+                          isError: block.is_error === true,
+                        };
+                        changed = true;
+                      }
+                    }
+                  }
+                }
+                if (changed) {
+                  const parentTaskIdx = toolCallIdxById.get(parentId);
+                  if (parentTaskIdx !== undefined) {
+                    pendingContent[parentTaskIdx] = {
+                      ...pendingContent[parentTaskIdx],
+                      artifact: { subAgent: [...items] },
+                    } as ContentPart;
+                    yield { content: [...pendingContent] } satisfies ChatModelRunResult;
+                  }
+                }
+              }
+            } else {
+              // Top-level tool results: inject into pendingContent tool-call parts.
+              let changed = false;
+              for (const block of sdkMsg.message.content) {
+                if (block.type === "tool_result" && block.tool_use_id) {
+                  const idx = toolCallIdxById.get(block.tool_use_id);
+                  if (idx !== undefined) {
+                    pendingContent[idx] = {
+                      ...pendingContent[idx],
+                      result: extractToolResultText(block.content),
+                      isError: block.is_error === true,
+                    } as ContentPart;
+                    changed = true;
+                  }
+                }
+              }
+              if (changed) {
+                yield { content: [...pendingContent] } satisfies ChatModelRunResult;
+              }
+            }
           }
         }
       } catch (err) {

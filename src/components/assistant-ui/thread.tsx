@@ -48,13 +48,14 @@ import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
   AuiIf,
+  ChainOfThoughtPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
-  type ReasoningGroupProps,
   type ReasoningMessagePartProps,
+  type ToolCallMessagePartComponent,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
@@ -878,22 +879,7 @@ const AssistantMessage: FC = () => {
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,
-            Reasoning: ReasoningPart,
-            ReasoningGroup,
-            tools: {
-              by_name: {
-                Task: TaskTool,
-                Read: ReadTool,
-                Edit: EditTool,
-                Write: WriteTool,
-                Bash: BashTool,
-                Grep: GrepTool,
-                Glob: GlobTool,
-                WebSearch: WebSearchTool,
-                WebFetch: WebFetchTool,
-              },
-              Fallback: ToolFallback,
-            },
+            ChainOfThought: AgentChainOfThought,
           }}
         />
         <MessageError />
@@ -907,24 +893,55 @@ const AssistantMessage: FC = () => {
   );
 };
 
-const ReasoningGroup: FC<ReasoningGroupProps> = ({ children }) => {
+const ReasoningPart: FC<ReasoningMessagePartProps> = () => {
   return (
-    <details
-      className="aui-reasoning-group my-2 overflow-hidden rounded-lg border border-border/60 bg-muted/30"
-    >
-      <summary className="aui-reasoning-summary px-3 py-2 font-medium">
-        Thinking...
-      </summary>
-      <div className="px-3 pb-3">{children}</div>
-    </details>
+    <div className="aui-reasoning-part px-3 py-2 text-muted-foreground text-sm">
+      <MarkdownText />
+    </div>
   );
 };
 
-const ReasoningPart: FC<ReasoningMessagePartProps> = () => {
+/**
+ * Single dispatcher used inside ChainOfThoughtPrimitive.Parts, which only
+ * accepts a Fallback (not a by_name map). Routes to the named tool component
+ * for known tools, or to ToolFallback for anything else.
+ */
+const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
+  switch (props.toolName) {
+    case "Task": return <TaskTool {...props} />;
+    case "Read": return <ReadTool {...props} />;
+    case "Edit": return <EditTool {...props} />;
+    case "Write": return <WriteTool {...props} />;
+    case "Bash": return <BashTool {...props} />;
+    case "Grep": return <GrepTool {...props} />;
+    case "Glob": return <GlobTool {...props} />;
+    case "WebSearch": return <WebSearchTool {...props} />;
+    case "WebFetch": return <WebFetchTool {...props} />;
+    default: return <ToolFallback {...props} />;
+  }
+};
+
+/**
+ * Groups all thinking blocks and tool calls from an assistant message into
+ * a single collapsible accordion, keeping the chat thread clean.
+ * Text content parts still render outside this component.
+ */
+const AgentChainOfThought: FC = () => {
   return (
-    <div className="aui-reasoning-part text-muted-foreground text-sm">
-      <MarkdownText />
-    </div>
+    <ChainOfThoughtPrimitive.Root className="aui-chain-of-thought my-2 overflow-hidden rounded-lg border border-border/60 bg-muted/20">
+      <ChainOfThoughtPrimitive.AccordionTrigger className="flex w-full cursor-pointer select-none items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+        Agent activity
+      </ChainOfThoughtPrimitive.AccordionTrigger>
+      <ChainOfThoughtPrimitive.Parts
+        components={{
+          Reasoning: ReasoningPart,
+          tools: { Fallback: ChainOfThoughtToolDispatcher },
+          Layout: ({ children }) => (
+            <div className="divide-y divide-border/40">{children}</div>
+          ),
+        }}
+      />
+    </ChainOfThoughtPrimitive.Root>
   );
 };
 
