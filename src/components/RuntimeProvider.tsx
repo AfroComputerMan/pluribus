@@ -6,9 +6,11 @@ import {
   unstable_useRemoteThreadListRuntime as useRemoteThreadListRuntime,
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "sonner";
 import { createRouterAdapter } from "@/lib/router-adapter";
 import { createSQLiteThreadListAdapter } from "@/lib/sqlite-thread-list-adapter";
 import { ApprovalBanner } from "@/components/assistant-ui/approval-banner";
+import { ThreadStatusToasts } from "@/components/ThreadStatusToasts";
 
 const threadListAdapter = createSQLiteThreadListAdapter();
 
@@ -35,6 +37,8 @@ export function RuntimeProvider({
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>{children}</TooltipProvider>
       <ApprovalBanner />
+      <ThreadStatusToasts />
+      <Toaster richColors position="bottom-right" />
     </AssistantRuntimeProvider>
   );
 }
