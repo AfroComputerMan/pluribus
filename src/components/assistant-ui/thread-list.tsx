@@ -19,6 +19,7 @@ import { setPendingThreadOptions } from "@/lib/sqlite-thread-list-adapter";
 import { invoke } from "@tauri-apps/api/core";
 import { ThreadListPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import {
+  AlertTriangleIcon,
   ArchiveIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -32,11 +33,13 @@ import {
   PlusIcon,
   SettingsIcon,
   TrashIcon,
+  XCircleIcon,
   XIcon,
 } from "lucide-react";
 import { SettingsOverlay } from "@/components/settings-overlay";
 import { useThreadStatusStore } from "@/lib/thread-status-store";
 import type { FC, ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ThreadSnapshot = {
@@ -145,6 +148,32 @@ function WorkspaceDetailsTooltip({
       </TooltipContent>
     </Tooltip>
   );
+}
+
+function ThreadStatusIcon({ threadId }: { threadId: string }) {
+  const record = useThreadStatusStore(
+    useShallow((s) => s.statuses.get(threadId)),
+  );
+
+  if (!record) return null;
+
+  if (record.status === "running") {
+    return (
+      <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+    );
+  }
+  if (record.status === "waiting-approval") {
+    return (
+      <AlertTriangleIcon className="size-3.5 shrink-0 animate-pulse text-yellow-500" />
+    );
+  }
+  if (record.status === "error") {
+    return <XCircleIcon className="size-3.5 shrink-0 text-destructive" />;
+  }
+  if (record.status === "idle" && record.unread) {
+    return <span className="size-2 shrink-0 rounded-full bg-primary" />;
+  }
+  return null;
 }
 
 export const ThreadList: FC = () => {
@@ -743,6 +772,9 @@ export const ThreadList: FC = () => {
                               </ThreadDetailsTooltip>
                             )}
 
+                            <div className="mr-1 flex items-center">
+                              <ThreadStatusIcon threadId={thread.id} />
+                            </div>
                             <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
                               <Button
                                 variant="ghost"
@@ -850,6 +882,9 @@ export const ThreadList: FC = () => {
                         </ThreadDetailsTooltip>
                       )}
 
+                      <div className="mr-1 flex items-center">
+                        <ThreadStatusIcon threadId={thread.id} />
+                      </div>
                       <div className="aui-thread-row-actions mr-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 data-[active=true]:opacity-100">
                         <Button
                           variant="ghost"
