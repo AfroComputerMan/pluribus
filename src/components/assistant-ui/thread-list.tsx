@@ -35,6 +35,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { SettingsOverlay } from "@/components/settings-overlay";
+import { useThreadStatusStore } from "@/lib/thread-status-store";
 import type { FC, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -150,6 +151,13 @@ export const ThreadList: FC = () => {
   const aui = useAui();
   const isLoading = useAuiState(({ threads }) => threads.isLoading);
   const mainThreadId = useAuiState(({ threads }) => threads.mainThreadId);
+
+  useEffect(() => {
+    const { setCurrentThread, markRead } = useThreadStatusStore.getState();
+    setCurrentThread(mainThreadId ?? null);
+    if (mainThreadId) markRead(mainThreadId);
+  }, [mainThreadId]);
+
   const threadIds = useAuiState(({ threads }) => threads.threadIds);
   const threadItems = useAuiState(({ threads }) => threads.threadItems);
   const threads = useMemo<ThreadSnapshot[]>(() => {
@@ -529,6 +537,7 @@ export const ThreadList: FC = () => {
 
   const switchToThread = useCallback(
     (threadId: string) => {
+      useThreadStatusStore.getState().markRead(threadId);
       aui.threads().switchToThread(threadId);
     },
     [aui],
