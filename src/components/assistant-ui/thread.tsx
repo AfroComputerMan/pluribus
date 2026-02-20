@@ -11,6 +11,7 @@ import {
   WebFetchTool,
   TaskTool,
 } from "@/components/assistant-ui/claude-tool-display";
+import { CodexToolDisplay } from "@/components/assistant-ui/codex-tool-display";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -917,6 +918,13 @@ const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
     case "Glob": return <GlobTool {...props} />;
     case "WebSearch": return <WebSearchTool {...props} />;
     case "WebFetch": return <WebFetchTool {...props} />;
+    // Codex App Server item types
+    case "file_change":
+    case "command_execution":
+    case "web_search":
+    case "plan_update":
+    case "mcp_tool_call":
+    case "reasoning": return <CodexToolDisplay {...props} />;
     default: return <ToolFallback {...props} />;
   }
 };

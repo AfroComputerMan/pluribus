@@ -1,4 +1,12 @@
+use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
+
+mod codex;
+use codex::commands::{
+    codex_approve_tool, codex_get_auth_status, codex_interrupt_turn, codex_send_turn,
+    codex_start_thread,
+};
+use codex::service::CodexService;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -60,7 +68,28 @@ pub fn run() {
                 .add_migrations("sqlite:pluribus.db", migrations)
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![greet])
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                match CodexService::start(handle.clone()).await {
+                    Ok(svc) => {
+                        handle.manage(svc);
+                    }
+                    Err(e) => {
+                        eprintln!("CodexService failed to start: {e}");
+                    }
+                }
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            codex_start_thread,
+            codex_send_turn,
+            codex_interrupt_turn,
+            codex_approve_tool,
+            codex_get_auth_status,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

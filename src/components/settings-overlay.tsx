@@ -417,7 +417,9 @@ export function SettingsOverlay({
   useEffect(() => {
     if (!open) return;
     db.globalSettings.get("adapter_type").then((v) => {
-      setAdapterType(v === "agent-sdk" ? "agent-sdk" : "shell");
+      if (v === "agent-sdk") setAdapterType("agent-sdk");
+      else if (v === "codex") setAdapterType("codex");
+      else setAdapterType("shell");
     }).catch(console.error);
   }, [open]);
 
@@ -573,7 +575,7 @@ export function SettingsOverlay({
             Engine
           </span>
           <div className="flex items-center gap-1.5">
-            {(["shell", "agent-sdk"] as AdapterType[]).map((opt) => (
+            {(["shell", "agent-sdk", "codex"] as AdapterType[]).map((opt) => (
               <button
                 key={opt}
                 type="button"
@@ -585,7 +587,7 @@ export function SettingsOverlay({
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {opt === "shell" ? "Shell (Claude CLI)" : "Agent SDK"}
+                {opt === "shell" ? "Shell (Claude CLI)" : opt === "agent-sdk" ? "Agent SDK" : "Codex"}
               </button>
             ))}
           </div>

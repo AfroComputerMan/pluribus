@@ -8,10 +8,12 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { createAgentSdkAdapter } from "@/lib/agent-sdk-adapter";
 import { createClaudeAdapter } from "@/lib/claude-adapter";
+import { createCodexAdapter } from "@/lib/codex-adapter";
 import { db } from "@/lib/db";
 import { createSQLiteThreadListAdapter } from "@/lib/sqlite-thread-list-adapter";
+import { ApprovalBanner } from "@/components/assistant-ui/approval-banner";
 
-export type AdapterType = "shell" | "agent-sdk";
+export type AdapterType = "shell" | "agent-sdk" | "codex";
 
 const threadListAdapter = createSQLiteThreadListAdapter();
 
@@ -24,6 +26,7 @@ function useAdapterType(): AdapterType {
       .get("adapter_type")
       .then((value) => {
         if (value === "agent-sdk") setAdapterType("agent-sdk");
+        else if (value === "codex") setAdapterType("codex");
       })
       .catch((err) => {
         console.warn(
@@ -39,13 +42,16 @@ function useAdapterType(): AdapterType {
 /** Inner hook — creates the per-thread local runtime with the appropriate adapter. */
 function useRuntimeHook() {
   const adapterType = useAdapterType();
-  const adapter = useMemo(
-    () =>
-      adapterType === "agent-sdk"
-        ? createAgentSdkAdapter()
-        : createClaudeAdapter(),
-    [adapterType],
-  );
+  const adapter = useMemo(() => {
+    switch (adapterType) {
+      case "agent-sdk":
+        return createAgentSdkAdapter();
+      case "codex":
+        return createCodexAdapter();
+      default:
+        return createClaudeAdapter();
+    }
+  }, [adapterType]);
   return useLocalRuntime(adapter);
 }
 
@@ -66,6 +72,7 @@ export function RuntimeProvider({
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>{children}</TooltipProvider>
+      <ApprovalBanner />
     </AssistantRuntimeProvider>
   );
 }

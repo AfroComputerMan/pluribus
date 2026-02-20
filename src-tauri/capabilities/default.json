@@ -32,6 +32,11 @@
         {
           "name": "binaries/agent-sdk-bridge",
           "sidecar": true
+        },
+        {
+          "name": "codex",
+          "cmd": "codex",
+          "args": true
         }
       ]
     },
@@ -52,6 +57,11 @@
         {
           "name": "git",
           "cmd": "git",
+          "args": true
+        },
+        {
+          "name": "codex",
+          "cmd": "codex",
           "args": true
         }
       ]
