@@ -13,6 +13,7 @@ import {
   subscribeClaudeSessionRecords,
   type ClaudeDevEvent,
   type ClaudeDevEventCategory,
+  type SidecarSdkMessage,
 } from "@/lib/claude-adapter";
 import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
@@ -96,6 +97,35 @@ function summarizeEvent(event: ClaudeDevEvent): string {
     return `result: in=${String(usage.input_tokens ?? 0)}, out=${String(usage.output_tokens ?? 0)}`;
   }
   return `${String(parsed.type ?? "unknown")}${parsed.subtype ? `:${String(parsed.subtype)}` : ""}`;
+}
+
+function SdkEventRow({
+  event,
+  msg,
+}: {
+  event: ClaudeDevEvent;
+  msg: SidecarSdkMessage;
+}) {
+  const label = msg.subtype ? `${msg.type}:${msg.subtype}` : msg.type;
+  const timeStr = new Date(event.at).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  return (
+    <div className="flex items-start gap-2 px-3 py-1.5 font-mono text-[0.68rem] border-b border-border/40">
+      <span className="shrink-0 text-muted-foreground/60">{timeStr}</span>
+      <Badge variant="outline" className="shrink-0 text-[0.6rem] px-1 py-0 h-4 font-mono">
+        SDK
+      </Badge>
+      <span className="shrink-0 font-medium text-foreground/80">{label}</span>
+      {msg.type === "result" && msg.total_cost_usd != null && (
+        <span className="text-muted-foreground">
+          ${msg.total_cost_usd.toFixed(4)} · {msg.usage?.input_tokens ?? 0}in / {msg.usage?.output_tokens ?? 0}out
+        </span>
+      )}
+      {msg.type === "system" && msg.subtype === "init" && msg.session_id && (
+        <span className="truncate text-muted-foreground">session: {msg.session_id.slice(0, 8)}…</span>
+      )}
+    </div>
+  );
 }
 
 export function DevPanel() {
@@ -399,7 +429,11 @@ export function DevPanel() {
           </div>
         ) : (
           <div className="space-y-2">
-            {[...snapshot.events].reverse().map((event) => (
+            {[...snapshot.events].reverse().map((event) => {
+              if (event.sdkMessage) {
+                return <SdkEventRow key={event.id} event={event} msg={event.sdkMessage} />;
+              }
+              return (
               <div key={event.id} className="rounded border p-2">
                 <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">
                   <span>{formatTs(event.at)}</span>
@@ -409,7 +443,8 @@ export function DevPanel() {
                   {JSON.stringify(parseMaybeJson(event.raw), null, 2)}
                 </pre>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
