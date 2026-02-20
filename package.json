@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "bun run build:sidecar && tsc && vite build",
-    "build:sidecar": "mkdir -p src-tauri/binaries && bun build --compile sidecar/agent-sdk-bridge/index.ts --outfile src-tauri/binaries/agent-sdk-bridge",
+    "build:sidecar": "mkdir -p src-tauri/binaries && bun build --compile sidecar/agent-sdk-bridge/index.ts --outfile src-tauri/binaries/agent-sdk-bridge-$(rustc -vV | grep '^host' | cut -d' ' -f2)",
     "preview": "vite preview",
     "tauri": "tauri"
   },
