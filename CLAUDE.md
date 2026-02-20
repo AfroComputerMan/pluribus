@@ -4,11 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Pluribus is a Tauri 2 + React 19 desktop application that provides a chat interface to Claude CLI. It uses **assistant-ui** for chat primitives and spawns Claude CLI as a subprocess via Tauri's shell plugin. The core integration is in `src/lib/claude-adapter.ts`, which implements assistant-ui's `ChatModelAdapter` interface.
+Pluribus is a Tauri 2 + React 19 desktop application that provides a chat interface to Claude CLI. It uses **assistant-ui** for chat primitives. It has two engine modes: (1) **Shell adapter** (`claude-adapter.ts`) — spawns Claude CLI via Tauri shell plugin; (2) **Agent SDK adapter** (`agent-sdk-adapter.ts`) — communicates with a Bun sidecar (`sidecar/agent-sdk-bridge/`) that runs `@anthropic-ai/claude-agent-sdk`. The active engine is toggled in Settings and persisted to `global_settings` in SQLite.
 
 ## Build & Development Commands
 
 ```bash
+# Compile the Bun sidecar binary (required before cargo tauri build)
+bun run build:sidecar   # outputs to src-tauri/binaries/ with host triple suffix
+
 # Development (starts Vite dev server on :1420 + Tauri window)
 cargo tauri dev            # or: bun run tauri dev
 
@@ -37,10 +40,13 @@ User Input → assistant-ui Runtime → ChatModelAdapter.run()
 ### Key Files
 
 - **`src/lib/claude-adapter.ts`** (~1900 lines) — Core integration. Implements `ChatModelAdapter`, manages Claude CLI process lifecycle, session persistence, stream parsing, and dev event logging. This is the most complex file in the project.
+- **`src/lib/agent-sdk-adapter.ts`** (~400 lines) — Alternative `ChatModelAdapter` backed by the Bun sidecar. Communicates via NDJSON over stdin/stdout using `Command.create("agent-sdk-bridge", [])`.
+- **`sidecar/agent-sdk-bridge/index.ts`** — Bun sidecar entry point. Reads NDJSON query/interrupt/ping messages from stdin, streams `SDKMessage` events via `@anthropic-ai/claude-agent-sdk`, writes NDJSON to stdout.
 - **`src/lib/db.ts`** — SQLite database layer. Schema management, migrations, and all DB operations for threads, messages, and session state.
 - **`src/lib/sqlite-thread-list-adapter.ts`** — Thread list persistence via SQLite (implements assistant-ui's `ThreadListAdapter`).
 - **`src/lib/sqlite-thread-history-adapter.tsx`** — Thread message history persistence via SQLite.
 - **`src/components/RuntimeProvider.tsx`** — Sets up the runtime with the Claude adapter, thread list adapter, and thread history adapter.
+- **`src/components/settings-overlay.tsx`** — Settings UI including the Engine toggle (shell vs agent-sdk).
 - **`src/components/ThreadWorkspace.tsx`** — Main layout: sidebar thread list + chat area.
 - **`src/components/assistant-ui/thread.tsx`** — Chat UI using assistant-ui primitives (`ThreadPrimitive`, `MessagePrimitive`, `ComposerPrimitive`, etc.).
 - **`src/components/assistant-ui/claude-tool-display.tsx`** — Specialized rendering for Claude CLI tool call events (file edits, shell commands, etc.).
@@ -63,7 +69,13 @@ The app uses **SQLite** (via `tauri-plugin-sql`) as its primary persistence back
 - Thread metadata and ordering
 - Message history per thread
 - Session state (Claude CLI session IDs and resume files)
+- Global app settings (`global_settings` KV table — currently stores `engine: "shell" | "agent-sdk"`)
 - Schema migrations (tracked in `src-tauri/migrations/`)
+
+### Sidecar / ExternalBin Gotchas
+
+- **Target triple suffix**: Tauri `externalBin` requires binaries named `<name>-<target-triple>` (e.g., `agent-sdk-bridge-x86_64-unknown-linux-gnu`). `build:sidecar` auto-detects the triple via `rustc -vV | grep '^host' | cut -d' ' -f2`.
+- **`Bun.which()` in compiled binaries**: `bun --compile` bundles run in a virtual FS (`/$bunfs/root/`). Any SDK or library that resolves executables via `PATH` will fail — use `Bun.which("claude")` at startup to capture the real path before the virtual FS takes over.
 
 ### Dev Event System
 
