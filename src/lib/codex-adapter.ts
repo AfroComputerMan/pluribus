@@ -225,8 +225,10 @@ export function createCodexAdapter(): ChatModelAdapter {
             }
 
             case "item_completed": {
-              if (event.item.type !== "agent_message") {
-                // Reset text accumulation for tool calls
+              // agentMessage text was already streamed via item_delta.
+              // userMessage is an echo of the user's own input — skip both.
+              const skipTypes = new Set(["agentMessage", "userMessage"]);
+              if (!skipTypes.has(event.item.type as string)) {
                 currentTextIdx = null;
                 const mapped = mapItemToToolCall(event.item_id, event.item);
                 pendingContent.push({

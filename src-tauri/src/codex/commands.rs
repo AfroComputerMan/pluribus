@@ -29,10 +29,11 @@ pub async fn codex_start_thread(
     }
     let result = svc.request("thread/start", params).await?;
     result
-        .get("threadId")
+        .get("thread")
+        .and_then(|t| t.get("id"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| "Missing threadId in response".to_string())
+        .ok_or_else(|| "Missing thread.id in response".to_string())
 }
 
 #[tauri::command]
@@ -64,7 +65,8 @@ pub async fn codex_send_turn(
 
         let result = svc.request("turn/start", params).await?;
         let turn_id = result
-            .get("turnId")
+            .get("turn")
+            .and_then(|t| t.get("id"))
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();

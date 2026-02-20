@@ -119,12 +119,12 @@ impl CodexService {
                         }
                         "item/completed" => {
                             let tid = thread_id.clone().unwrap_or_default();
-                            let item_id = params
-                                .get("itemId")
+                            let item = params.get("item").cloned().unwrap_or(json!({}));
+                            let item_id = item
+                                .get("id")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or_default()
                                 .to_string();
-                            let item = params.get("item").cloned().unwrap_or(json!({}));
                             Some(AgentEvent::ItemCompleted {
                                 thread_id: tid,
                                 item_id,
@@ -134,7 +134,8 @@ impl CodexService {
                         "turn/completed" => {
                             let tid = thread_id.clone().unwrap_or_default();
                             let turn_id = params
-                                .get("turnId")
+                                .get("turn")
+                                .and_then(|t| t.get("id"))
                                 .and_then(|v| v.as_str())
                                 .unwrap_or_default()
                                 .to_string();
@@ -241,12 +242,28 @@ impl CodexService {
             });
         }
 
-        Ok(Self {
+        let svc = Self {
             stdin_tx,
             pending,
             thread_subs,
             next_id: Arc::new(AtomicU64::new(1)),
-        })
+        };
+
+        // The app-server protocol requires an initialize handshake before any
+        // other requests can be made.
+        svc.request(
+            "initialize",
+            json!({
+                "clientInfo": {
+                    "name": env!("CARGO_PKG_NAME"),
+                    "version": env!("CARGO_PKG_VERSION"),
+                }
+            }),
+        )
+        .await
+        .map_err(|e| format!("codex app-server initialize failed: {e}"))?;
+
+        Ok(svc)
     }
 
     /// Send a JSON-RPC request and await its response.
