@@ -42,6 +42,57 @@ function send(msg: object): void {
   process.stdout.write(JSON.stringify(msg) + "\n");
 }
 
+function compactText(value: string, maxLen = 1400): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen)}...`;
+}
+
+function errorToMessage(err: unknown): string {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return compactText(err);
+
+  if (err instanceof Error) {
+    const parts: string[] = [];
+    parts.push(err.message || err.name || "Error");
+
+    const withFields = err as Error & {
+      code?: string | number;
+      exitCode?: number;
+      status?: number;
+      stderr?: string;
+      stdout?: string;
+      cause?: unknown;
+    };
+
+    if (withFields.code !== undefined) parts.push(`code=${String(withFields.code)}`);
+    if (withFields.exitCode !== undefined) parts.push(`exitCode=${withFields.exitCode}`);
+    if (withFields.status !== undefined) parts.push(`status=${withFields.status}`);
+
+    if (typeof withFields.stderr === "string" && withFields.stderr.trim()) {
+      parts.push(`stderr: ${compactText(withFields.stderr, 2200)}`);
+    }
+    if (typeof withFields.stdout === "string" && withFields.stdout.trim()) {
+      parts.push(`stdout: ${compactText(withFields.stdout, 1200)}`);
+    }
+
+    if (withFields.cause) {
+      parts.push(`cause: ${errorToMessage(withFields.cause)}`);
+    }
+
+    const message = parts.filter(Boolean).join(" | ");
+    if (!message.includes("exited with code")) return message;
+    return `${message} | Hint: run claude with --debug-to-stderr to inspect plugin/MCP startup failures.`;
+  }
+
+  try {
+    return compactText(JSON.stringify(err));
+  } catch {
+    return compactText(String(err));
+  }
+}
+
 /** Handle a single query: run the SDK generator, stream results. */
 async function handleQuery(params: {
   id: string;
@@ -109,7 +160,7 @@ async function handleQuery(params: {
       send({
         type: "error",
         queryId: id,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorToMessage(err),
       });
     }
   } finally {

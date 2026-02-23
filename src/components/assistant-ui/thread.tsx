@@ -52,14 +52,12 @@ import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
   AuiIf,
-  ChainOfThoughtPrimitive,
   ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
-  type ReasoningMessagePartProps,
-  type ToolCallMessagePartComponent,
+  type ToolCallMessagePartStatus,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
@@ -77,6 +75,10 @@ import {
   SquareIcon,
 } from "lucide-react";
 import { type FC, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  buildAgentActivityModel,
+  type AgentActivityTool,
+} from "@/lib/agent-activity-model";
 
 /** Hook to check whether the current thread has a workspace assigned. */
 function useThreadWorkspace() {
@@ -901,9 +903,10 @@ const AssistantMessage: FC = () => {
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,
-            ChainOfThought: AgentChainOfThought,
+            ChainOfThought: () => null,
           }}
         />
+        <AgentChainOfThought />
         <MessageError />
       </div>
 
@@ -915,21 +918,41 @@ const AssistantMessage: FC = () => {
   );
 };
 
-const ReasoningPart: FC<ReasoningMessagePartProps> = () => {
-  return (
-    <div className="aui-reasoning-part px-3 py-2 text-muted-foreground text-sm">
-      <MarkdownText />
-    </div>
-  );
+type ToolCallLikeProps = {
+  type: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, never>;
+  argsText: string;
+  artifact?: unknown;
+  result?: unknown;
+  isError?: boolean;
+  status: ToolCallMessagePartStatus;
+  addResult: () => void;
+  resume: () => void;
+  parentId?: string;
 };
 
-/**
- * Single dispatcher used inside ChainOfThoughtPrimitive.Parts, which only
- * accepts a Fallback (not a by_name map). Routes to the named tool component
- * for known tools, or to ToolFallback for anything else.
- */
-const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
-  switch (props.toolName) {
+function renderToolCallCard(tool: AgentActivityTool, isRunning: boolean) {
+  const status: ToolCallMessagePartStatus =
+    tool.result !== undefined || !isRunning ? { type: "complete" } : { type: "running" };
+
+  const props: ToolCallLikeProps = {
+    type: "tool-call",
+    toolCallId: tool.toolCallId,
+    toolName: tool.toolName,
+    args: tool.args as Record<string, never>,
+    argsText: tool.argsText,
+    artifact: tool.artifact,
+    result: tool.result,
+    isError: tool.isError,
+    status,
+    addResult: () => undefined,
+    resume: () => undefined,
+    parentId: tool.parentId,
+  };
+
+  switch (tool.toolName) {
     case "Task": return <TaskTool {...props} />;
     case "Read": return <ReadTool {...props} />;
     case "Edit": return <EditTool {...props} />;
@@ -939,7 +962,6 @@ const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
     case "Glob": return <GlobTool {...props} />;
     case "WebSearch": return <WebSearchTool {...props} />;
     case "WebFetch": return <WebFetchTool {...props} />;
-    // Codex App Server item types
     case "file_change":
     case "command_execution":
     case "web_search":
@@ -948,29 +970,98 @@ const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
     case "reasoning": return <CodexToolDisplay {...props} />;
     default: return <ToolFallback {...props} />;
   }
-};
+}
 
-/**
- * Groups all thinking blocks and tool calls from an assistant message into
- * a single collapsible accordion, keeping the chat thread clean.
- * Text content parts still render outside this component.
- */
+const TASK_ACCENT_CLASSES = [
+  "border-emerald-500/15 bg-emerald-950/20",
+  "border-cyan-500/15 bg-cyan-950/20",
+  "border-sky-500/15 bg-sky-950/20",
+  "border-violet-500/15 bg-violet-950/20",
+  "border-amber-500/15 bg-amber-950/20",
+  "border-rose-500/15 bg-rose-950/20",
+  "border-lime-500/15 bg-lime-950/20",
+  "border-orange-500/15 bg-orange-950/20",
+];
+
+function hashString(input: string): number {
+  let h = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    h = (h << 5) - h + input.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h);
+}
+
+function taskAccentClass(toolCallId: string): string {
+  const idx = hashString(toolCallId) % TASK_ACCENT_CLASSES.length;
+  return TASK_ACCENT_CLASSES[idx] ?? TASK_ACCENT_CLASSES[0];
+}
+
+const CONTEXT_ACCENT_CLASSES = [
+  "border-l-sky-500/60 text-sky-200/90",
+  "border-l-emerald-500/60 text-emerald-200/90",
+  "border-l-amber-500/60 text-amber-200/90",
+  "border-l-rose-500/60 text-rose-200/90",
+  "border-l-violet-500/60 text-violet-200/90",
+  "border-l-cyan-500/60 text-cyan-200/90",
+];
+
 const AgentChainOfThought: FC = () => {
+  const parts = useAuiState(({ message }) => message.content as unknown[] | undefined);
+  const messageStatus = useAuiState(({ message }) => message.status);
+  const model = useMemo(() => buildAgentActivityModel(parts), [parts]);
+  const isRunning = messageStatus?.type !== "complete";
+
+  if (!model.hasActivity) return null;
+
   return (
-    <ChainOfThoughtPrimitive.Root className="aui-chain-of-thought my-2 overflow-hidden rounded-lg border border-border/60 bg-muted/20">
-      <ChainOfThoughtPrimitive.AccordionTrigger className="flex w-full cursor-pointer select-none items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+    <details className="aui-chain-of-thought my-2 overflow-hidden rounded-lg border border-border/60 bg-muted/20" open>
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
         Agent activity
-      </ChainOfThoughtPrimitive.AccordionTrigger>
-      <ChainOfThoughtPrimitive.Parts
-        components={{
-          Reasoning: ReasoningPart,
-          tools: { Fallback: ChainOfThoughtToolDispatcher },
-          Layout: ({ children }) => (
-            <div className="divide-y divide-border/40">{children}</div>
-          ),
-        }}
-      />
-    </ChainOfThoughtPrimitive.Root>
+      </summary>
+      <div className="divide-y divide-border/40">
+        {model.contexts.map((context, contextIndex) => (
+          <section key={context.id} className="py-2">
+            <header
+              className={`mx-3 mb-1 border-l-2 px-2 py-1 text-[11px] font-medium ${CONTEXT_ACCENT_CLASSES[contextIndex % CONTEXT_ACCENT_CLASSES.length]}`}
+            >
+              {context.id === "__root__" ? context.label : `Agent · ${context.label}`}
+            </header>
+            <div className="space-y-1">
+              {context.items.map((item, index) => {
+                if (item.kind === "reasoning") {
+                  return (
+                    <details key={`${context.id}:reasoning:${index}`} className="px-3 py-1">
+                      <summary className="cursor-pointer select-none text-[11px] text-muted-foreground hover:text-foreground">
+                        {isRunning ? "Thinking..." : "Thoughts"}
+                      </summary>
+                      <div className="mt-1 whitespace-pre-wrap text-[12px] text-muted-foreground/80">
+                        {item.text}
+                      </div>
+                    </details>
+                  );
+                }
+                if (item.toolName === "Task") {
+                  return (
+                    <div
+                      key={`${context.id}:tool:${item.toolCallId}`}
+                      className={`mx-1 overflow-hidden rounded-md border bg-zinc-900/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.015)] ${taskAccentClass(item.toolCallId)}`}
+                    >
+                      {renderToolCallCard(item, isRunning)}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={`${context.id}:tool:${item.toolCallId}`}>
+                    {renderToolCallCard(item, isRunning)}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+    </details>
   );
 };
 
