@@ -4,115 +4,102 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Pluribus is an Agent Organization System - a backend for orchestrating AI agents, workflows, and MCP (Model Context Protocol) tools. Built with Bun/TypeScript, it provides REST APIs, WebSocket support, and job queuing for managing complex agent interactions.
+Pluribus is a Tauri 2 + React 19 desktop application that provides a chat interface to Claude CLI. It uses **assistant-ui** for chat primitives. It has two engine modes: (1) **Shell adapter** (`claude-adapter.ts`) — spawns Claude CLI via Tauri shell plugin; (2) **Agent SDK adapter** (`agent-sdk-adapter.ts`) — communicates with a Bun sidecar (`sidecar/agent-sdk-bridge/`) that runs `@anthropic-ai/claude-agent-sdk`. The active engine is toggled in Settings and persisted to `global_settings` in SQLite.
 
-## Development Commands
+## Build & Development Commands
 
-### Docker-based Development (Primary)
 ```bash
-make dev              # Start backend + frontend (ports 3000, 5173)
-make dev-backend      # Start backend only
-make dev-frontend     # Start frontend only
-make dev-all          # Include pgAdmin (8082) + redis-commander (8081)
-make stop             # Stop all containers
-make shell            # Enter backend container
-make shell-frontend   # Enter frontend container
-make health           # Check service health
+# Compile the Bun sidecar binary (required before cargo tauri build)
+bun run build:sidecar   # outputs to src-tauri/binaries/ with host triple suffix
+
+# Development (starts Vite dev server on :1420 + Tauri window)
+cargo tauri dev            # or: bun run tauri dev
+
+# Build for production
+cargo tauri build
+
+# Frontend-only dev server (no Tauri window)
+bun run dev
+
+# Type-check + bundle frontend
+bun run build
 ```
 
-### Database
-```bash
-make db-generate      # Generate migrations from schema changes
-make db-migrate       # Run migrations
-make db-push          # Push schema directly (dev only)
-make db-studio        # Open Drizzle Studio UI
-make db-seed          # Seed database
-```
-
-### Testing & Quality
-```bash
-make test             # Run tests
-make test-watch       # Watch mode
-bun test path/to/file # Single test file
-make lint             # Run biome linter
-make format           # Format code
-make typecheck        # TypeScript checking
-```
-
-### Frontend Development
-```bash
-make frontend-dev     # Run frontend locally (http://localhost:5173)
-make frontend-build   # Build frontend for production
-make frontend-lint    # Run ESLint on frontend
-make logs-frontend    # Show frontend container logs
-```
-
-### Local Development (without Docker)
-```bash
-make install          # Install all dependencies (backend + frontend)
-bun run dev           # Start backend with hot reload (requires local postgres/redis)
-cd frontend && bun run dev  # Start frontend locally
-```
+Package manager is **bun**. No test framework is configured.
 
 ## Architecture
 
-### Tech Stack
-- **Runtime**: Bun with strict TypeScript
-- **API**: Hono framework
-- **Database**: PostgreSQL 16 + Drizzle ORM
-- **Queue**: Redis 7 + BullMQ
-- **Validation**: Zod schemas throughout
-- **Linting**: Biome (backend), ESLint (frontend)
-- **Frontend**: React 19, Vite, TailwindCSS v4, React Query
+### Data Flow
 
-### Directory Structure
 ```
-src/                  # Backend source
-├── api/              # Hono routes and middleware
-│   ├── routes/       # Endpoint definitions
-│   └── middleware/   # Error handler, validation
-├── core/             # Domain logic
-│   ├── agents/       # Agent registry and management
-│   ├── workflows/    # DAG-based workflow engine
-│   └── orchestrator/ # Scheduling and triggers
-├── integrations/     # External adapters (Claude Code, Codex, etc.)
-├── mcp/              # MCP server/tool management
-├── skills/           # Reusable skill/prompt templates
-├── runtime/          # Execution isolation strategies
-├── observability/    # Structured logging, tracing, cost tracking
-├── vault/            # AES-256-GCM credential encryption
-├── db/               # Schema, migrations, client
-├── queue/            # BullMQ queues and workers
-└── lib/              # Config, errors, utilities
-
-frontend/             # React frontend
-├── src/
-│   ├── api/          # API client with type-safe fetch wrapper
-│   ├── components/   # Reusable UI components
-│   └── pages/        # Page components (Workflows, Runs, etc.)
-├── vite.config.ts    # Vite config with API proxy
-└── index.html        # Entry point
+User Input → assistant-ui Runtime → ChatModelAdapter.run()
+  → Tauri Shell (Command.create) → Claude CLI subprocess
+  → Stream JSON events → Adapter yields content → assistant-ui renders
 ```
 
-### Path Aliases
-Use `@/` prefix for imports: `@/core/agents`, `@/db/schema`, `@/lib/config`, etc.
+### Key Files
 
-### Key Patterns
+- **`src/lib/claude-adapter.ts`** (~1900 lines) — Core integration. Implements `ChatModelAdapter`, manages Claude CLI process lifecycle, session persistence, stream parsing, and dev event logging. This is the most complex file in the project.
+- **`src/lib/agent-sdk-adapter.ts`** (~400 lines) — Alternative `ChatModelAdapter` backed by the Bun sidecar. Communicates via NDJSON over stdin/stdout using `Command.create("agent-sdk-bridge", [])`.
+- **`sidecar/agent-sdk-bridge/index.ts`** — Bun sidecar entry point. Reads NDJSON query/interrupt/ping messages from stdin, streams `SDKMessage` events via `@anthropic-ai/claude-agent-sdk`, writes NDJSON to stdout.
+- **`src/lib/db.ts`** — SQLite database layer. Schema management, migrations, and all DB operations for threads, messages, and session state.
+- **`src/lib/sqlite-thread-list-adapter.ts`** — Thread list persistence via SQLite (implements assistant-ui's `ThreadListAdapter`).
+- **`src/lib/sqlite-thread-history-adapter.tsx`** — Thread message history persistence via SQLite.
+- **`src/components/RuntimeProvider.tsx`** — Sets up the runtime with the Claude adapter, thread list adapter, and thread history adapter.
+- **`src/components/settings-overlay.tsx`** — Settings UI including the Engine toggle (shell vs agent-sdk).
+- **`src/components/ThreadWorkspace.tsx`** — Main layout: sidebar thread list + chat area.
+- **`src/components/assistant-ui/thread.tsx`** — Chat UI using assistant-ui primitives (`ThreadPrimitive`, `MessagePrimitive`, `ComposerPrimitive`, etc.).
+- **`src/components/assistant-ui/claude-tool-display.tsx`** — Specialized rendering for Claude CLI tool call events (file edits, shell commands, etc.).
+- **`src-tauri/src/lib.rs`** — Tauri builder setup with shell and SQL plugins.
+- **`src-tauri/capabilities/default.json`** — Shell permission grants (controls which commands the webview can execute).
+- **`src-tauri/migrations/`** — SQLite schema migrations for the `pluribus.db` database.
 
-**Service Architecture**: Each domain follows types.ts → schemas.ts → service.ts → repository.ts
+### Session Management (claude-adapter.ts)
 
-**API Validation**: Zod schemas validate all inputs. Separate schemas for create/update/filter operations.
+The adapter maintains per-thread Claude CLI sessions with a retry strategy:
+1. **Resume** — If a cached session file exists, use `--resume`
+2. **Session-ID** — If cache is missing but we have an ID, use `--session-id`
+3. **Fresh** — Start a new session
 
-**Configuration**: Zod-validated environment variables in `src/lib/config.ts`
+Sessions are stored in an in-memory `Map<string, SessionRecord>` and persisted to SQLite. Thread locking uses a FIFO waiter queue with timeout protection to prevent concurrent CLI invocations per thread.
 
-**Logging**: Structured JSON logging with correlation IDs (workflowRunId, agentId). Use child loggers: `logger.child('agents:service')`
+### Persistence Layer
 
-**Database**: 11 tables with UUID PKs, timezone-aware timestamps. Schema in `src/db/schema.ts`
+The app uses **SQLite** (via `tauri-plugin-sql`) as its primary persistence backend, stored in `pluribus.db`. The database layer in `db.ts` manages:
+- Thread metadata and ordering
+- Message history per thread
+- Session state (Claude CLI session IDs and resume files)
+- Global app settings (`global_settings` KV table — currently stores `engine: "shell" | "agent-sdk"`)
+- Schema migrations (tracked in `src-tauri/migrations/`)
 
-**Queues**: Three BullMQ queues - `workflow`, `node`, `schedule`. Configured for exponential backoff retry.
+### Sidecar / ExternalBin Gotchas
 
-## Code Style
+- **Target triple suffix**: Tauri `externalBin` requires binaries named `<name>-<target-triple>` (e.g., `agent-sdk-bridge-x86_64-unknown-linux-gnu`). `build:sidecar` auto-detects the triple via `rustc -vV | grep '^host' | cut -d' ' -f2`.
+- **`Bun.which()` in compiled binaries**: `bun --compile` bundles run in a virtual FS (`/$bunfs/root/`). Any SDK or library that resolves executables via `PATH` will fail — use `Bun.which("claude")` at startup to capture the real path before the virtual FS takes over.
 
-- Single quotes, semicolons required, 2-space indent, 100-char line width
-- `useConst` enforced, `noExplicitAny` warned
-- Biome handles formatting and linting
+### Dev Event System
+
+A circular buffer (500 entries max) logs all stream events from Claude CLI. The DevPanel (lazy-loaded, dev-only) subscribes via `useSyncExternalStore` for real-time inspection of session state, stream events, and Claude CLI output.
+
+## Component Philosophy (Important)
+
+- **UI components**: Always use shadcn/ui or Radix primitives. Never build custom UI components when these libraries provide equivalents.
+- **LLM integration**: Always check what assistant-ui provides FIRST. Use its built-in adapters, hooks, primitives, and thread management before building custom solutions. When customization is needed, extend assistant-ui's components — don't bypass the framework.
+- **General rule**: Search existing dependencies (assistant-ui, shadcn, Radix, lucide) for a pre-built solution before creating new components, hooks, or adapters.
+
+## Tech Stack & Conventions
+
+- **UI framework**: assistant-ui v0.12 primitives (not custom components) — follow its composition patterns (`ThreadPrimitive.Root > Viewport > Messages`, etc.)
+- **Styling**: Tailwind CSS v4 + shadcn/ui (new-york style, slate base color). Use `cn()` from `@/lib/utils` for className merging.
+- **shadcn config**: `components.json` — components go in `@/components/ui`, non-RSC mode, lucide icons
+- **TypeScript**: Strict mode with `noUnusedLocals` and `noUnusedParameters` enforced
+- **Path alias**: `@/*` maps to `src/*`
+- **File naming**: kebab-case for files, PascalCase for components
+- **Persistence**: SQLite via `tauri-plugin-sql` (`pluribus.db`) for threads, messages, and session state. In-memory Maps/Sets in claude-adapter.ts for runtime process state.
+- **State**: Minimal Zustand (installed but lightly used)
+
+## Known Issues
+
+- **Adapter sends only last message** — `extractUserPrompt()` discards conversation history (Claude CLI manages its own via `--resume`). This means edit/branch/regenerate operations in the UI diverge from the CLI session.
+- **No attachment adapter** — The UI has attachment components wired up but no `adapters.attachments` is passed to `useLocalRuntime`, so attachments are non-functional.
+- **Shell security** — The adapter invokes Claude CLI via a `sh -c` wrapper (`claude-stream-sh`). Replacing this with a direct `Command.create("claude", [...args])` invocation would be more secure.

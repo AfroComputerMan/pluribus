@@ -1,0 +1,2 @@
+ALTER TABLE threads
+ADD COLUMN dev_panel_open INTEGER NOT NULL DEFAULT 0;

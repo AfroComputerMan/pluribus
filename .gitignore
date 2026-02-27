@@ -1,36 +1,28 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Drizzle (keep _journal.json, ignore large snapshot files)
-drizzle/migrations/meta/*_snapshot.json
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
 # Logs
+logs
 *.log
-logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Test coverage
-coverage/
+node_modules
+dist
+dist-ssr
+*.local
 
-# Temp files
-tmp/
-temp/
-*.tmp
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Compiled sidecar binary — built via `bun run build:sidecar`
+src-tauri/binaries/agent-sdk-bridge
+src-tauri/binaries/agent-sdk-bridge-*
