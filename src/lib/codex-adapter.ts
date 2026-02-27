@@ -137,13 +137,6 @@ export function createCodexAdapter(): ChatModelAdapter {
 
       const cwd = threadRow?.cwd ?? undefined;
 
-      // Start the turn via Rust backend
-      const turnId = await invoke<string>("codex_send_turn", {
-        threadId: codexThreadId,
-        input: userText,
-        cwd,
-      });
-
       const pendingContent: ContentPart[] = [];
       let currentTextIdx: number | null = null;
       let closed = false;
@@ -159,7 +152,8 @@ export function createCodexAdapter(): ChatModelAdapter {
         notify = null;
       }
 
-      // Subscribe to Tauri events
+      // Subscribe to Tauri events BEFORE starting the turn so no early
+      // events (deltas, turn_completed) are missed.
       const unlistenPromise: Promise<UnlistenFn> = listen<AgentEvent>(
         "agent:event",
         ({ payload }) => {
@@ -169,6 +163,14 @@ export function createCodexAdapter(): ChatModelAdapter {
           push(payload);
         },
       );
+      await unlistenPromise;
+
+      // Start the turn via Rust backend (listener is already active)
+      const turnId = await invoke<string>("codex_send_turn", {
+        threadId: codexThreadId,
+        input: userText,
+        cwd,
+      });
 
       // Handle abort
       const onAbort = () => {
@@ -228,7 +230,7 @@ export function createCodexAdapter(): ChatModelAdapter {
             case "item_completed": {
               // agentMessage text was already streamed via item_delta.
               // userMessage is an echo of the user's own input — skip both.
-              const skipTypes = new Set(["agentMessage", "userMessage"]);
+              const skipTypes = new Set(["agent_message", "user_message"]);
               if (!skipTypes.has(event.item.type as string)) {
                 currentTextIdx = null;
                 const mapped = mapItemToToolCall(event.item_id, event.item);

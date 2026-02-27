@@ -14,7 +14,7 @@ pub struct CodexService {
     /// Write JSON-RPC requests here; stdin_writer task drains this.
     stdin_tx: mpsc::Sender<String>,
     /// Pending request/response correlations (by JSON-RPC id).
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
+    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>,
     /// Per-thread broadcast channels for streaming turn events.
     thread_subs: Arc<Mutex<HashMap<String, broadcast::Sender<AgentEvent>>>>,
     /// Monotonic request ID counter.
@@ -41,7 +41,7 @@ impl CodexService {
             .take()
             .ok_or_else(|| "Failed to capture codex stdin".to_string())?;
 
-        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
+        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let thread_subs: Arc<Mutex<HashMap<String, broadcast::Sender<AgentEvent>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -65,11 +65,23 @@ impl CodexService {
                     if let Some(id) = msg.get("id").and_then(|v| v.as_u64()) {
                         let mut map = pending.lock().await;
                         if let Some(tx) = map.remove(&id) {
-                            let result = msg
-                                .get("result")
-                                .cloned()
-                                .unwrap_or_else(|| msg.clone());
-                            let _ = tx.send(result);
+                            let response = if let Some(err) = msg.get("error") {
+                                let message = err
+                                    .get("message")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("Unknown JSON-RPC error");
+                                let code = err
+                                    .get("code")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or(-1);
+                                Err(format!("JSON-RPC error {code}: {message}"))
+                            } else {
+                                Ok(msg
+                                    .get("result")
+                                    .cloned()
+                                    .unwrap_or_else(|| msg.clone()))
+                            };
+                            let _ = tx.send(response);
                         }
                         continue;
                     }
@@ -287,7 +299,8 @@ impl CodexService {
             .await
             .map_err(|e| format!("Failed to send to stdin: {e}"))?;
 
-        rx.await.map_err(|_| "Response channel closed".to_string())
+        rx.await
+            .map_err(|_| "Response channel closed".to_string())?
     }
 
     /// Subscribe to streaming events for a specific thread.
