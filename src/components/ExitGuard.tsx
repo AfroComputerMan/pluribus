@@ -7,6 +7,7 @@
  */
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { processManager } from "@/components/RuntimeProvider";
 
 export function ExitGuard() {
@@ -28,12 +29,13 @@ export function ExitGuard() {
           ? `1 agent is still running (${agentList}). Close anyway?`
           : `${count} agents are still running (${agentList}). Close anyway?`;
 
-      // Use browser confirm as a simple cross-platform solution
-      const confirmed = window.confirm(message);
+      const confirmed = await confirm(message, {
+        title: "Agents Running",
+        kind: "warning",
+      });
 
       if (confirmed) {
         await processManager.killAll();
-        // Close the window after cleanup
         await getCurrentWindow().close();
       }
     });
