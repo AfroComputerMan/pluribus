@@ -18,6 +18,7 @@ import { createCodexProvider } from "@/lib/providers/codex-provider";
 import { createSQLiteThreadListAdapter } from "@/lib/sqlite-thread-list-adapter";
 import { ApprovalBanner } from "@/components/assistant-ui/approval-banner";
 import { ThreadStatusToasts } from "@/components/ThreadStatusToasts";
+import { ExitGuard } from "@/components/ExitGuard";
 
 // ---------------------------------------------------------------------------
 // Module-level singletons — created once on app load
@@ -67,6 +68,7 @@ export function RuntimeProvider({
       <TooltipProvider>{children}</TooltipProvider>
       <ApprovalBanner />
       <ThreadStatusToasts />
+      <ExitGuard />
       <Toaster richColors position="bottom-right" />
     </AssistantRuntimeProvider>
   );

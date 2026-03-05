@@ -1,11 +1,12 @@
-import { Command, type Child } from "@tauri-apps/plugin-shell";
+import { type Child } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 import { db } from "@/lib/db";
 import { log } from "@/lib/providers/shared";
 
 const LOG_PREFIX = "ProcessManager";
 
 // ---------------------------------------------------------------------------
-// AgentProcessManager — centralized process lifecycle management
+// AgentProcessManager -- centralized process lifecycle management
 // ---------------------------------------------------------------------------
 
 /**
@@ -18,7 +19,7 @@ export class AgentProcessManager {
    * In-memory map of active Child handles for the current session.
    * These can be killed directly via `child.kill()`.
    * For crash-recovery (orphans from a previous session), we only have PIDs
-   * and must use OS-level kill via shell command.
+   * and must use the Tauri `kill_pid` command.
    */
   private readonly children = new Map<string, Child>();
 
@@ -64,14 +65,8 @@ export class AgentProcessManager {
 
     for (const proc of orphans) {
       try {
-        // Use shell to check if PID is alive, then kill it
-        const checkResult = await Command.create("claude-stream-sh", [
-          "-c",
-          `kill -0 ${proc.pid} 2>/dev/null && kill -TERM ${proc.pid} 2>/dev/null && echo "killed" || echo "not_running"`,
-        ]).execute();
-
-        const output = checkResult.stdout.trim();
-        if (output === "killed") {
+        const success = await invoke<boolean>("kill_pid", { pid: proc.pid });
+        if (success) {
           killed++;
           log(LOG_PREFIX, `Killed orphan process pid=${proc.pid} (provider=${proc.provider})`);
         } else {
@@ -91,7 +86,7 @@ export class AgentProcessManager {
 
   /**
    * Kill all currently tracked processes and clear the table.
-   * Prefers in-memory Child.kill() when available, falls back to OS kill.
+   * Prefers in-memory Child.kill() when available, falls back to Tauri kill_pid command.
    */
   async killAll(): Promise<void> {
     const processes = await db.processes.getAll();
@@ -106,15 +101,12 @@ export class AgentProcessManager {
           log(LOG_PREFIX, `Failed to kill child ${proc.id} via handle:`, err);
         }
       } else {
-        // Fall back to OS-level kill for processes without a Child handle
+        // Fall back to Tauri command for processes without a Child handle
         try {
-          await Command.create("claude-stream-sh", [
-            "-c",
-            `kill -TERM ${proc.pid} 2>/dev/null`,
-          ]).execute();
-          log(LOG_PREFIX, `Killed process pid=${proc.pid} via shell`);
+          await invoke("kill_pid", { pid: proc.pid });
+          log(LOG_PREFIX, `Killed process pid=${proc.pid} via kill_pid command`);
         } catch (err) {
-          log(LOG_PREFIX, `Failed to kill process pid=${proc.pid} via shell:`, err);
+          log(LOG_PREFIX, `Failed to kill process pid=${proc.pid}:`, err);
         }
       }
     }

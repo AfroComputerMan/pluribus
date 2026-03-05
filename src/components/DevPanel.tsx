@@ -5,16 +5,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  clearClaudeDevSnapshot,
-  getClaudeDevSnapshot,
-  getClaudeSessionRecords,
-  refreshClaudeSessionRecords,
-  subscribeClaudeDevSnapshot,
-  subscribeClaudeSessionRecords,
-  type ClaudeDevEvent,
-  type ClaudeDevEventCategory,
+  clearDevSnapshot,
+  getDevSnapshot,
+  getSessionRecords,
+  refreshSessionRecords,
+  subscribeDevSnapshot,
+  subscribeSessionRecords,
+  type DevEventEntry,
+  type DevEventCategory,
   type SidecarSdkMessage,
-} from "@/lib/claude-adapter";
+} from "@/lib/dev-events";
 import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import {
@@ -31,23 +31,25 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 
 type ViewMode = "organized" | "raw";
 
-const CATEGORY_ORDER: ClaudeDevEventCategory[] = [
+const CATEGORY_ORDER: DevEventCategory[] = [
   "hooks",
   "mcp",
   "commands",
   "skills",
   "usage",
   "messages",
+  "sidecar",
   "other",
 ];
 
-const CATEGORY_LABELS: Record<ClaudeDevEventCategory, string> = {
+const CATEGORY_LABELS: Record<DevEventCategory, string> = {
   hooks: "Hooks",
   mcp: "MCP",
   commands: "Commands",
   skills: "Skills",
   usage: "Usage",
   messages: "Messages",
+  sidecar: "Sidecar",
   other: "Other",
 };
 
@@ -75,7 +77,7 @@ function parseMaybeJson(value: unknown): unknown {
   }
 }
 
-function summarizeEvent(event: ClaudeDevEvent): string {
+function summarizeEvent(event: DevEventEntry): string {
   const parsed = event.parsed as unknown as Record<string, unknown>;
   if (parsed.type === "system" && parsed.subtype === "hook_started") {
     return String(parsed.hook_name ?? "hook_started");
@@ -103,7 +105,7 @@ function SdkEventRow({
   event,
   msg,
 }: {
-  event: ClaudeDevEvent;
+  event: DevEventEntry;
   msg: SidecarSdkMessage;
 }) {
   const label = msg.subtype ? `${msg.type}:${msg.subtype}` : msg.type;
@@ -129,8 +131,8 @@ function SdkEventRow({
 }
 
 export function DevPanel() {
-  const snapshot = useSyncExternalStore(subscribeClaudeDevSnapshot, getClaudeDevSnapshot);
-  const sessionRecords = useSyncExternalStore(subscribeClaudeSessionRecords, getClaudeSessionRecords);
+  const snapshot = useSyncExternalStore(subscribeDevSnapshot, getDevSnapshot);
+  const sessionRecords = useSyncExternalStore(subscribeSessionRecords, getSessionRecords);
   const activeThreadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ViewMode>("organized");
@@ -174,7 +176,7 @@ export function DevPanel() {
   );
 
   const grouped = useMemo(() => {
-    const map = new Map<ClaudeDevEventCategory, ClaudeDevEvent[]>();
+    const map = new Map<DevEventCategory, DevEventEntry[]>();
     for (const category of CATEGORY_ORDER) {
       map.set(category, []);
     }
@@ -184,16 +186,17 @@ export function DevPanel() {
     return map;
   }, [snapshot.events]);
 
-  const latestUsage = snapshot.latestUsageEvent?.parsed;
-  const usage = latestUsage?.usage;
-  const modelUsageEntry = latestUsage?.modelUsage
-    ? Object.entries(latestUsage.modelUsage)[0]
+  const latestUsage = snapshot.latestUsageEvent?.parsed as Record<string, unknown> | undefined;
+  const usage = (latestUsage?.usage ?? {}) as Record<string, unknown>;
+  const modelUsage = latestUsage?.modelUsage as Record<string, Record<string, unknown>> | undefined;
+  const modelUsageEntry = modelUsage
+    ? Object.entries(modelUsage)[0]
     : null;
-  const contextWindow = modelUsageEntry?.[1]?.contextWindow ?? 0;
-  const inputTokens = usage?.input_tokens ?? 0;
-  const outputTokens = usage?.output_tokens ?? 0;
-  const cacheCreation = usage?.cache_creation_input_tokens ?? 0;
-  const cacheRead = usage?.cache_read_input_tokens ?? 0;
+  const contextWindow = (modelUsageEntry?.[1]?.contextWindow as number) ?? 0;
+  const inputTokens = (usage?.input_tokens as number) ?? 0;
+  const outputTokens = (usage?.output_tokens as number) ?? 0;
+  const cacheCreation = (usage?.cache_creation_input_tokens as number) ?? 0;
+  const cacheRead = (usage?.cache_read_input_tokens as number) ?? 0;
   const contextTotal = inputTokens + cacheCreation + cacheRead;
   const contextPct = contextWindow > 0 ? contextTotal / contextWindow : 0;
 
@@ -239,7 +242,7 @@ export function DevPanel() {
           <Button
             variant="outline"
             size="xs"
-            onClick={() => clearClaudeDevSnapshot()}
+            onClick={() => clearDevSnapshot()}
             className="gap-1"
           >
             <Trash2Icon className="size-3" />
@@ -273,7 +276,7 @@ export function DevPanel() {
           onClick={async () => {
             setRefreshingSessions(true);
             try {
-              await refreshClaudeSessionRecords();
+              await refreshSessionRecords();
             } finally {
               setRefreshingSessions(false);
             }
@@ -300,7 +303,7 @@ export function DevPanel() {
                   label="Total Cost USD"
                   value={
                     typeof latestUsage?.total_cost_usd === "number"
-                      ? latestUsage.total_cost_usd.toFixed(6)
+                      ? (latestUsage.total_cost_usd as number).toFixed(6)
                       : "n/a"
                   }
                 />

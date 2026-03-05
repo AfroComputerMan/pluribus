@@ -24,10 +24,10 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  getClaudePermissionRequests,
-  respondToClaudePermissionRequest,
-  subscribeClaudePermissionRequests,
-} from "@/lib/claude-adapter";
+  getPermissionRequests,
+  respondToPermissionRequest,
+  subscribePermissionRequests,
+} from "@/lib/dev-events";
 import { db, type WorkspaceRow } from "@/lib/db";
 import {
   CLAUDE_MODELS,
@@ -425,11 +425,11 @@ const Composer: FC = () => {
 const PermissionApprovalBar: FC = () => {
   const activeThreadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
   const getSnapshot = useCallback(
-    () => getClaudePermissionRequests(activeThreadId),
+    () => getPermissionRequests(activeThreadId),
     [activeThreadId],
   );
   const requests = useSyncExternalStore(
-    subscribeClaudePermissionRequests,
+    subscribePermissionRequests,
     getSnapshot,
   );
 
@@ -455,7 +455,7 @@ const PermissionApprovalBar: FC = () => {
           size="sm"
           variant="outline"
           onClick={() => {
-            void respondToClaudePermissionRequest(current.id, false);
+            void respondToPermissionRequest(current.id, false);
           }}
         >
           Deny
@@ -464,7 +464,7 @@ const PermissionApprovalBar: FC = () => {
           type="button"
           size="sm"
           onClick={() => {
-            void respondToClaudePermissionRequest(current.id, true);
+            void respondToPermissionRequest(current.id, true);
           }}
         >
           Approve
@@ -798,6 +798,7 @@ const ComposerModelSelector: FC<{ modelId: string; onModelChange: (id: string) =
             />
             <span>{m.label}</span>
             <span className="aui-model-option-family">{m.family}</span>
+            <span className="ml-auto text-[0.58rem] text-muted-foreground/60">Agent SDK</span>
           </button>
         ))}
         <div className="mt-1 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">Codex</div>
@@ -813,6 +814,7 @@ const ComposerModelSelector: FC<{ modelId: string; onModelChange: (id: string) =
             />
             <span>{m.label}</span>
             <span className="aui-model-option-family">{m.family}</span>
+            <span className="ml-auto text-[0.58rem] text-muted-foreground/60">Codex</span>
           </button>
         ))}
       </PopoverContent>

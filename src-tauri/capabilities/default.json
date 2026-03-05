@@ -8,22 +8,12 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
+    "dialog:allow-ask",
     "sql:default",
     "sql:allow-execute",
     {
       "identifier": "shell:allow-spawn",
       "allow": [
-        {
-          "name": "claude",
-          "cmd": "claude",
-          "args": true
-        },
-        {
-          "name": "claude-stream-sh",
-          "cmd": "sh",
-          "args": true,
-          "sidecar": false
-        },
         {
           "name": "git",
           "cmd": "git",
@@ -43,17 +33,6 @@
     {
       "identifier": "shell:allow-execute",
       "allow": [
-        {
-          "name": "claude",
-          "cmd": "claude",
-          "args": true
-        },
-        {
-          "name": "claude-stream-sh",
-          "cmd": "sh",
-          "args": true,
-          "sidecar": false
-        },
         {
           "name": "git",
           "cmd": "git",

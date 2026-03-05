@@ -14,6 +14,31 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Kill a process by PID. Returns true if the signal was sent successfully.
+/// Used by the frontend AgentProcessManager for orphan cleanup without needing
+/// a shell permission entry.
+#[tauri::command]
+fn kill_pid(pid: u32) -> bool {
+    use std::process::Command;
+    // Send SIGTERM on unix
+    #[cfg(unix)]
+    {
+        Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -81,6 +106,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            kill_pid,
             codex_start_thread,
             codex_send_turn,
             codex_interrupt_turn,
