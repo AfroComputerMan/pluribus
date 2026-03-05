@@ -19,6 +19,8 @@ pub struct CodexService {
     thread_subs: Arc<Mutex<HashMap<String, broadcast::Sender<AgentEvent>>>>,
     /// Monotonic request ID counter.
     next_id: Arc<AtomicU64>,
+    /// PID of the `codex app-server` child process (captured before moving child to supervisor).
+    child_pid: u32,
 }
 
 impl CodexService {
@@ -260,6 +262,9 @@ impl CodexService {
             });
         }
 
+        // Capture PID before moving child into supervisor task
+        let child_pid = child.id().unwrap_or(0);
+
         // supervisor task
         {
             let app_handle = app_handle.clone();
@@ -279,6 +284,7 @@ impl CodexService {
             pending,
             thread_subs,
             next_id: Arc::new(AtomicU64::new(1)),
+            child_pid,
         };
 
         // The app-server protocol requires an initialize handshake before any
@@ -331,5 +337,15 @@ impl CodexService {
             .entry(thread_id.to_string())
             .or_insert_with(|| broadcast::channel(256).0);
         tx.subscribe()
+    }
+
+    /// Return the PID of the `codex app-server` child process.
+    /// Returns `None` if the PID was not captured (e.g. process failed to spawn properly).
+    pub fn pid(&self) -> Option<u32> {
+        if self.child_pid == 0 {
+            None
+        } else {
+            Some(self.child_pid)
+        }
     }
 }

@@ -8,6 +8,14 @@ use super::types::AgentEvent;
 type LazyService = Mutex<Option<CodexService>>;
 
 #[tauri::command]
+pub async fn codex_get_pid(
+    state: State<'_, LazyService>,
+) -> Result<Option<u32>, String> {
+    let guard = state.lock().await;
+    Ok(guard.as_ref().and_then(|s| s.pid()))
+}
+
+#[tauri::command]
 pub async fn codex_start_thread(
     app_handle: AppHandle,
     state: State<'_, LazyService>,
