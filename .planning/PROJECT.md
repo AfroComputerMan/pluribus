@@ -27,18 +27,21 @@ Run multiple AI agents simultaneously across repos and have full control over ev
 
 ### Active
 
-<!-- New capabilities to build for multi-agent mission control -->
+<!-- v1.0: Multi-Thread Agent Orchestration -->
 
-- [ ] Dashboard overview showing all workspaces, active agents, and recent activity
-- [ ] Workspace management — create, configure, and group repos into workspaces
 - [ ] Multi-thread agent orchestration — spin up multiple agent threads simultaneously
 - [ ] Per-agent live output streaming with real-time intervention (approve/reject tool calls, pause/resume)
-- [ ] Fire-and-forget mode — launch agents, get notified on completion or errors
 - [ ] Agent provider abstraction — support Claude Code CLI, Agent SDK, Codex, and extensible to other providers
-- [ ] Workspace-level MCP server configuration with per-thread overrides (inherit + customize)
 - [ ] Per-thread context and working directory scoping
 - [ ] Agent status tracking — running, idle, error, completed across all threads
-- [ ] Drill-down from dashboard to individual agent thread view
+- [ ] Drill-down from overview to individual agent thread view
+
+### Future (v1.1+)
+
+- Dashboard overview showing all workspaces, active agents, and recent activity
+- Workspace management — create, configure, and group repos into workspaces
+- Fire-and-forget mode — launch agents, get notified on completion or errors
+- Workspace-level MCP server configuration with per-thread overrides (inherit + customize)
 
 ### Out of Scope
 
@@ -47,6 +50,18 @@ Run multiple AI agents simultaneously across repos and have full control over ev
 - Team collaboration features — single-user mission control
 - Mobile app — desktop-first (Tauri)
 - Plugin marketplace for MCP servers — manual configuration is sufficient for v1
+
+## Current Milestone: v1.0 Multi-Thread Agent Orchestration
+
+**Goal:** Enable running multiple AI agents simultaneously with live output, status tracking, and real-time intervention — the core orchestration engine.
+
+**Target features:**
+- Multi-thread agent orchestration
+- Per-agent live output with intervention controls
+- Agent provider abstraction (Claude CLI, Agent SDK, Codex)
+- Per-thread context and working directory scoping
+- Agent status tracking across all threads
+- Drill-down from overview to individual agent thread
 
 ## Context
 
@@ -80,4 +95,4 @@ The existing codebase has three adapter implementations (Claude CLI shell, Agent
 | MCP inheritance model | Workspace defaults + per-thread overrides avoids repetitive config | — Pending |
 
 ---
-*Last updated: 2026-03-05 after initialization*
+*Last updated: 2026-03-05 after milestone v1.0 started*
