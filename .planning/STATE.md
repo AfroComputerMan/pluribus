@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-03-05T16:00:53.491Z"
-last_activity: 2026-03-05 — Completed Plan 01-03 (Codex Provider)
+status: completed
+stopped_at: Completed 01-04-PLAN.md (Phase 1 complete)
+last_updated: "2026-03-05T16:47:07.879Z"
+last_activity: 2026-03-06 — Completed Plan 01-04 (Orchestrated Adapter Wiring and Legacy Removal)
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 12
+  completed_plans: 4
+  percent: 25
 ---
 
 # Project State
@@ -25,32 +25,32 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 ## Current Position
 
-Phase: 1 of 4 (Provider Abstraction)
-Plan: 3 of 4 in current phase
-Status: Executing
-Last activity: 2026-03-05 — Completed Plan 01-03 (Codex Provider)
+Phase: 1 of 4 (Provider Abstraction) -- COMPLETE
+Plan: 4 of 4 in current phase (all done)
+Status: Phase 1 Complete
+Last activity: 2026-03-06 — Completed Plan 01-04 (Orchestrated Adapter Wiring and Legacy Removal)
 
-Progress: [██░░░░░░░░] 12%
+Progress: [██████████] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 2.5min
-- Total execution time: 0.08 hours
+- Total plans completed: 4
+- Average duration: ~14min
+- Total execution time: ~0.9 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-provider-abstraction | 2 | 5min | 2.5min |
+| 01-provider-abstraction | 4 | ~55min | ~14min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (3min), 01-03 (2min)
-- Trend: Accelerating
+- Last 5 plans: 01-01 (3min), 01-02 (4min), 01-03 (2min), 01-04 (45min)
+- Trend: Plan 04 was integration/wiring plan with human verification checkpoint
 
 *Updated after each plan completion*
-| Phase 01 P02 | 4min | 2 tasks | 2 files |
+| Phase 01 P04 | 45min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -69,6 +69,9 @@ Recent decisions affecting current work:
 - [Phase 01-02]: Provider receives sidecar via accessor function (getSidecar) -- process manager controls lifecycle
 - [Phase 01-02]: CLAUDE_CONFIG_DIR set as process-wide env var; concurrent multi-config queries need separate sidecar instances
 - [Phase 01-02]: Health check: 30s ping, 5s pong timeout, kill and restart on failure
+- [01-04]: OrchestratedAdapter is the single ChatModelAdapter; routes by model to Agent SDK or Codex provider
+- [01-04]: Native Tauri dialog for exit confirmation (window.confirm unreliable on Linux)
+- [01-04]: Process PIDs tracked via onProcessStarted callback during provider run
 
 ### Pending Todos
 
@@ -82,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-05T16:00:53.488Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-03-05T16:47:07.876Z
+Stopped at: Completed 01-04-PLAN.md (Phase 1 complete)
 Resume file: None

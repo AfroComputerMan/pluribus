@@ -14,7 +14,7 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 - [x] **PROV-03**: Codex server provider implementation (refactored from existing Codex adapter)
 - [x] **PROV-04**: Process group management with cleanup on app exit and crash recovery
 - [x] **PROV-05**: Orphan process detection and cleanup on app startup
-- [ ] **PROV-06**: Remove Claude CLI adapter and sh -c shell wrapper from codebase
+- [x] **PROV-06**: Remove Claude CLI adapter and sh -c shell wrapper from codebase
 - [x] **PROV-07**: Per-agent config isolation (separate config directories/environments)
 
 ### Agent Orchestration
@@ -82,7 +82,7 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 | PROV-03 | Phase 1 | Complete |
 | PROV-04 | Phase 1 | Complete |
 | PROV-05 | Phase 1 | Complete |
-| PROV-06 | Phase 1 | Pending |
+| PROV-06 | Phase 1 | Complete |
 | PROV-07 | Phase 1 | Complete |
 | ORCH-01 | Phase 2 | Pending |
 | ORCH-02 | Phase 2 | Pending |
