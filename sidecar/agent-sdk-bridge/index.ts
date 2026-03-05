@@ -8,9 +8,10 @@
  * Protocol (one JSON object per line):
  *
  * stdin (Frontend -> Sidecar):
- *   { "type": "query", "id": "<uuid>", "prompt": "...", "sessionId"?: "...", "model"?: "...", "cwd": "/path" }
+ *   { "type": "query", "id": "<uuid>", "prompt": "...", "sessionId"?: "...", "model"?: "...", "cwd": "/path", "configDir"?: "/path" }
  *   { "type": "interrupt", "queryId": "<uuid>" }
  *   { "type": "ping" }
+ *   { "type": "shutdown" }
  *
  * stdout (Sidecar -> Frontend):
  *   { "type": "pong" }
@@ -50,10 +51,24 @@ async function handleQuery(params: {
   model?: string;
   cwd?: string;
   maxTurns?: number;
+  configDir?: string;
 }): Promise<void> {
-  const { id, prompt, sessionId, model, cwd, maxTurns } = params;
+  const { id, prompt, sessionId, model, cwd, maxTurns, configDir } = params;
   const abortController = new AbortController();
   activeAborts.set(id, abortController);
+
+  // PROV-07: Per-agent config isolation via CLAUDE_CONFIG_DIR.
+  // Set the env var before calling query() so the spawned Claude CLI process
+  // inherits it. The Agent SDK spawns claude as a subprocess, so env vars
+  // set on the current process are inherited.
+  // NOTE: This is a process-wide env var, so concurrent queries with different
+  // configDirs would conflict. In practice, the sidecar runs one query at a
+  // time per agent instance, so this is safe. If concurrent multi-config
+  // queries are needed in the future, each would need its own sidecar process.
+  const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  if (configDir) {
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+  }
 
   let finalSessionId: string | undefined = sessionId;
   let totalCostUsd = 0;
@@ -114,7 +129,45 @@ async function handleQuery(params: {
     }
   } finally {
     activeAborts.delete(id);
+    // Restore previous CLAUDE_CONFIG_DIR
+    if (configDir) {
+      if (previousConfigDir !== undefined) {
+        process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+      } else {
+        delete process.env.CLAUDE_CONFIG_DIR;
+      }
+    }
   }
+}
+
+/**
+ * Graceful shutdown: abort all in-flight queries, wait for them to settle
+ * (up to 3s), then exit.
+ */
+async function handleShutdown(): Promise<void> {
+  process.stderr.write("[agent-sdk-bridge] shutdown requested\n");
+
+  // Abort all active queries
+  for (const [queryId, controller] of activeAborts) {
+    process.stderr.write(`[agent-sdk-bridge] aborting query ${queryId}\n`);
+    controller.abort();
+  }
+
+  // Wait for all handlers to settle (activeAborts map to empty)
+  const deadline = Date.now() + 3000;
+  while (activeAborts.size > 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  if (activeAborts.size > 0) {
+    process.stderr.write(
+      `[agent-sdk-bridge] shutdown deadline reached with ${activeAborts.size} queries still active\n`
+    );
+  } else {
+    process.stderr.write("[agent-sdk-bridge] all queries settled, exiting\n");
+  }
+
+  process.exit(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +193,16 @@ rl.on("line", (line) => {
     return;
   }
 
+  if (msg.type === "shutdown") {
+    handleShutdown().catch((err: unknown) => {
+      process.stderr.write(
+        `[agent-sdk-bridge] error during shutdown: ${String(err)}\n`
+      );
+      process.exit(1);
+    });
+    return;
+  }
+
   if (msg.type === "interrupt") {
     const queryId = msg.queryId as string | undefined;
     if (queryId) {
@@ -157,6 +220,7 @@ rl.on("line", (line) => {
       model: msg.model as string | undefined,
       cwd: msg.cwd as string | undefined,
       maxTurns: msg.maxTurns as number | undefined,
+      configDir: msg.configDir as string | undefined,
     }).catch((err: unknown) => {
       process.stderr.write(
         `[agent-sdk-bridge] unhandled error in handleQuery: ${String(err)}\n`
