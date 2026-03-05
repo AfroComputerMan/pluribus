@@ -1,188 +1,214 @@
 # Pitfalls Research
 
-**Domain:** Multi-agent AI orchestration desktop app (Tauri 2 + Claude CLI/SDK/Codex)
+**Domain:** Multi-thread agent orchestration added to existing single-thread Tauri 2 desktop app
 **Researched:** 2026-03-05
-**Confidence:** HIGH (grounded in documented Claude CLI bugs, Tauri issues, and existing codebase analysis)
+**Confidence:** HIGH (grounded in direct codebase analysis, documented Claude CLI bugs, Tauri issues)
 
 ## Critical Pitfalls
 
-### Pitfall 1: Claude CLI Concurrent Session Corruption
+### Pitfall 1: SQLite Write Contention from Concurrent Agent Streams
 
 **What goes wrong:**
-Running multiple Claude CLI processes simultaneously on the same machine causes `.claude.json` corruption via non-atomic read-modify-write cycles. The `cachedGrowthBookFeatures` object and `toolUsage` fields get truncated mid-write. This was reported as a critical regression (GitHub issue #28829) and happens ~16 times per hour with just two concurrent instances on Windows. Additionally, concurrent CLI processes race on OAuth token refresh (`~/.claude/.credentials.json`), where the loser gets a 404 and silently loses authentication with no recovery path (issue #27933). Context bleeding between sessions has also been documented (issue #2272).
+Multiple agents running simultaneously all write to `pluribus.db` via `tauri-plugin-sql`. The current `db.ts` has no WAL mode, no busy timeout, and no write batching for most operations. Each agent stream triggers individual `conn.execute()` calls for session upserts, message appends, usage snapshots, mcp invocations, and dev events. With 5 concurrent agents, this is dozens of write transactions per second racing on SQLite's exclusive write lock. Result: `SQLITE_BUSY` errors that silently drop agent state, or multi-second write latency that makes status updates appear frozen.
 
 **Why it happens:**
-Claude CLI was designed as a single-user, single-instance tool. All sessions share a single global config file that gets written on every tool call. There is no file locking. Pluribus's core value proposition -- running multiple agents simultaneously -- directly conflicts with this design assumption.
+The `getDb()` singleton (line 15 of `db.ts`) opens the connection with no PRAGMA configuration. SQLite defaults to `DELETE` journal mode which locks the entire database for every write. The only batched write is `devEventsInsertBatch()` (line 540); everything else -- `sessionsUpsert()`, `messagesAppend()`, `usageSnapshotsInsert()`, `mcpInvocationsInsert()` -- is a single statement fired synchronously from streaming callbacks. This was fine for one agent but breaks at N > 2.
 
 **How to avoid:**
-- Serialize writes to shared Claude CLI config files using a mutex or file lock managed by Pluribus before spawning CLI processes.
-- Use `--no-stats` or equivalent flags (if available) to reduce write frequency to shared config.
-- For the Agent SDK adapter path, bypass the CLI entirely -- the SDK does not share a global config file and is inherently safe for concurrent use.
-- Isolate Claude CLI instances using separate `CLAUDE_CONFIG_DIR` environment variables per agent, if the CLI supports it.
-- Implement an OAuth token management layer that handles refresh centrally rather than letting each CLI process race.
+1. Add `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` to `getDb()` immediately after `Database.load()`. This is a two-line fix that allows concurrent reads during writes and retries instead of throwing.
+2. Implement a write queue: high-frequency writes (dev events, usage snapshots) go into a memory buffer that flushes every 250ms in a single transaction.
+3. For session state updates, debounce writes -- the `sessionsUpsert` call during streaming does not need to persist on every status change, only on meaningful transitions.
+4. Use `BEGIN IMMEDIATE` transactions for multi-step operations to fail fast rather than deadlocking.
 
 **Warning signs:**
+- `SQLITE_BUSY` errors or `database is locked` messages in console
+- Agent state in DB lagging behind actual process state by seconds
+- Dev events or usage data appearing missing after concurrent runs
+- SQLite journal files (`pluribus.db-wal`, `pluribus.db-shm`) growing very large
+
+**Phase to address:**
+Phase 1 (Foundation). WAL mode and busy timeout are prerequisite PRAGMAs that must exist before any concurrent agent work. Write batching is Phase 2 optimization.
+
+---
+
+### Pitfall 2: Orphaned Processes and Resource Exhaustion
+
+**What goes wrong:**
+Three independent failure modes compound in multi-agent:
+
+**(a) Zombie processes on crash/force-quit:** The app tracks processes in in-memory Maps (`activeChildByThread` at line 167 of `claude-adapter.ts`, `this.child` in `AgentSdkSidecar`). On crash, these Maps are lost. Each orphaned Claude CLI process consumes 270-370MB RAM and API credits indefinitely. With 5+ agents, that is 1.5GB+ of leaked memory.
+
+**(b) Process tree incompleteness:** The `sh -c` wrapper spawns `sh` which `exec`s to `claude`. If `exec` fails, `sh` persists as a zombie. The Bun sidecar (`agent-sdk-bridge`) spawns its own child processes via `@anthropic-ai/claude-agent-sdk` -- killing the sidecar does NOT kill SDK-managed agent processes because they are in a separate process tree.
+
+**(c) Resource exhaustion:** Each agent spawns at least one process (CLI mode) or shares one sidecar process (SDK mode). Title generation (`prefetchTitle` in `sqlite-thread-list-adapter.ts`, line 46) spawns an ADDITIONAL `claude` process per new thread. With 10 agents, that is potentially 20 Claude CLI processes at peak.
+
+**Why it happens:**
+Process lifecycle management was designed for one-at-a-time execution. The `activeChildByThread` Map stores only the LATEST child per thread key. The HMR cleanup (line 1972) iterates and kills all tracked children, but this only runs during hot reload, not on app exit. No PIDs are persisted to SQLite for crash recovery. No process groups are used.
+
+**How to avoid:**
+1. Persist active agent PIDs to SQLite when spawning, clear on clean exit. On app startup, check for stale PIDs and kill them.
+2. Use process groups (Tauri shell plugin supports this on Unix) so `killpg()` terminates the entire process tree.
+3. Implement a hard concurrent agent limit (default 5-8) enforced by a semaphore in the orchestrator. Queue excess launch requests.
+4. Replace the `sh -c` wrapper with direct `Command.create("claude", [...args])` to eliminate the shell process layer.
+5. Eliminate the separate `prefetchTitle` CLI spawn -- extract titles from the agent's first response instead.
+6. For the sidecar, implement structured shutdown: send a `shutdown` message, wait 3 seconds, then kill. Track sidecar-spawned child PIDs.
+7. Wire Tauri's `RunEvent::ExitRequested` in `lib.rs` to kill all registered agent processes.
+
+**Warning signs:**
+- `claude` or `codex` processes visible in task manager after closing Pluribus
+- RAM usage not returning to baseline after stopping all agents
+- Startup sweep finding orphaned PIDs from previous sessions
+- System fan running after closing the app
+
+**Phase to address:**
+Phase 1 (Provider Abstraction). Process lifecycle is a core provider responsibility. The provider interface must require `cleanup()` and `killAll()` methods.
+
+---
+
+### Pitfall 3: assistant-ui Runtime Aborts Background Agents on Thread Switch
+
+**What goes wrong:**
+The `useLocalRuntime` hook creates a single-thread runtime. When the user navigates between agent threads, assistant-ui fires the `abortSignal` on the previous thread's `run()` call. The current adapters all respect this signal by killing the child process:
+- `claude-adapter.ts` line 1382-1389: `abortSignal.addEventListener("abort", () => { void child.kill(); })`
+- `agent-sdk-adapter.ts` line 203-209: `abortSignal.addEventListener("abort", () => { void this.send({ type: "interrupt", queryId: id }); })`
+
+This means switching from Agent A's view to Agent B's view KILLS Agent A's process. This is correct for single-chat but fatal for multi-agent orchestration where agents must continue running in the background.
+
+**Why it happens:**
+assistant-ui's `useLocalRuntime` was designed for "one conversation at a time." The `abortSignal` does not distinguish between "user cancelled this agent" and "user navigated away." The existing codebase uses `unstable_` APIs (`unstable_useRemoteThreadListRuntime`, `unstable_threadId`, `unstable_Provider`) suggesting it is already pushing assistant-ui beyond its designed use case.
+
+**How to avoid:**
+1. Build an `AgentOrchestrator` layer that owns process lifecycle INDEPENDENTLY of assistant-ui's runtime. The orchestrator spawns, monitors, and kills processes. assistant-ui only renders whatever the orchestrator has for the currently viewed thread.
+2. The adapter's `run()` method should NOT directly spawn processes. Instead, it should connect to the orchestrator's existing stream for that thread. If the user aborts via the signal, the adapter disconnects from the stream but the orchestrator keeps the process alive.
+3. Add a separate "user explicitly stopped this agent" action (a stop button) that tells the orchestrator to kill the process. This is distinct from the abort signal.
+4. For split-pane views (viewing multiple agents simultaneously), instantiate separate `useLocalRuntime` per pane with isolated React context boundaries.
+5. Fire-and-forget agents do not need assistant-ui at all -- render them with custom status components that read directly from the orchestrator's state.
+
+**Warning signs:**
+- Background agent processes dying when the user switches thread views
+- Agent shows "running" in sidebar but `ps` shows no corresponding process
+- Returning to a thread shows stale content that does not match actual agent progress
+- `abortSignal.aborted` is `true` in adapter runs that should still be alive
+
+**Phase to address:**
+Phase 1 (Architecture). This is THE most fundamental design decision. The orchestrator must be designed and implemented before any multi-agent UI features. Getting this wrong requires a rewrite.
+
+---
+
+### Pitfall 4: UI Render Thrashing from N Concurrent Streams
+
+**What goes wrong:**
+Each agent adapter yields `ChatModelRunResult` at high frequency. The `claude-adapter.ts` uses `YIELD_THROTTLE_MS = 16` (line 164, ~60fps). Each yield sends the FULL `pendingContent` array (the adapter accumulates and snapshots the entire content array on every delta). With 5 concurrent agents:
+- 300+ React state updates per second across all agents
+- Each update triggers re-renders of: the focused thread view, sidebar status indicators, dashboard agent cards, and any overview components
+- The `[...pendingContent]` spread on every yield (line 1631 and many others) creates new array references that defeat React's referential equality checks
+
+**Why it happens:**
+The adapters were optimized for single-agent responsiveness. The `YIELD_THROTTLE_MS = 16` targets 60fps for smooth streaming. Global state stores (the dev event system uses `useSyncExternalStore` with a `devListeners` Set at line 296) notify ALL subscribers on ANY agent's update. The sidebar's thread list re-renders whenever any thread's status changes. There is no per-agent state isolation.
+
+**How to avoid:**
+1. Differentiate between "focused agent" (16ms yields, full fidelity) and "background agents" (200-500ms yields, batched). The orchestrator should manage this distinction.
+2. Use per-agent external stores with `useSyncExternalStore`. Components subscribe only to the specific agent they display. The sidebar subscribes to a derived "agent statuses" store, not individual content streams.
+3. For the dashboard/overview, poll agent states on a 500ms-1s interval rather than subscribing to every content delta.
+4. Use structural sharing for the content array -- only create a new reference when content actually changes, not on every yield.
+5. The dev event system's circular buffer (500 events max, line 160) must be per-agent-scoped for rendering but can share backing storage. The current global `devListeners` Set (line 296) fires all listeners on any event -- switch to per-thread listener Sets.
+
+**Warning signs:**
+- React DevTools Profiler showing 200+ renders/second in sidebar or dashboard components
+- Tauri window frame drops during multi-agent streaming (check Chromium DevTools Performance panel)
+- Memory climbing steadily during concurrent runs (GC unable to keep up with object allocation from array spreads)
+- Input lag in the composer when multiple agents are streaming
+
+**Phase to address:**
+Phase 2-3 (Multi-Agent UI). The architecture decisions (per-agent stores, focused vs background throttling) must be in the design from Phase 1, but the implementation and tuning happen when building the multi-agent UI.
+
+---
+
+### Pitfall 5: Claude CLI Concurrent Session Corruption
+
+**What goes wrong:**
+Running multiple Claude CLI processes simultaneously causes `.claude.json` corruption via non-atomic read-modify-write cycles. Documented in GitHub issues #28829 and #29003 -- corruption happens ~16 times per hour with just two concurrent instances. Concurrently, OAuth token refresh races (`~/.claude/.credentials.json`) where the loser gets a 404 and silently loses authentication (issue #27933). Context bleeding between sessions has also been reported (issue #2272).
+
+**Why it happens:**
+Claude CLI was designed as a single-user, single-instance tool. All sessions share a single global config file written on every tool call. There is no file locking. Pluribus's core value proposition directly conflicts with this design assumption.
+
+**How to avoid:**
+1. Strongly prefer the Agent SDK adapter for multi-agent use cases -- the SDK does not share a global config file and is inherently safe for concurrent use.
+2. If CLI mode is necessary, serialize CLI process spawning through a global mutex (not per-thread, but per-system) to prevent concurrent `.claude.json` writes.
+3. Explore `CLAUDE_CONFIG_DIR` environment variable to isolate CLI instances (if supported).
+4. Implement an OAuth token management layer that handles refresh centrally.
+5. Set a hard limit on concurrent CLI-mode agents (recommend max 2) while allowing more for SDK-mode agents.
+
+**Warning signs:**
+- JSON parse errors in Claude CLI stderr output
 - Agents randomly failing authentication mid-session
-- Corrupted JSON parse errors in stderr from Claude CLI
-- Agents seeing context or config from other sessions
-- Sporadic 404 errors during otherwise normal operation
+- Agents seeing context from other sessions
+- Sporadic 404 errors during normal operation
 
 **Phase to address:**
-Phase 1 (Provider Abstraction). When building the unified provider interface, the Claude CLI provider must include a concurrency guard. Prefer Agent SDK adapter for multi-agent use cases. The CLI path should enforce a configurable max-concurrent limit.
+Phase 1 (Provider Abstraction). The CLI provider must include a concurrency guard. Default new agents to SDK mode. CLI mode should display a warning about concurrent limitations.
 
 ---
 
-### Pitfall 2: Orphaned Child Processes on App Exit or Crash
+### Pitfall 6: Lock Contention and Deadlock Across Unified Adapter
 
 **What goes wrong:**
-When Pluribus exits (normally or via crash), spawned Claude CLI processes, Codex processes, and the agent-sdk-bridge sidecar continue running. Each Claude CLI process consumes 270-370MB RAM and 1.7-2.2% CPU. With 5-10 agents running, orphaned processes consume 1.5-3.5GB RAM and significant CPU indefinitely. On Windows, `child.kill()` in Tauri's shell plugin does not reliably terminate processes (tauri issue #4949). The `sh -c` wrapper currently used adds another layer: killing `sh` may not kill the `claude` child (though the current `exec` usage mitigates this for normal cases).
+The codebase has TWO independent locking mechanisms:
+1. `claude-adapter.ts` (line 651-696): `activeThreadRuns` Set + `pendingThreadRunWaiters` Map with FIFO queue and 60-second timeout
+2. `agent-sdk-adapter.ts` (line 62-74): `threadLocks` Map with promise chaining
+
+When unifying these into a single provider abstraction, the lock semantics must be reconciled. If an agent switches engines mid-session, or if the orchestrator uses one lock system while the adapter uses another, agents can deadlock (both locks held, each waiting for the other) or run concurrently on the same thread (neither lock held because the wrong one was checked).
 
 **Why it happens:**
-Tauri kills sidecar processes on `App::drop`, but this only works for sidecars registered via `Command::new_sidecar`. Processes spawned via `Command.create("claude-stream-sh", ...)` from JavaScript are tracked but cleanup is best-effort. Crash exits skip cleanup entirely. Process trees (parent spawning children) are not tracked as groups.
+Each adapter was built independently with its own concurrency model. The `THREAD_LOCK_TIMEOUT_MS = 60_000` is a safety valve, but 60 seconds is a long silent hang before the user sees an error. The sidecar's promise-chain lock has no timeout at all -- a crashed query that never resolves its promise chain permanently blocks that thread's lock.
 
 **How to avoid:**
-- Use process groups (`command_group` crate on Rust side) so killing the group kills all descendants.
-- Implement a process registry in Rust (Tauri state) that tracks every spawned PID. On `ExitRequested` and `RunEvent::Exit`, iterate and kill all registered PIDs.
-- Add a startup sweep: on app launch, check for and kill any orphaned processes from a previous session (store PIDs in SQLite, check if still running).
-- For the `sh -c` wrapper, the `exec` replacement already helps, but switching to direct `Command.create("claude", [...args])` eliminates the shell layer entirely.
-- Set process-level resource limits (e.g., `ulimit` on Linux/macOS) as a safety net.
+1. Move all locking into the orchestrator layer. Adapters do not manage concurrency -- the orchestrator decides when a thread can run.
+2. Use a single lock mechanism. The sidecar's promise-chaining pattern is cleaner but must add a timeout.
+3. Reduce lock timeout to 10-15 seconds for multi-agent (the user should know quickly if something is wrong).
+4. Add lock state to the agent status display: "waiting for lock" is a valid state the user should see, not a silent hang.
+5. Implement deadlock detection: if thread A holds lock X and waits for lock Y, while thread B holds lock Y and waits for lock X, surface the deadlock immediately.
 
 **Warning signs:**
-- Users reporting high CPU/memory usage after closing Pluribus
-- `ps aux | grep claude` showing zombie processes
-- System slowdown after repeated app crashes during agent runs
+- "Timed out waiting for thread lock" errors in console
+- Agent stuck in "starting" state for extended periods
+- Two processes running on the same thread simultaneously (visible via PID check)
+- Session state corruption from concurrent writes to the same session
 
 **Phase to address:**
-Phase 1 (Provider Abstraction) -- process lifecycle management must be a core provider responsibility, not an afterthought. The provider interface should require `cleanup()` and `killAll()` methods.
+Phase 1 (Provider Abstraction). Centralize locking when unifying the three adapters. The orchestrator owns all concurrency control.
 
 ---
 
-### Pitfall 3: Unbounded Agent Spawning Exhausts System Resources
+### Pitfall 7: State Desynchronization Between Process Reality and UI Display
 
 **What goes wrong:**
-Users spin up 10+ concurrent agents across workspaces. Each agent consumes: one Claude CLI process (270-370MB), context window tokens (billed per session), and stdout streaming bandwidth through the Tauri IPC bridge. The system grinds to a halt as RAM fills, CPU saturates, and the Tauri webview becomes unresponsive because all IPC channels are flooded with streaming events from multiple agents simultaneously.
+The UI shows an agent as "running" but the process has exited. Or the reverse: the process is actively writing files but the UI shows "idle." The user takes actions based on stale state -- tries to abort a dead agent (silent failure), or launches a new task on a thread that is still executing (state corruption). With N agents, the probability of at least one being desynchronized grows rapidly.
 
 **Why it happens:**
-There is no governor limiting concurrent agents. The UI makes it easy to "spin up another agent" without surfacing resource cost. The underlying APIs (Claude, Codex) have their own rate limits that are opaque to the user -- hitting them causes cryptic failures rather than graceful degradation.
+Agent state currently lives in multiple unsynchronized layers:
+- **Process layer**: the actual OS process (alive or dead)
+- **Adapter layer**: in-memory Maps (`activeChildByThread`, `sessionByThread`, `activeThreadRuns` -- lines 156-159 of `claude-adapter.ts`)
+- **Database layer**: `sessions` table with `status` field
+- **UI layer**: React state derived from the above
+
+The `close` event on Tauri's `Command` is the bridge between process and adapter layers, but if the handler throws, the component unmounts, or the event is missed during a thread switch, the adapter layer gets stuck. There is no periodic reconciliation.
 
 **How to avoid:**
-- Implement a hard cap on concurrent running agents (default: 5, configurable). Queue additional requests.
-- Show real-time resource usage per agent in the dashboard (CPU, memory, tokens consumed).
-- Implement backpressure: when the Tauri IPC bridge falls behind, batch or throttle streaming events rather than letting them queue unboundedly.
-- Surface API rate limit errors with clear messaging: "You've hit the Claude API rate limit. Agent paused -- will auto-retry in X seconds."
-- Add a "system health" indicator to the dashboard that warns when resource usage is high.
+1. Use a finite state machine for agent lifecycle: `idle -> starting -> running -> stopping -> stopped | error | completed`. Log and validate every transition. Reject invalid transitions (e.g., `stopped -> running` without `starting`).
+2. Persist agent state to SQLite on every transition. The database is the single source of truth, not in-memory Maps.
+3. Implement a heartbeat/reconciliation loop (every 5-10 seconds) that checks whether tracked PIDs are still alive. Update state immediately on mismatch.
+4. When the user interacts with an agent (abort, send message), validate process state first. If process is dead but state says "running," trigger immediate reconciliation and surface the error.
+5. Add a "last seen alive" timestamp per agent. Display staleness in the UI: "Running (last activity 45s ago)" becomes a visual warning.
 
 **Warning signs:**
-- Increasing IPC message latency (events arriving seconds after generation)
-- Webview frame drops or UI freezes when many agents are streaming
-- OS-level memory pressure notifications
-- Agents silently failing with rate limit errors that never surface to the user
+- Agents stuck in "running" state with no output for extended periods
+- "Kill" button does nothing (process already dead, no error shown)
+- Console errors about writing to closed stdin/processes
+- Agent completion events arriving long after the process exited
 
 **Phase to address:**
-Phase 2 (Multi-Agent Orchestration). The concurrency governor and resource monitoring must ship with the multi-agent feature, not after it.
-
----
-
-### Pitfall 4: MCP Server Lifecycle Mismanagement
-
-**What goes wrong:**
-MCP servers are spawned per-workspace or per-agent but never properly cleaned up. Duplicate MCP server instances accumulate (e.g., three filesystem MCP servers for the same workspace). MCP servers that crash are not restarted, leaving agents without tools mid-execution. The inheritance model (workspace defaults + per-thread overrides) creates confusion about which MCP servers are actually running for a given agent.
-
-**Why it happens:**
-MCP servers are long-lived processes with their own lifecycles that do not align with agent lifecycles. An agent may complete but its MCP servers keep running. A workspace MCP server may be shared by 5 agents, but who "owns" it for cleanup? The inheritance model adds complexity: if a thread overrides one MCP server, does it still share the workspace's other servers or get its own instances?
-
-**How to avoid:**
-- Implement reference counting for shared MCP servers: track which agents are using each server, shut down when refcount hits zero.
-- MCP servers should be workspace-scoped singletons by default. Per-thread overrides spawn a thread-scoped instance of only the overridden server; other servers are still shared from workspace.
-- Add health checks (periodic ping) for MCP servers. Auto-restart crashed servers and re-register tools with affected agents.
-- Display MCP server status in the dashboard: running, crashed, idle, connections count.
-- Set an idle timeout: if no agent has used an MCP server in N minutes, shut it down.
-
-**Warning signs:**
-- `ps aux` showing many MCP server processes that should not exist
-- Agents reporting "tool not found" errors mid-conversation
-- Increasing memory usage over time even with few active agents
-- Conflicting tool definitions when multiple servers expose the same tool name
-
-**Phase to address:**
-Phase 3 (MCP Configuration). This must be solved as part of workspace-level MCP management, not bolted on later.
-
----
-
-### Pitfall 5: State Synchronization Between Dashboard and Agent Threads
-
-**What goes wrong:**
-The dashboard shows an agent as "running" but the CLI process crashed 30 seconds ago. Or the dashboard shows "idle" but the agent is actively writing files. Users make decisions (approve tool calls, kill agents) based on stale state, causing data loss or confusion. When an agent completes in fire-and-forget mode, the notification fires but the thread view still shows "running" until the user navigates to it.
-
-**Why it happens:**
-State lives in multiple places: the CLI process (actual), the Rust Tauri backend (observed via stdout parsing), the React frontend (rendered). Each layer can lag. The existing codebase already has this problem in miniature -- session state is cached in-memory Maps that can diverge from SQLite. At multi-agent scale, the divergence windows multiply.
-
-**How to avoid:**
-- Single source of truth: agent state lives in SQLite, updated synchronously on every state transition. The dashboard queries SQLite, not in-memory caches.
-- Use Tauri events for state change notifications (not polling). When the Rust side detects a process exit, emit a `agent-state-changed` event immediately.
-- Implement heartbeat monitoring: if no stdout from an agent for N seconds, probe the process. Mark as "unresponsive" before "crashed."
-- For fire-and-forget, persist the completion event to SQLite first, then emit the notification. The dashboard polls SQLite on focus, catching any missed events.
-- Add a "last updated" timestamp to each agent's status display so users can see staleness.
-
-**Warning signs:**
-- Users reporting "ghost" agents that appear active but are not
-- Tool call approvals sent to dead agents
-- Notifications arriving for agents the user thought were idle
-- State flickering in the dashboard (running -> idle -> running)
-
-**Phase to address:**
-Phase 2 (Multi-Agent Orchestration). State management is the foundation of the orchestration layer.
-
----
-
-### Pitfall 6: assistant-ui Runtime Assumes Single Active Thread
-
-**What goes wrong:**
-assistant-ui's `useLocalRuntime` and its thread management primitives are designed around a single active thread with others backgrounded. Pluribus's pivot requires multiple threads to be simultaneously active (visible, streaming, accepting input). Forcing assistant-ui to render multiple concurrent active threads leads to: runtime state conflicts, thread switching that interrupts streams, and hooks (`useThread`, `useMessage`) returning data from the wrong thread context.
-
-**Why it happens:**
-assistant-ui is a chat UI framework, not an agent orchestration framework. Its mental model is "one conversation at a time." The existing Pluribus codebase already uses `unstable_` APIs to work around limitations. Multi-agent requires either multiple runtime instances or a complete rethinking of how assistant-ui is used.
-
-**How to avoid:**
-- Do NOT try to make one `AssistantRuntime` manage multiple simultaneously visible threads. Instead, instantiate one runtime per visible agent pane/tab.
-- Use assistant-ui for the individual thread view (drill-down), but build the dashboard and multi-agent overview with custom components that read directly from SQLite/state.
-- Isolate each agent's React component tree so assistant-ui hooks resolve to the correct thread context. React context boundaries are the key mechanism.
-- Accept that fire-and-forget agents do not need assistant-ui at all -- they only need a status indicator and a log viewer. assistant-ui is for interactive sessions.
-
-**Warning signs:**
-- Hooks returning undefined or wrong-thread data
-- Switching between agent views causes stream interruption
-- Memory leaks from runtime instances not being cleaned up
-- assistant-ui `unstable_` API breakage on minor version bumps
-
-**Phase to address:**
-Phase 1 (Provider Abstraction and Architecture). The decision about how assistant-ui fits the multi-pane architecture must be made before building the dashboard.
-
----
-
-### Pitfall 7: Shell Security Escalation with Multiple Agents
-
-**What goes wrong:**
-The current `sh -c` wrapper with `"args": true` in Tauri capabilities allows arbitrary shell command execution from the webview. With a single chat thread, the attack surface is limited. With multiple concurrent agents that can each execute shell commands, tool calls, and file operations across different workspaces, a single XSS vulnerability in any rendered agent output gives an attacker simultaneous access to all workspaces and all agent permissions. An agent working on workspace A could be tricked into affecting workspace B's files.
-
-**Why it happens:**
-The current security model was designed for a single-chat prototype. `"args": true` is the broadest possible permission. The `sh` command entry in `default.json` effectively grants unrestricted shell access. As agent count grows, the blast radius of any security issue grows proportionally.
-
-**How to avoid:**
-- Replace `sh -c` wrapper with direct `Command.create("claude", [...args])` invocation (already noted as a known issue in CLAUDE.md).
-- Remove the `claude-stream-sh` / `sh` entry from capabilities entirely once direct invocation works.
-- Restrict `git` args to a whitelist of safe subcommands.
-- Implement per-workspace file system boundaries: agents should not be able to access files outside their workspace CWD.
-- Use Claude CLI's `--permission-mode` flag to enforce approval workflows consistently across all engines.
-- Sanitize all rendered agent output (tool results, file contents) before inserting into the DOM.
-
-**Warning signs:**
-- Any agent output containing `<script>` tags or event handlers
-- Agents executing commands outside their workspace directory
-- The `sh` entry still existing in `default.json` after the multi-agent pivot
-
-**Phase to address:**
-Phase 1 (Provider Abstraction). Security hardening must happen before agents can operate across multiple workspaces. This is a prerequisite, not a follow-up.
+Phase 2 (Agent Lifecycle). The state machine must be part of the orchestrator core, implemented before any UI is built on top.
 
 ---
 
@@ -190,105 +216,105 @@ Phase 1 (Provider Abstraction). Security hardening must happen before agents can
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Fire-and-forget DB writes (`void` prefix) | Non-blocking hot path | Silent data loss, inconsistent state across agents | Never in multi-agent -- agent state transitions must be reliable |
-| In-memory session caches without eviction | Fast lookups | Memory grows linearly with thread count; with 10 workspaces x 10 agents, hundreds of entries accumulate | Only if bounded with LRU; otherwise never |
-| Parsing stderr strings for error detection | Quick implementation | Breaks silently when Claude CLI updates error messages | Only for prototype; replace with structured error codes before v1 |
-| Spawning separate process for title generation | Responsive UX | With 10 concurrent agents, that is 20 CLI processes at startup | Never at multi-agent scale; extract title from first response |
-| One monolithic adapter file per engine | All logic co-located | Bug fixes must be applied 3x; divergence between engines | Only during initial pivot; extract BaseAdapter in Phase 1 |
+| Keeping 3 separate adapter files with independent state | No refactoring needed, ship faster | Every cross-cutting concern (locking, cleanup, state tracking, error handling) must be implemented 3 times; bugs fixed in one are missed in others | Never -- unify before multi-agent |
+| In-memory Maps for process tracking | Simple, fast lookups | State lost on crash, no recovery, no cross-window visibility, grows linearly with agents | Never for multi-agent -- persist PIDs to SQLite |
+| `void` prefix on DB writes (fire-and-forget) | Non-blocking hot path | Silent data loss; agent state transitions silently fail without error propagation | Only for truly optional data (dev events); never for session or status state |
+| `sh -c` shell wrapper for CLI invocation | Works around stdin pipe detection | Extra process per agent, shell injection surface, platform-specific behavior | Never -- replace with direct invocation before multi-agent |
+| Spawning separate CLI process for title generation | Responsive UX, simple implementation | With N agents, that is 2N processes at startup (agent + title generator) | Never at multi-agent scale -- extract title from agent's first response |
+| Single global dev event buffer (500 entries) | Simple implementation | With N agents writing to one buffer, agent A's events push out agent B's events; dev panel becomes unusable | Only if per-agent filtering is added |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Claude CLI `--resume` | Assuming resume always works; not handling "session in use" or "no conversation found" | Implement the full retry strategy (resume -> session-id -> fresh) with exponential backoff. The existing 3-retry loop is correct but needs per-agent isolation |
-| Claude CLI OAuth | Letting multiple CLI processes refresh tokens concurrently | Centralize token refresh or use API keys. With Agent SDK, this is not an issue |
-| Codex CLI JSON-RPC | Assuming thread ID is always in the same JSON path | The existing multi-path extraction (`threadId`, `thread_id`, `thread.id`, `turn.threadId`) is correct but fragile. Add fallback logging for unrecognized paths |
-| Agent SDK Bun sidecar | Running one sidecar per agent | Run one sidecar with multiplexed NDJSON messages tagged by agent/thread ID. Multiple sidecars waste memory |
-| MCP servers via stdio | Assuming MCP servers are stateless | MCP servers maintain session state. Restarting one mid-conversation loses tool context. Implement reconnection with session resumption |
-| Tauri IPC for streaming | Sending every token delta as a separate IPC event | Batch deltas into chunks (e.g., every 50ms or 10 deltas). Unbatched streaming from 5+ agents saturates the IPC channel |
+| assistant-ui `abortSignal` in adapters | Treating abort as "user wants to stop the agent" -- killing the process on abort | Abort fires on BOTH thread switch AND user cancel. The orchestrator must distinguish these. Adapter disconnects from stream on abort; only orchestrator can kill the process |
+| assistant-ui `useLocalRuntime` | Assuming it manages concurrent thread execution | Runtime manages one active thread at a time. Use a separate orchestrator for background agent execution |
+| assistant-ui `unstable_` APIs | Using them without version pinning | These APIs change without semver guarantees. Pin assistant-ui version and audit on every update |
+| Tauri `Command.create` / `Command.sidecar` | Assuming `close` event always fires | The `close` event can be missed during component unmount or if the event loop is blocked. Always have a PID-based fallback check |
+| `tauri-plugin-sql` SQLite | Assuming the plugin handles concurrency automatically | The plugin passes through to rusqlite with no concurrency configuration. YOU must set WAL mode and busy timeout |
+| Claude CLI `--resume` | Assuming resume always succeeds | Session can be "in use" by another process, file can be missing, or session can be expired. Implement the full retry chain: resume -> session-id -> fresh |
+| Bun sidecar query cleanup | Assuming sidecar `close` event cleans up all in-flight queries | The current `close` handler (line 110-115 of `agent-sdk-adapter.ts`) sends error to all handlers but does not verify the SDK-level agent processes are stopped |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Unbatched IPC streaming from multiple agents | UI freezes, dropped frames, event queue grows | Batch streaming events per agent (50ms window or N-delta threshold) | 3+ agents streaming simultaneously |
-| SQLite write contention from concurrent agents | "database is locked" errors, delayed state updates | Use WAL mode, serialize writes through a single writer, batch frequent updates | 5+ agents writing state concurrently |
-| React re-renders from global state updates | Dashboard stutters when any agent emits events | Isolate agent state into per-agent stores (Zustand slices or separate atoms). Dashboard subscribes to summary state only | 5+ visible agent panels |
-| Double JSON serialization in sidecar IPC | High CPU on serialization, visible latency | Switch to WebSocket or Tauri IPC channel for sidecar communication | High-throughput agents with large tool outputs |
-| Dev event circular buffer per agent | 500 events x N agents = unbounded memory | Share one buffer with agent tagging, or disable dev events per-agent by default | 10+ agents over a long session |
+| 60fps yield rate for all agents (`YIELD_THROTTLE_MS = 16`) | UI freezes, dropped frames, GC pressure from array spreads | 16ms for focused agent, 200-500ms for background agents | 3+ agents streaming simultaneously |
+| Full `[...pendingContent]` array copy on every yield | New array reference defeats React memoization, triggers cascading re-renders | Structural sharing; only create new reference when content changes | 3+ agents with substantial content |
+| Global `devListeners` Set notifies all subscribers on any agent event | Dev panel subscription causes re-renders of unrelated components | Per-agent listener Sets, or remove dev event subscription from production builds | 5+ agents with dev panel enabled |
+| Individual SQLite writes per stream event | `SQLITE_BUSY` errors, write queue grows, latency spikes | Batch writes in 250ms windows, use WAL mode | 3+ concurrent writing agents |
+| React context for global agent state | Entire component tree re-renders on any agent status change | Zustand with selectors, or `useSyncExternalStore` with per-agent subscriptions | 5+ agent status indicators visible |
+| Unbounded IPC streaming from multiple agents | Tauri IPC channel saturation, event queue grows | Batch streaming events per agent (50ms window) before sending through IPC | 5+ agents streaming through shell plugin |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| `sh` with `"args": true` in Tauri capabilities | XSS in any agent output escalates to full system shell access | Remove `sh` entry; use direct CLI invocation |
-| No workspace sandboxing for agents | Agent in workspace A can read/write files in workspace B | Enforce CWD boundaries; validate all file paths against workspace root |
-| Rendering unsanitized tool output as HTML | Script injection via crafted file contents or command output | Sanitize all tool output; render as text/code, never raw HTML |
-| Storing API keys in SQLite without encryption | Local DB theft exposes all API credentials | Use OS keychain (keytar/secret-service) for sensitive credentials |
-| Broad `git` permissions with `"args": true` | `git push --force` or `git checkout -- .` from compromised agent | Whitelist safe git subcommands; require approval for destructive operations |
+| `sh` with `"args": true` in Tauri capabilities | XSS in any agent output escalates to full shell access across ALL workspaces | Remove `sh` entry; use direct `Command.create("claude", [...args])` |
+| No workspace sandboxing for agents | Agent A can read/write files in Agent B's workspace directory | Validate `cwd` per-agent against workspace root; reject paths outside workspace |
+| Rendering unsanitized agent output as HTML | Script injection via crafted file contents or LLM output | Sanitize all agent output with DOMPurify; render tool results as text/code, never raw HTML |
+| Unbounded process spawning | User or bug launches unlimited agents, exhausting system resources and API credits | Hard limit on concurrent agents enforced at orchestrator level |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Dashboard showing raw stream events from all agents | Information overload; users cannot find what matters | Show summary status per agent (idle/running/error/done). Stream events only in drill-down view |
-| No distinction between interactive and fire-and-forget agents | Users watch idle fire-and-forget agents expecting output | Visual differentiation: interactive agents show live stream, fire-and-forget show progress bar + notification on completion |
-| Notification spam from concurrent completions | Multiple agents completing simultaneously floods notifications | Batch notifications: "3 agents completed in workspace X" instead of 3 separate notifications |
-| Forcing users to configure MCP servers per-agent | Repetitive setup; users give up on MCP | Workspace-level defaults with one-click inheritance. Per-agent overrides should be the exception, not the default |
-| No clear indication of agent resource consumption | Users unaware why system is slow; keep spawning agents | Show per-agent CPU/memory/token usage in dashboard; warn when approaching limits |
-| Losing agent context when navigating between views | Switching from agent A to agent B clears A's scroll position and state | Preserve scroll position and UI state per agent; use virtualized tabs, not unmount/remount |
+| No visual distinction between abort reasons | User cannot tell if agent stopped because they switched tabs vs explicitly cancelled | Show "paused" (user navigated away, still running in background) vs "stopped" (user cancelled) vs "error" (process died) |
+| Showing full streaming output for all background agents | Information overload, cannot focus | Summary status cards for background agents (one-liner + status badge); full stream only in drill-down |
+| No indication of agent resource consumption | User unaware why system is slow; keeps spawning agents | Per-agent CPU/memory indicator in dashboard; system health warning when approaching limits |
+| Silent failure when agent process dies | User thinks agent is still working, waits indefinitely | Immediate error toast + status badge change to red "error" state with "Restart" button |
+| Losing scroll position and UI state on thread switch | User loses context every time they check another agent | Preserve per-agent scroll position and composer state; virtualized tabs that do not unmount |
+| Notification spam from concurrent completions | 5 agents completing simultaneously = 5 notifications | Batch: "3 agents completed in workspace X" as single notification |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Process cleanup:** Often missing crash-exit cleanup -- verify that force-quitting the app leaves zero orphaned CLI processes
-- [ ] **Agent status:** Often missing the "unresponsive" state -- verify that a hung CLI process (no stdout for 60s) is detected and surfaced, not shown as "running" forever
-- [ ] **MCP server sharing:** Often missing reference counting -- verify that closing one agent does not kill MCP servers still used by other agents in the same workspace
-- [ ] **Fire-and-forget completion:** Often missing persistent notification -- verify that completing while the app is minimized still notifies the user on next focus
-- [ ] **Workspace isolation:** Often missing CWD enforcement -- verify that an agent cannot `cat /etc/passwd` or access files outside its workspace
-- [ ] **Concurrent session limits:** Often missing the governor -- verify that spawning agent #6 when limit is 5 queues rather than crashes
-- [ ] **Error recovery:** Often missing retry UI -- verify that a crashed agent shows a "Restart" button, not a permanent error state
-- [ ] **Database migrations:** Often missing multi-agent schema changes -- verify that the sessions table supports multiple concurrent sessions per workspace, not just per thread
+- [ ] **Process cleanup on app close:** Often missing -- verify that force-quitting the app leaves zero orphaned CLI processes (check with `ps aux | grep claude` after force-quit)
+- [ ] **Process cleanup on thread delete:** Often missing kill-before-delete -- verify the orchestrator kills the agent process BEFORE `threadsDelete()` removes the DB row
+- [ ] **Abort signal disambiguation:** Often missing -- verify that background agents continue running after the user switches to a different thread view
+- [ ] **WAL mode on every connection:** Must be set in `getDb()`, not a one-time migration -- verify `PRAGMA journal_mode` returns `wal` at runtime
+- [ ] **Sidecar crash recovery:** Often missing child process cleanup when sidecar dies -- verify all in-flight queries get error callbacks AND SDK-managed processes are terminated
+- [ ] **PID reconciliation on startup:** Often missing -- verify app startup checks SQLite for stale agent PIDs and kills orphans
+- [ ] **Per-agent dev event scoping:** Often missing -- verify dev panel shows events for the focused agent only, not interleaved from all agents
+- [ ] **Concurrent agent limit enforcement:** Often missing the actual enforcement -- verify launching agent N+1 when limit is N shows a queue message, not a crash or silent failure
+- [ ] **Lock timeout surface:** Often missing user feedback -- verify that lock contention is shown to the user as "Waiting for thread lock..." rather than a silent 60-second hang
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Orphaned processes after crash | LOW | Startup sweep: query SQLite for last-known PIDs, check if alive, kill orphans, update status to "crashed" |
-| Claude config corruption | MEDIUM | Detect corrupted `.claude.json` on CLI spawn failure, back up and reset, retry. Warn user about potential config loss |
-| MCP server crash mid-agent | MEDIUM | Detect via health check failure, restart MCP server, re-register tools, resume agent if possible or surface error |
-| State desync (dashboard vs reality) | LOW | Periodic reconciliation: every 30s, check all "running" agents against actual process status, fix discrepancies |
-| SQLite "database locked" under contention | LOW | Switch to WAL mode (one-line config). If already WAL, increase busy_timeout. Serialize writes through a queue |
-| Rate limit exhaustion | LOW | Pause affected agent, show countdown timer, auto-retry. Do not kill the session -- just wait |
-| assistant-ui runtime conflict | HIGH | Requires architecture change. If hooks return wrong-thread data, the fix is isolating runtime instances per pane, which may require significant refactoring |
+| SQLite write contention | LOW | Add `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` to `getDb()`. Two lines of code |
+| Orphaned processes | MEDIUM | Add PID tracking table to SQLite, startup cleanup routine, process group management, `RunEvent::ExitRequested` handler in Rust |
+| assistant-ui abort kills background agents | HIGH | Requires architectural change: build orchestrator that owns process lifecycle independently of UI runtime. Adapter connects to orchestrator stream, does not spawn processes directly |
+| UI render thrashing | MEDIUM | Retrofit per-agent throttling (focused vs background), migrate to external stores with fine-grained subscriptions |
+| Claude CLI corruption | MEDIUM | Default to SDK mode for multi-agent. Add global mutex for CLI spawning. Explore `CLAUDE_CONFIG_DIR` isolation |
+| Lock contention / deadlock | MEDIUM | Centralize all locking in orchestrator, remove per-adapter lock implementations, add timeout + user feedback |
+| State desynchronization | MEDIUM | Implement state machine with persistence, add heartbeat reconciliation, validate process state before user interactions |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Claude CLI concurrent corruption | Phase 1 (Provider Abstraction) | Run 5 agents simultaneously for 1 hour; verify zero `.claude.json` corruption events |
-| Orphaned processes | Phase 1 (Provider Abstraction) | Force-kill app during multi-agent run; verify zero orphan processes after restart |
-| Resource exhaustion | Phase 2 (Multi-Agent Orchestration) | Attempt to spawn agents past the limit; verify queuing behavior and user-facing message |
-| MCP server lifecycle | Phase 3 (MCP Configuration) | Start workspace with 3 MCP servers, run 3 agents, close 2 agents; verify shared servers survive, per-thread overrides are cleaned up |
-| State synchronization | Phase 2 (Multi-Agent Orchestration) | Kill a Claude CLI process externally (`kill -9`); verify dashboard updates within 5 seconds |
-| assistant-ui multi-pane | Phase 1 (Architecture) | Open 3 agent views simultaneously; verify each streams independently without cross-contamination |
-| Shell security | Phase 1 (Provider Abstraction) | Audit capabilities file; verify `sh` entry is removed and all CLI invocations use direct `Command.create` |
+| SQLite write contention | Phase 1 (Foundation) | `PRAGMA journal_mode` returns `wal`; zero `SQLITE_BUSY` errors under 5 concurrent agents |
+| Orphaned processes | Phase 1 (Provider Abstraction) | Force-kill app during 5-agent run; restart; verify zero orphan processes |
+| assistant-ui abort signal conflict | Phase 1 (Orchestrator Architecture) | Switch between 3 running agent threads; verify all 3 processes stay alive |
+| UI render thrashing | Phase 3 (Multi-Agent UI) | 5 concurrent streaming agents; verify < 5% dropped frames in Chromium DevTools |
+| Claude CLI corruption | Phase 1 (Provider Abstraction) | 3 concurrent CLI agents running 30 minutes; verify zero `.claude.json` corruption |
+| Lock contention | Phase 1 (Provider Abstraction) | Rapid thread switching during concurrent agent runs; zero timeout errors |
+| State desynchronization | Phase 2 (Agent Lifecycle) | Externally `kill -9` a claude process; verify UI updates within 10 seconds |
 
 ## Sources
 
+- Direct codebase analysis: `claude-adapter.ts` (1900+ lines), `agent-sdk-adapter.ts`, `db.ts`, `RuntimeProvider.tsx`, `sqlite-thread-list-adapter.ts`
 - [Claude CLI concurrent session corruption - GitHub #28829](https://github.com/anthropics/claude-code/issues/28829)
-- [Claude CLI .claude.json corruption from concurrent instances - GitHub #29003](https://github.com/anthropics/claude-code/issues/29003)
+- [Claude CLI .claude.json corruption - GitHub #29003](https://github.com/anthropics/claude-code/issues/29003)
 - [OAuth token refresh race condition - GitHub #27933](https://github.com/anthropics/claude-code/issues/27933)
-- [Multiple CLI processes accumulate causing high CPU - GitHub #11122](https://github.com/anthropics/claude-code/issues/11122)
-- [Context bleeding between concurrent sessions - GitHub #2272](https://github.com/anthropics/claude-code/issues/2272)
-- [Concurrent sessions block each other - GitHub #13352](https://github.com/anthropics/claude-code/issues/13352)
+- [Context bleeding between sessions - GitHub #2272](https://github.com/anthropics/claude-code/issues/2272)
 - [Tauri: spawned children cannot be killed on Windows - GitHub #4949](https://github.com/tauri-apps/tauri/issues/4949)
-- [Tauri: kill sidecar child processes on App drop - GitHub commit 4bdc406](https://github.com/tauri-apps/tauri/commit/4bdc406679363f460e39079cb26319c39ab8cac8)
-- [Tauri: shell plugin cannot fully terminate multi-process executables - GitHub #11686](https://github.com/tauri-apps/tauri/issues/11686)
-- [Tauri: Sidecar Lifecycle Management Plugin request - GitHub #3062](https://github.com/tauri-apps/plugins-workspace/issues/3062)
-- [Multi-agent workflows often fail - GitHub Blog](https://github.blog/ai-and-ml/generative-ai/multi-agent-workflows-often-fail-heres-how-to-engineer-ones-that-dont/)
-- [Designing Effective Multi-Agent Architectures - O'Reilly](https://www.oreilly.com/radar/designing-effective-multi-agent-architectures/)
-- [Existing codebase CONCERNS.md analysis](../.planning/codebase/CONCERNS.md)
+- [Tauri: shell plugin multi-process termination - GitHub #11686](https://github.com/tauri-apps/tauri/issues/11686)
+- SQLite WAL mode: https://www.sqlite.org/wal.html
+- SQLite busy_timeout: https://www.sqlite.org/pragma.html#pragma_busy_timeout
+- assistant-ui architecture: inferred from `useLocalRuntime`, `useRemoteThreadListRuntime`, and `unstable_` API usage in codebase
 
 ---
-*Pitfalls research for: Multi-agent AI orchestration desktop app*
+*Pitfalls research for: Multi-thread agent orchestration in Tauri 2 + React 19 + assistant-ui desktop app*
 *Researched: 2026-03-05*

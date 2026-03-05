@@ -1,525 +1,644 @@
-# Architecture Research
+# Architecture Research: Multi-Thread Agent Orchestration Integration
 
 **Domain:** Multi-agent AI orchestration desktop app
 **Researched:** 2026-03-05
 **Confidence:** MEDIUM-HIGH
+**Focus:** How multi-thread orchestration integrates with the existing Pluribus codebase
 
-## Standard Architecture
+## Executive Summary
 
-### System Overview
+The existing Pluribus architecture has strong foundations for multi-agent orchestration but requires structural changes at four integration points: (1) assistant-ui runtime model, (2) process lifecycle management, (3) adapter unification, and (4) concurrent stream routing. The key architectural insight is that assistant-ui's `useRemoteThreadListRuntime` already supports concurrent threads with independent adapter runs -- the framework does NOT require multiple `AssistantRuntimeProvider` instances. The bottleneck is in process management and adapter unification, not in the UI runtime layer.
 
-```
-                          Pluribus — Multi-Agent Mission Control
- ___________________________________________________________________________
-|                                                                           |
-|  UI Layer (React 19 + assistant-ui)                                       |
-|  ┌─────────────┐  ┌──────────────────┐  ┌──────────────────────────────┐  |
-|  │  Dashboard   │  │  Workspace View  │  │  Agent Thread View           │  |
-|  │  (overview)  │  │  (agent grid)    │  │  (single agent, full chat)   │  |
-|  └──────┬───────┘  └────────┬─────────┘  └──────────────┬───────────────┘  |
-|         │                   │                           │                 |
-|─────────┴───────────────────┴───────────────────────────┴─────────────────|
-|                                                                           |
-|  Orchestration Layer (TypeScript)                                         |
-|  ┌───────────────────┐  ┌───────────────────┐  ┌──────────────────────┐   |
-|  │  WorkspaceManager │  │  AgentRegistry     │  │  MCP Config Resolver │   |
-|  │  (CRUD, config)   │  │  (lifecycle, pool) │  │  (inherit + override)│   |
-|  └────────┬──────────┘  └────────┬───────────┘  └──────────┬───────────┘   |
-|           │                      │                         │              |
-|─────────────────────────────────────────────────────────────────────────── |
-|                                                                           |
-|  Process Layer (per-agent isolation)                                      |
-|  ┌────────────────────────────────────────────────────────────────────┐    |
-|  │  AgentProcessManager                                              │    |
-|  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐          │    |
-|  │  │ Agent 1  │  │ Agent 2  │  │ Agent 3  │  │ Agent N  │          │    |
-|  │  │ (Claude) │  │ (Claude) │  │ (Codex)  │  │ (Claude) │          │    |
-|  │  │ cwd: /a  │  │ cwd: /b  │  │ cwd: /c  │  │ cwd: /a  │          │    |
-|  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘          │    |
-|  └────────────────────────────────────────────────────────────────────┘    |
-|                                                                           |
-|  Adapter Layer (provider abstraction)                                     |
-|  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                     |
-|  │ AgentSDK     │  │ Codex        │  │ Future       │                     |
-|  │ Provider     │  │ Provider     │  │ Provider     │                     |
-|  └──────────────┘  └──────────────┘  └──────────────┘                     |
-|                                                                           |
-|  Persistence Layer (SQLite)                                               |
-|  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐                  |
-|  │Workspaces│  │ Threads  │  │ Messages │  │ Sessions │                  |
-|  └──────────┘  └──────────┘  └──────────┘  └──────────┘                  |
-|___________________________________________________________________________|
-                                    │
-                     ┌──────────────┴──────────────┐
-                     │  Tauri Core (Rust)           │
-                     │  Shell plugin, SQL plugin,   │
-                     │  process supervision         │
-                     └─────────────────────────────┘
-```
+---
 
-### Component Responsibilities
+## Question 1: Multiple assistant-ui Runtimes / Concurrent Active Adapters
 
-| Component | Responsibility | Communicates With |
-|-----------|----------------|-------------------|
-| **Dashboard** | Overview of all workspaces, active agents, recent activity. Entry point for navigation. | WorkspaceManager (read), AgentRegistry (read status) |
-| **WorkspaceView** | Shows all agent threads within a workspace as a grid/list. Spawn new agents, see live status. | AgentRegistry (spawn/status), WorkspaceManager (config) |
-| **AgentThreadView** | Full chat interface for a single agent. Approve/reject tools, pause/resume. Reuses existing assistant-ui thread primitives. | AgentRegistry (stream), assistant-ui runtime |
-| **WorkspaceManager** | CRUD for workspaces. Stores workspace-level config (default model, MCP servers, working directory). | Persistence layer, MCP Config Resolver |
-| **AgentRegistry** | Tracks all active agent processes. Spawns, kills, pauses, resumes agents. Central source of truth for agent lifecycle state. | AgentProcessManager, Providers, ThreadStatusStore |
-| **MCP Config Resolver** | Resolves effective MCP config for a thread: workspace defaults merged with per-thread overrides. | WorkspaceManager (defaults), Persistence (overrides) |
-| **AgentProcessManager** | Low-level process lifecycle. Owns child process handles, stdin/stdout pipes, restart logic. One process per agent thread. | Tauri shell plugin / Rust process management |
-| **Providers** (AgentSDK, Codex) | Protocol-specific adapters. Translate between Pluribus internal events and provider wire format. | AgentProcessManager (process I/O), assistant-ui (ChatModelRunResult) |
-| **Persistence** | SQLite CRUD for all entities. Schema migrations. | All layers read/write |
+### Current State
 
-## Recommended Project Structure
-
-The existing structure is close. Key changes are introducing the orchestration and process management layers.
+The app uses a single `AssistantRuntimeProvider` wrapping the entire app, backed by `useRemoteThreadListRuntime`. This creates one `AssistantRuntime` that manages a thread list and switches between threads. The `runtimeHook` (`useLocalRuntime(createRouterAdapter())`) creates a per-thread local runtime that calls `ChatModelAdapter.run()` when the user sends a message.
 
 ```
-src/
-├── components/
-│   ├── dashboard/              # Dashboard overview page
-│   │   ├── dashboard-page.tsx
-│   │   ├── workspace-card.tsx
-│   │   └── agent-summary.tsx
-│   ├── workspace/              # Workspace detail view
-│   │   ├── workspace-view.tsx
-│   │   ├── agent-grid.tsx
-│   │   └── workspace-settings.tsx
-│   ├── agent/                  # Single agent thread (chat)
-│   │   └── agent-thread-view.tsx
-│   ├── assistant-ui/           # Keep: chat primitives, tool displays
-│   │   ├── thread.tsx
-│   │   ├── claude-tool-display.tsx
-│   │   └── codex-tool-display.tsx
-│   ├── ui/                     # Keep: shadcn components
-│   └── settings-overlay.tsx    # Keep: global settings
-├── lib/
-│   ├── orchestration/          # NEW: multi-agent management
-│   │   ├── agent-registry.ts       # Agent lifecycle tracking
-│   │   ├── workspace-manager.ts     # Workspace CRUD + config
-│   │   ├── mcp-config-resolver.ts   # MCP inheritance logic
-│   │   └── agent-process-manager.ts # Process pool management
-│   ├── providers/              # Refactored from flat adapters
-│   │   ├── types.ts                 # Shared provider interface
-│   │   ├── agent-sdk-provider.ts    # Claude Agent SDK
-│   │   ├── codex-provider.ts        # Codex
-│   │   └── provider-factory.ts      # Provider instantiation
-│   ├── stores/                 # Zustand stores
-│   │   ├── thread-status-store.ts
-│   │   ├── workspace-store.ts
-│   │   └── codex-approval-store.ts
-│   ├── db.ts                   # Keep: SQLite operations
-│   ├── router-adapter.ts       # Evolves: delegates to AgentRegistry
-│   └── models.ts               # Keep: model definitions
-├── sidecar/
-│   └── agent-sdk-bridge/       # Keep: Bun sidecar for Agent SDK
-src-tauri/
-├── src/
-│   ├── lib.rs                  # Tauri setup
-│   ├── process/                # NEW: Rust-side process supervision
-│   │   ├── mod.rs
-│   │   ├── supervisor.rs       # Health checks, restart, cleanup
-│   │   └── pool.rs             # Process pool management
-│   └── codex/                  # Keep: Codex-specific Rust code
-└── migrations/                 # SQLite schema evolution
+RuntimeProvider
+  └── useRemoteThreadListRuntime({ runtimeHook, adapter: threadListAdapter })
+        ├── Thread list from SQLite (list/archive/delete)
+        └── runtimeHook = useLocalRuntime(createRouterAdapter())
+              └── RouterAdapter selects AgentSDK or Codex based on model
 ```
 
-### Structure Rationale
+### Key Finding: Single Provider, Multiple Concurrent Runs
 
-- **`orchestration/`**: Separates multi-agent concerns (lifecycle, workspace config, MCP resolution) from provider-specific protocol code. This is the new layer that does not exist today.
-- **`providers/`**: Refactors the flat `claude-adapter.ts`, `agent-sdk-adapter.ts`, `codex-adapter.ts` into a structured provider pattern with a shared interface. Each provider handles only protocol translation.
-- **`stores/`**: Groups Zustand stores. The thread-status-store becomes more critical when tracking 5-20 concurrent agents.
-- **`dashboard/` + `workspace/` + `agent/`**: Three-level UI hierarchy matching the navigation model: Dashboard -> Workspace -> Agent Thread.
+**assistant-ui v0.12 already supports concurrent adapter runs across different threads within a single `AssistantRuntimeProvider`.** When the user switches threads, assistant-ui creates a new `LocalRuntime` instance via the `runtimeHook`. The previous thread's adapter run continues in the background -- it is not cancelled on thread switch. The `ChatModelAdapter.run()` generator keeps yielding until completion or explicit abort.
 
-## Architectural Patterns
+Evidence from the codebase:
+- `ThreadStatusStore` already tracks `unread` state for background threads that complete while the user views a different thread
+- `RouterAdapter` receives `unstable_threadId` in options, allowing thread-scoped routing
+- Both `AgentSdkSidecar.acquireLock()` and `acquireThreadRunLock()` serialize runs per-thread but allow concurrent runs across different threads
 
-### Pattern 1: Hub-and-Spoke Agent Registry
+**You do NOT need multiple `AssistantRuntimeProvider` instances.** The current single-provider architecture supports the multi-agent use case.
 
-**What:** A central AgentRegistry owns all agent lifecycle state. All agent operations (spawn, kill, pause, resume, query status) go through this single component. No component directly manages processes.
+### What Changes
 
-**When to use:** Always. This is the core orchestration pattern. Without it, process management leaks into UI components and providers, creating an untestable mess.
+The change is in how threads are presented, not in how runtimes are structured:
 
-**Trade-offs:** Single point of coordination (good for consistency, bad if it becomes a god object). Keep it focused on lifecycle -- delegate protocol concerns to providers and config concerns to WorkspaceManager.
+1. **Dashboard/grid views** need to display multiple threads simultaneously. Each panel renders a `Thread` component connected to a specific thread in the same runtime.
 
-**Example:**
+2. **Thread switching** becomes thread focusing. Background threads keep running. The `ThreadStatusStore` already handles this -- extend it with richer status information.
+
+3. **Side-by-side panels** require assistant-ui's `useAui().threadListItem.switchTo(remoteId)` API to programmatically switch the active thread. For multiple visible panels, each panel needs its own runtime context.
+
+### Multi-Panel Architecture
+
+For showing multiple agent threads simultaneously in a grid/workspace view, there are two approaches:
+
+**Option A: Single Runtime, Active Thread Switching (Recommended for v1)**
+
+One `AssistantRuntimeProvider` at the top. The grid shows status cards for all threads. Only one thread renders the full chat UI at a time (the focused thread). Other threads show status badges from `ThreadStatusStore`.
+
+```
+AssistantRuntimeProvider (single)
+  ├── WorkspaceGrid
+  │     ├── AgentCard (thread-1, status only)
+  │     ├── AgentCard (thread-2, status only)
+  │     └── AgentCard (thread-3, status only, focused)
+  └── ThreadDetailPanel (thread-3, full chat via assistant-ui Thread)
+```
+
+Pros: Simple, works with existing assistant-ui API, no framework hacks.
+Cons: Only one full chat view at a time.
+
+**Option B: Multiple Runtime Providers for Split View (v1.1+)**
+
+For truly concurrent visible panels, wrap each panel in its own `AssistantRuntimeProvider` with its own `useRemoteThreadListRuntime`. Each runtime manages a single thread. The thread list adapter filters to show only the assigned thread.
+
+```
+App
+  ├── AssistantRuntimeProvider (panel-1, thread-1)
+  │     └── Thread (full chat)
+  ├── AssistantRuntimeProvider (panel-2, thread-2)
+  │     └── Thread (full chat)
+  └── Shared state via Zustand (ThreadStatusStore, AgentRegistry)
+```
+
+This works because `useRemoteThreadListRuntime` creates independent runtime instances. Each gets its own `runtimeHook` call, its own `LocalRuntime`, and its own `ChatModelAdapter`. The adapters share the underlying `AgentSdkSidecar` singleton and `AgentRegistry` -- the isolation is at the UI layer, not the process layer.
+
+**Recommendation:** Start with Option A. The dashboard-first UX (from PROJECT.md) naturally maps to a status-overview + drill-down pattern. Split-view adds complexity without clear v1 value.
+
+### Integration Points (assistant-ui Runtime)
+
+| What | Current | Change | Impact |
+|------|---------|--------|--------|
+| `RuntimeProvider.tsx` | Single `AssistantRuntimeProvider` | Keep single provider for v1 | None |
+| `runtimeHook` | `useLocalRuntime(createRouterAdapter())` | Keep, but router adapter delegates to AgentRegistry | Modify `router-adapter.ts` |
+| `threadListAdapter` | `createSQLiteThreadListAdapter()` | Keep, add workspace filtering | Modify `sqlite-thread-list-adapter.ts` |
+| `ThreadWorkspace.tsx` | Thread list sidebar + single Thread panel | Replace with Dashboard/Workspace/Agent views | New components, keep Thread primitive |
+| `ThreadStatusStore` | Simple status tracking | Becomes central orchestration state hub | Extend significantly |
+
+---
+
+## Question 2: Process Lifecycle Management for N Concurrent CLI Processes
+
+### Current Process Architecture
+
+Three distinct process management patterns exist today:
+
+| Adapter | Process Model | Lifecycle | Concurrency |
+|---------|--------------|-----------|-------------|
+| Claude CLI (claude-adapter) | One `sh -c` child per run | Spawned per `run()`, killed on abort/completion | Per-thread serialized via `acquireThreadRunLock()` |
+| Agent SDK (agent-sdk-adapter) | Singleton Bun sidecar, multiplexed queries | Lazily spawned, kept alive indefinitely | Per-thread serialized via `sidecar.acquireLock()`, cross-thread concurrent |
+| Codex (codex-adapter) | Singleton Rust-managed `codex app-server` | Lazily spawned via `codex_start_thread` | Per-thread via Codex thread IDs |
+
+### Process Pool Design for N Agents
+
+The three models need unification into a process pool that supports N concurrent agents.
+
+**Recommended Architecture: AgentProcessManager**
+
 ```typescript
-interface AgentHandle {
-  id: string;              // Thread ID
-  workspaceId: string;
-  provider: AgentProvider;
-  status: AgentStatus;
-  cwd: string;
-  model: string;
-  mcpConfig: ResolvedMcpConfig;
-  spawnedAt: number;
+/**
+ * Manages OS-level processes for all active agents.
+ * Each agent thread owns exactly one process slot.
+ * Processes survive thread navigation (UI focus changes).
+ * Processes are killed only on explicit user action or app exit.
+ */
+interface AgentProcessManager {
+  /** Acquire a process for a thread. May reuse an idle process or spawn new. */
+  acquire(threadId: string, provider: string, opts: ProcessOpts): Promise<ProcessHandle>;
+
+  /** Release a thread's process (on explicit stop or thread deletion). */
+  release(threadId: string): Promise<void>;
+
+  /** Release all processes (app exit). */
+  releaseAll(): Promise<void>;
+
+  /** Get process handle for a thread (null if no active process). */
+  get(threadId: string): ProcessHandle | null;
+
+  /** Current count of active processes. */
+  activeCount(): number;
+
+  /** Subscribe to process lifecycle events. */
+  onEvent(cb: (event: ProcessEvent) => void): () => void;
 }
 
-type AgentStatus =
-  | "starting"
-  | "idle"
-  | "running"
-  | "waiting-approval"
-  | "paused"
-  | "error"
-  | "stopped";
+type ProcessEvent =
+  | { type: "spawned"; threadId: string }
+  | { type: "exited"; threadId: string; code: number | null }
+  | { type: "crashed"; threadId: string; error: string }
+  | { type: "released"; threadId: string };
 
-interface AgentRegistry {
-  spawn(opts: SpawnOptions): Promise<AgentHandle>;
-  kill(agentId: string): Promise<void>;
-  pause(agentId: string): Promise<void>;
-  resume(agentId: string): Promise<void>;
-  getStatus(agentId: string): AgentStatus;
-  getByWorkspace(workspaceId: string): AgentHandle[];
-  getAll(): AgentHandle[];
-  onStatusChange(cb: (agentId: string, status: AgentStatus) => void): () => void;
+interface ProcessHandle {
+  threadId: string;
+  provider: string;
+  child: Child | null;       // Tauri shell Child (Claude CLI)
+  sidecarRef: string | null; // Sidecar query routing key (Agent SDK)
+  codexThreadId: string | null; // Codex thread ID
+  status: "starting" | "ready" | "busy" | "exiting";
+  spawnedAt: number;
+  cwd: string;
 }
 ```
 
-### Pattern 2: Provider Abstraction (Agent Backend Interface)
+### Per-Provider Process Strategy
 
-**What:** Each AI backend (Claude Agent SDK, Codex, future providers) implements a common interface. The registry does not know protocol details -- it delegates to the provider.
+**Agent SDK (Claude):** Keep the multiplexed sidecar. The `AgentSdkSidecar` class already routes queries by `queryId`. For N concurrent agents, each gets a unique `queryId`. The sidecar handles concurrency internally. No process-per-agent needed.
 
-**When to use:** Always. The existing codebase already has three adapters. Formalizing the interface prevents drift.
+Change: Extract the sidecar singleton from `agent-sdk-adapter.ts` into `AgentProcessManager` so it's shared infrastructure, not adapter-private state.
 
-**Trade-offs:** Some providers have unique capabilities (Codex approval flow, Claude subagents) that don't fit a generic interface. Handle via optional capability flags, not by bloating the base interface.
+```
+Before: agent-sdk-adapter.ts owns `const sidecar = new AgentSdkSidecar()`
+After:  AgentProcessManager owns sidecar, passes reference to provider
+```
 
-**Example:**
+**Codex:** Keep the singleton `codex app-server` managed by Rust. Each agent gets a Codex thread ID. The `CodexService` already handles multiplexing via thread-scoped subscriptions.
+
+Change: Move thread ID management from `codex-adapter.ts` into `AgentProcessManager`.
+
+**Claude CLI (shell):** Each run spawns a new `sh -c claude ...` process. For multi-agent, this means N concurrent child processes. The existing `activeChildByThread` Map tracks one child per thread.
+
+Change: `AgentProcessManager` replaces `activeChildByThread`. The per-thread lock (`acquireThreadRunLock`) moves into the process manager.
+
+### Resource Limits
+
+```typescript
+interface ProcessPoolConfig {
+  /** Max concurrent running agents (actively streaming). Default: 10 */
+  maxConcurrentRuns: number;
+
+  /** Max total spawned processes (including idle). Default: 20 */
+  maxTotalProcesses: number;
+
+  /** Auto-release idle processes after this many ms. Default: 300000 (5min) */
+  idleTimeoutMs: number;
+}
+```
+
+When `maxConcurrentRuns` is reached, new runs queue in the AgentRegistry and start when a slot opens. The UI shows "queued" status. This prevents the machine from being overwhelmed by 20+ concurrent Claude CLI processes.
+
+### Process Lifecycle State Machine
+
+```
+    spawn()          run()           complete/abort
+  ──────────> READY ──────> BUSY ──────────> READY
+                |                              |
+                |        idleTimeout           |
+                └──────────────> RELEASED <────┘
+                                    |     release()
+                crash               |
+  READY/BUSY ─────────> CRASHED ────┘
+```
+
+### What Moves Where
+
+| Current Location | Concern | New Location |
+|-----------------|---------|--------------|
+| `claude-adapter.ts` `activeChildByThread` | Child process tracking | `AgentProcessManager` |
+| `claude-adapter.ts` `acquireThreadRunLock` | Per-thread run serialization | `AgentProcessManager.acquire()` |
+| `claude-adapter.ts` `sessionByThread` | Session ID mapping | `AgentProcessManager` (part of ProcessHandle) |
+| `agent-sdk-adapter.ts` `const sidecar` | Sidecar singleton | `AgentProcessManager` (shared infrastructure) |
+| `codex-adapter.ts` `getOrCreateCodexThread` | Codex thread creation | `AgentProcessManager` |
+| `thread-status-store.ts` | Status tracking | Stays, but `AgentProcessManager` drives status changes |
+
+---
+
+## Question 3: Unified Provider Abstraction
+
+### Current Adapter Interfaces
+
+All three adapters implement `ChatModelAdapter` from assistant-ui:
+
+```typescript
+interface ChatModelAdapter {
+  run(options: ChatModelRunOptions): AsyncGenerator<ChatModelRunResult, void>;
+}
+```
+
+But they each manage their own:
+- Process lifecycle (spawn, kill, restart)
+- Session management (session IDs, resume logic)
+- Thread config loading (model, cwd, effort from SQLite)
+- Status reporting (to ThreadStatusStore)
+- Dev event logging
+
+### Recommended Unified Interface
+
+Split the adapter into two layers:
+
+**Layer 1: AgentProvider (protocol-specific, stateless)**
+
+Handles only the wire protocol translation between Pluribus events and the specific backend format. Does NOT manage processes, sessions, or status.
+
 ```typescript
 interface AgentProvider {
-  readonly id: string;         // "agent-sdk" | "codex" | ...
+  readonly id: "agent-sdk" | "codex" | "shell";
+  readonly displayName: string;
   readonly capabilities: ProviderCapabilities;
 
-  // Spawn a new process for this agent thread
-  spawnProcess(opts: ProcessOptions): Promise<ProcessHandle>;
+  /**
+   * Execute a single run against a process handle.
+   * Yields ChatModelRunResult chunks.
+   * Does NOT manage process lifecycle -- caller provides the handle.
+   */
+  run(ctx: RunContext): AsyncGenerator<ChatModelRunResult, void>;
 
-  // Send a user message and stream results
-  run(handle: ProcessHandle, prompt: string, signal: AbortSignal):
-    AsyncGenerator<ChatModelRunResult, void>;
-
-  // Interrupt the current turn
+  /**
+   * Interrupt the current run on a process handle.
+   */
   interrupt(handle: ProcessHandle): Promise<void>;
+}
 
-  // Graceful shutdown
-  shutdown(handle: ProcessHandle): Promise<void>;
+interface RunContext {
+  handle: ProcessHandle;
+  prompt: string;
+  sessionId: string | null;
+  model: string;
+  cwd: string;
+  abortSignal: AbortSignal;
+  threadId: string;
+  onDevEvent: (event: DevEvent) => void;
 }
 
 interface ProviderCapabilities {
-  supportsApproval: boolean;    // Codex-style tool approval
-  supportsSubAgents: boolean;   // Claude sub-agents
-  supportsPause: boolean;       // Can pause mid-execution
-  supportsMcp: boolean;         // MCP server integration
+  supportsResume: boolean;       // Session resume via session ID
+  supportsApproval: boolean;     // Tool approval flow (Codex)
+  supportsSubAgents: boolean;    // Sub-agent tracking (Claude)
+  supportsMcp: boolean;          // MCP server config passthrough
 }
 ```
 
-### Pattern 3: MCP Config Inheritance
+**Layer 2: OrchestratedAdapter (single implementation, wraps any provider)**
 
-**What:** MCP server configuration follows an inheritance chain: global defaults -> workspace-level -> per-thread overrides. Each level can add servers, remove inherited ones, or override settings.
+This replaces `RouterAdapter`. It handles all the cross-cutting concerns that currently live in each adapter:
 
-**When to use:** When a user creates a new agent thread in a workspace. The effective config is resolved at spawn time and can be modified while the agent is idle.
-
-**Trade-offs:** More flexible than flat config, but adds complexity. Keep the resolution logic in one place (MCP Config Resolver) to avoid inconsistencies.
-
-**Example:**
 ```typescript
-interface McpServerConfig {
-  name: string;
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
+function createOrchestratedAdapter(
+  registry: AgentRegistry,
+  processManager: AgentProcessManager,
+): ChatModelAdapter {
+  return {
+    async *run(options) {
+      const threadId = options.unstable_threadId ?? "__global__";
+
+      // 1. Load thread config from SQLite (model, cwd, effort)
+      const config = await loadThreadConfig(threadId);
+
+      // 2. Select provider based on model
+      const provider = registry.getProvider(config.model);
+
+      // 3. Acquire process handle (may queue if pool full)
+      const handle = await processManager.acquire(threadId, provider.id, {
+        cwd: config.cwd,
+        model: config.model,
+      });
+
+      // 4. Update status
+      registry.setStatus(threadId, "running");
+
+      // 5. Resolve session ID
+      const sessionId = await loadSessionId(threadId);
+
+      try {
+        // 6. Delegate to provider for protocol-specific streaming
+        yield* provider.run({
+          handle,
+          prompt: extractUserPrompt(options.messages),
+          sessionId,
+          model: config.model,
+          cwd: config.cwd,
+          abortSignal: options.abortSignal,
+          threadId,
+          onDevEvent: (e) => pushDevEvent(e),
+        });
+
+        registry.setStatus(threadId, "idle");
+      } catch (err) {
+        registry.setStatus(threadId, "error");
+        throw err;
+      }
+    },
+  };
+}
+```
+
+### Migration Path from Current Adapters
+
+**Step 1: Extract shared utilities** (no behavior change)
+
+Pull out shared functions that all three adapters duplicate:
+- `extractUserPrompt()` -- already exported from claude-adapter, used by agent-sdk-adapter
+- Thread config loading (model, cwd, effort resolution from SQLite)
+- Session ID management (load/save from sessions table)
+- Dev event logging
+
+Create `src/lib/providers/shared.ts` for these.
+
+**Step 2: Create AgentProvider implementations** (wrapping existing code)
+
+Each provider wraps the existing adapter's `run()` logic but strips out:
+- Process spawning (moved to AgentProcessManager)
+- Thread config loading (moved to OrchestratedAdapter)
+- Status reporting (moved to OrchestratedAdapter)
+- Session persistence (moved to OrchestratedAdapter)
+
+What remains in each provider:
+- `agent-sdk-provider.ts`: Sidecar NDJSON protocol, SDK message parsing, content accumulation (~200 lines, down from 535)
+- `codex-provider.ts`: Tauri event listening, Codex item mapping, approval flow (~180 lines, down from 414)
+- `shell-provider.ts`: CLI argument construction, stream-json parsing, content block accumulation (~600 lines, down from 1900 in claude-adapter)
+
+**Step 3: Create OrchestratedAdapter** (replaces RouterAdapter)
+
+The new `router-adapter.ts` becomes `orchestrated-adapter.ts`. It contains the cross-cutting logic extracted from all three adapters.
+
+**Step 4: Wire into RuntimeProvider** (minimal change)
+
+```typescript
+// Before
+function useRuntimeHook() {
+  return useLocalRuntime(useMemo(() => createRouterAdapter(), []));
 }
 
-interface McpConfigLevel {
-  servers: McpServerConfig[];
-  remove?: string[];  // Names of inherited servers to exclude
+// After
+function useRuntimeHook() {
+  return useLocalRuntime(useMemo(
+    () => createOrchestratedAdapter(agentRegistry, processManager),
+    []
+  ));
 }
+```
 
-function resolveMcpConfig(
-  globalConfig: McpConfigLevel,
-  workspaceConfig: McpConfigLevel | null,
-  threadConfig: McpConfigLevel | null,
-): McpServerConfig[] {
-  let servers = [...globalConfig.servers];
+### File-Level Change Map
 
-  if (workspaceConfig) {
-    const removeSet = new Set(workspaceConfig.remove ?? []);
-    servers = servers.filter(s => !removeSet.has(s.name));
-    servers.push(...workspaceConfig.servers);
+| File | Action | Lines Before | Lines After (est.) |
+|------|--------|-------------|-------------------|
+| `src/lib/claude-adapter.ts` | Split into provider + shared | 1900 | Deleted (logic distributed) |
+| `src/lib/agent-sdk-adapter.ts` | Split into provider | 535 | Deleted |
+| `src/lib/codex-adapter.ts` | Split into provider | 414 | Deleted |
+| `src/lib/router-adapter.ts` | Replaced | 48 | Deleted |
+| `src/lib/providers/types.ts` | New | -- | ~80 |
+| `src/lib/providers/shared.ts` | New | -- | ~150 |
+| `src/lib/providers/agent-sdk-provider.ts` | New | -- | ~200 |
+| `src/lib/providers/codex-provider.ts` | New | -- | ~180 |
+| `src/lib/providers/shell-provider.ts` | New | -- | ~600 |
+| `src/lib/providers/provider-registry.ts` | New | -- | ~60 |
+| `src/lib/orchestration/orchestrated-adapter.ts` | New | -- | ~120 |
+| `src/lib/orchestration/agent-process-manager.ts` | New | -- | ~200 |
+| `src/lib/orchestration/agent-registry.ts` | New | -- | ~150 |
+
+---
+
+## Question 4: Concurrent Agent Streams to Separate UI Panels
+
+### Data Flow: Multiple Agents Streaming Simultaneously
+
+The critical constraint: assistant-ui's `ChatModelAdapter.run()` is an `AsyncGenerator`. Each thread's run is an independent generator that yields `ChatModelRunResult` updates. assistant-ui handles rendering these updates into the thread's message list. Multiple generators can run concurrently because they're independent async generators on different threads.
+
+```
+Thread A (Claude, running):
+  OrchestratedAdapter.run() → AgentSdkProvider.run() → yields ChatModelRunResult
+    → assistant-ui renders in Thread A's message list
+
+Thread B (Codex, running):
+  OrchestratedAdapter.run() → CodexProvider.run() → yields ChatModelRunResult
+    → assistant-ui renders in Thread B's message list (if visible)
+
+Thread C (Claude, idle):
+  No active generator. Last ChatModelRunResult persisted in SQLite.
+```
+
+### Stream Isolation
+
+Each adapter run already operates in an isolated context:
+- **Agent SDK:** Queries identified by `queryId`. The sidecar's `handlers` Map routes responses to the correct generator. Multiple concurrent queries are supported.
+- **Codex:** Events filtered by `thread_id` in the Tauri event listener. Multiple threads can have active turns.
+- **Claude CLI:** Each run spawns its own process. `activeChildByThread` prevents duplicate processes per thread.
+
+No additional stream isolation work is needed. The existing architecture naturally supports concurrent streams.
+
+### UI Update Flow
+
+```
+Provider yields ChatModelRunResult
+    │
+    ├── assistant-ui runtime (automatic)
+    │   └── Renders in the Thread component if this thread is focused
+    │
+    ├── ThreadStatusStore (via OrchestratedAdapter)
+    │   └── Updates status: "running" | "idle" | "error" | "waiting-approval"
+    │       └── Dashboard/WorkspaceGrid re-renders status badges
+    │
+    └── DevEventStore (via onDevEvent callback)
+        └── DevPanel shows raw events for the focused thread
+```
+
+### Throttling for Non-Focused Agents
+
+When 5+ agents stream simultaneously but only one is visible in the full chat view, unnecessary React renders waste CPU. The throttling strategy:
+
+1. **Focused thread:** Full-speed rendering. Every `ChatModelRunResult` yield triggers a React update. This is the current behavior.
+
+2. **Background threads:** `ThreadStatusStore` updates at most 2Hz. The `OrchestratedAdapter` wraps provider yields with a throttle:
+
+```typescript
+// In OrchestratedAdapter, for non-focused threads:
+const isFocused = threadStatusStore.currentThreadId === threadId;
+const throttleMs = isFocused ? 0 : 500;
+
+let lastYieldTime = 0;
+let pendingResult: ChatModelRunResult | null = null;
+
+for await (const chunk of provider.run(ctx)) {
+  if (isFocused || Date.now() - lastYieldTime > throttleMs) {
+    yield chunk;
+    lastYieldTime = Date.now();
+    pendingResult = null;
+  } else {
+    pendingResult = chunk; // Buffer, yield on next tick
   }
-
-  if (threadConfig) {
-    const removeSet = new Set(threadConfig.remove ?? []);
-    servers = servers.filter(s => !removeSet.has(s.name));
-    servers.push(...threadConfig.servers);
-  }
-
-  return servers;
 }
+
+// Always yield the final result
+if (pendingResult) yield pendingResult;
 ```
 
-### Pattern 4: Process-Per-Agent Isolation
+3. **Status-only updates:** For the workspace grid view showing many agents, only status changes propagate. No content streaming to non-visible threads.
 
-**What:** Each agent thread gets its own OS process. No shared CLI sessions between threads. Each process has its own working directory, environment, and MCP server connections.
-
-**When to use:** Always. This is a project constraint (from PROJECT.md: "Each agent thread needs its own process lifecycle"). It prevents one agent's crash from affecting others and allows per-agent cwd/env.
-
-**Trade-offs:** Higher resource usage than multiplexing. On a typical dev machine, 5-10 concurrent Claude CLI processes are fine. At 20+, memory pressure becomes real. The current Agent SDK sidecar is a single multiplexed process -- this works for Claude but the model shifts to one sidecar per agent thread for true isolation.
-
-**Critical decision: Sidecar multiplexing vs. per-agent processes.**
-
-The existing `AgentSdkSidecar` class multiplexes all queries through one Bun process. For multi-agent orchestration, there are two paths:
-
-1. **Keep multiplexed sidecar** (queries identified by `queryId`): Lower resource cost, but a sidecar crash kills all agents. The sidecar already handles per-query routing.
-
-2. **One sidecar per agent**: Full isolation. Each agent has its own Bun process with its own `cwd`. A crash affects only one agent. Higher resource usage.
-
-**Recommendation: Start with multiplexed sidecar (option 1), add per-agent mode later if isolation issues arise.** The existing multiplexing works well. Per-query `cwd` is already supported in the protocol. The main gap is MCP config -- if MCP servers need per-agent configuration, the sidecar protocol needs to pass MCP config at query time or the sidecar needs to manage per-session MCP connections.
-
-## Data Flow
-
-### Agent Spawn Flow
+### Concurrent Stream Architecture Diagram
 
 ```
-User clicks "New Agent" in WorkspaceView
-    |
-    v
-WorkspaceView -> AgentRegistry.spawn({
-    workspaceId,
-    model,
-    cwd,
-    prompt (optional initial task)
-})
-    |
-    v
-AgentRegistry:
-    1. Resolve MCP config via McpConfigResolver
-    2. Select provider based on model (AgentSDK vs Codex)
-    3. Call provider.spawnProcess({ cwd, mcpConfig })
-    4. Create AgentHandle, add to registry
-    5. Persist thread to SQLite
-    6. Update ThreadStatusStore -> "starting"
-    7. If initial prompt: call provider.run()
-    |
-    v
-Provider.spawnProcess():
-    - AgentSDK: sidecar.ensureRunning() (or spawn new sidecar)
-    - Codex: invoke("codex_start_thread", { model })
-    |
-    v
-AgentHandle returned to UI
-    -> Dashboard and WorkspaceView update via Zustand subscription
+                        ┌─────────────────────────────┐
+                        │     AssistantRuntimeProvider  │
+                        │     (single, app-level)       │
+                        └─────────────┬───────────────┘
+                                      │
+                   ┌──────────────────┼──────────────────┐
+                   │                  │                   │
+            Thread A (focused)  Thread B (bg)      Thread C (bg)
+                   │                  │                   │
+          ┌────────┴────────┐  ┌──────┴──────┐    ┌──────┴──────┐
+          │OrchestratedAdapt│  │Orchestrated │    │Orchestrated │
+          │  (full speed)   │  │ (throttled) │    │ (throttled) │
+          └────────┬────────┘  └──────┬──────┘    └──────┬──────┘
+                   │                  │                   │
+          ┌────────┴────────┐  ┌──────┴──────┐    ┌──────┴──────┐
+          │AgentSdkProvider │  │CodexProvider │    │AgentSdkProv │
+          └────────┬────────┘  └──────┬──────┘    └──────┬──────┘
+                   │                  │                   │
+          ┌────────┴────────────────┐ │           ┌──────┴──────┐
+          │  AgentSdkSidecar        │ │           │  (same      │
+          │  (shared, multiplexed)  │ │           │   sidecar)  │
+          │  queryId: "abc"         │ │           │  queryId:   │
+          │  queryId: "xyz" ◄───────┼─┼───────────┤  "xyz"     │
+          └─────────────────────────┘ │           └─────────────┘
+                                      │
+                               ┌──────┴──────┐
+                               │CodexService │
+                               │ (Rust, one  │
+                               │  process)   │
+                               └─────────────┘
 ```
 
-### Multi-Agent Status Flow
+---
 
-```
-                 AgentRegistry
-                      |
-        ┌─────────────┼─────────────┐
-        |             |             |
-   Agent 1        Agent 2       Agent 3
-   (running)      (idle)        (error)
-        |             |             |
-        v             v             v
-   ThreadStatusStore (Zustand)
-        |
-        ├── Dashboard (reads all statuses)
-        ├── WorkspaceView (reads workspace-filtered statuses)
-        └── AgentThreadView (reads single agent status)
-```
+## Component Boundary Summary
 
-### Message Flow (Per-Agent)
+### New Components
 
-```
-User types in AgentThreadView composer
-    |
-    v
-assistant-ui runtime -> ChatModelAdapter.run(options)
-    |
-    v
-RouterAdapter -> AgentRegistry.getHandle(threadId)
-    |
-    v
-Provider.run(handle, prompt, abortSignal)
-    |
-    v
-Provider yields ChatModelRunResult chunks
-    |
-    v
-assistant-ui renders in AgentThreadView
-    |
-    v
-On completion: persist messages to SQLite, update status to "idle"
-```
+| Component | Responsibility | Depends On |
+|-----------|---------------|------------|
+| `AgentProcessManager` | Process pool: spawn, track, release, resource limits | Tauri shell plugin, sidecar |
+| `AgentRegistry` | Agent lifecycle: spawn, kill, status, workspace queries | `AgentProcessManager`, providers, `ThreadStatusStore` |
+| `OrchestratedAdapter` | Unified `ChatModelAdapter`: config loading, provider routing, status | `AgentRegistry`, `AgentProcessManager`, providers |
+| `ProviderRegistry` | Maps model IDs to provider instances | Provider implementations |
+| Workspace/Dashboard UI | Multi-agent overview, navigation | `AgentRegistry`, `ThreadStatusStore` |
 
-### Key Data Flows
+### Modified Components
 
-1. **Dashboard refresh:** Dashboard subscribes to `ThreadStatusStore` (Zustand). Any agent status change triggers re-render. No polling needed. Status changes propagate: Provider -> AgentRegistry -> ThreadStatusStore -> UI.
+| Component | Change |
+|-----------|--------|
+| `RuntimeProvider.tsx` | Swap `createRouterAdapter()` for `createOrchestratedAdapter()` |
+| `ThreadStatusStore` | Add agent count, workspace filtering, queue status |
+| `sqlite-thread-list-adapter.ts` | Add workspace-scoped thread filtering |
+| `db.ts` | No schema changes needed (workspace/thread tables already exist) |
+| `ThreadWorkspace.tsx` | Replace with dashboard/workspace navigation |
 
-2. **Workspace navigation:** User clicks workspace card on Dashboard -> React Router navigates to `/workspace/:id` -> WorkspaceView fetches workspace config from SQLite, agent list from AgentRegistry -> renders agent grid.
+### Deleted Components
 
-3. **Fire-and-forget:** User spawns agent with initial prompt, navigates away. Agent runs in background. On completion/error, AgentRegistry updates ThreadStatusStore with `unread: true`. Dashboard shows unread badge. User clicks to see results.
+| Component | Replaced By |
+|-----------|-------------|
+| `claude-adapter.ts` | `shell-provider.ts` + `shared.ts` + `orchestrated-adapter.ts` |
+| `agent-sdk-adapter.ts` | `agent-sdk-provider.ts` + `agent-process-manager.ts` |
+| `codex-adapter.ts` | `codex-provider.ts` |
+| `router-adapter.ts` | `orchestrated-adapter.ts` |
 
-4. **Tool approval (Codex):** Provider emits `approval_needed` -> AgentRegistry updates status to `"waiting-approval"` -> ThreadStatusStore notifies all subscribed views -> If user is on a different agent, notification badge appears -> User navigates to agent, approves/rejects via `invoke("codex_approve_tool")`.
+---
 
-## State Management
+## Suggested Build Order
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    State Architecture                        │
-│                                                             │
-│  ┌─────────────────────┐   ┌──────────────────────────┐     │
-│  │  Zustand Stores     │   │  In-Memory (Orchestration)│     │
-│  │  (reactive UI)      │   │  (process state)          │     │
-│  │                     │   │                           │     │
-│  │  - ThreadStatusStore│   │  - AgentRegistry handles  │     │
-│  │  - WorkspaceStore   │   │  - Process child refs     │     │
-│  │  - ApprovalStore    │   │  - Sidecar connections    │     │
-│  └─────────┬───────────┘   └──────────┬────────────────┘     │
-│            │                          │                      │
-│            │     ┌────────────────────┘                      │
-│            │     │                                           │
-│            v     v                                           │
-│  ┌──────────────────────┐                                    │
-│  │  SQLite (persistent) │                                    │
-│  │                      │                                    │
-│  │  - workspaces table  │                                    │
-│  │  - threads table     │                                    │
-│  │  - messages table    │                                    │
-│  │  - sessions table    │                                    │
-│  │  - mcp_configs table │ (new)                              │
-│  │  - global_settings   │                                    │
-│  └──────────────────────┘                                    │
-└─────────────────────────────────────────────────────────────┘
+Build order is dictated by dependency chains. Each phase produces a working app.
 
-Principle: Zustand for UI reactivity.
-           In-memory for process handles (can't serialize a Child).
-           SQLite for persistence across restarts.
-           On restart: SQLite rehydrates workspace/thread state.
-                       Processes are NOT restarted (agents start fresh).
-```
+### Phase 1: Provider Abstraction (refactor only, no new features)
 
-## Scaling Considerations
+**Goal:** Split existing adapters into Provider interface + OrchestratedAdapter without changing behavior.
 
-This is a local desktop app. "Scaling" means concurrent agent count, not user count.
+1. Create `src/lib/providers/types.ts` -- AgentProvider interface
+2. Create `src/lib/providers/shared.ts` -- extracted shared utilities
+3. Create `src/lib/providers/agent-sdk-provider.ts` -- wrap existing sidecar logic
+4. Create `src/lib/providers/codex-provider.ts` -- wrap existing Codex logic
+5. Create `src/lib/providers/shell-provider.ts` -- wrap existing CLI logic (biggest file)
+6. Create `src/lib/orchestration/orchestrated-adapter.ts` -- replaces router-adapter
+7. Update `RuntimeProvider.tsx` to use new adapter
+8. Delete old adapter files
 
-| Concurrent Agents | Architecture Adjustments |
-|-------------------|--------------------------|
-| 1-5 | Current architecture works. Multiplexed sidecar. Single Codex app-server. No special handling needed. |
-| 5-15 | Watch memory. Each Claude CLI process uses 50-150MB. Total: 0.5-2GB for agent processes alone. Surface memory usage in Dashboard. Consider process pooling (idle agents release process, respawn on next message). |
-| 15-30 | Process pooling mandatory. Max concurrent running agents should be configurable. Queue excess work. Consider replacing per-agent Codex processes with a single multiplexed server. |
-| 30+ | Impractical for local desktop. If needed, offload to cloud-hosted agents (out of scope for v1). |
+**Depends on:** Nothing. Pure refactor.
+**Validates:** Provider interface works. App behavior unchanged.
+**Risk:** `claude-adapter.ts` at 1900 lines is the hardest to decompose. The stream processing state machine is deeply coupled to session management.
 
-### Scaling Priorities
+### Phase 2: AgentProcessManager + AgentRegistry
 
-1. **First bottleneck: Memory.** Each agent process (Claude CLI, Codex) consumes significant RAM. Mitigation: process pooling with configurable max concurrent agents. Idle agents can release their process and resume later via session IDs.
+**Goal:** Centralized process and agent lifecycle management.
 
-2. **Second bottleneck: UI responsiveness.** 15+ agents streaming simultaneously can overwhelm React rendering. Mitigation: throttle status updates to 1-2Hz for non-focused agents. Only render full streaming for the actively viewed agent.
+1. Create `src/lib/orchestration/agent-process-manager.ts`
+2. Move sidecar singleton, child tracking, session management into process manager
+3. Create `src/lib/orchestration/agent-registry.ts`
+4. Wire registry into OrchestratedAdapter
+5. Extend `ThreadStatusStore` with agent count, workspace filtering
 
-## Anti-Patterns
+**Depends on:** Phase 1 (providers exist as separate modules).
+**Validates:** Multiple agents can run concurrently with centralized tracking.
 
-### Anti-Pattern 1: God Adapter
+### Phase 3: Multi-Agent UI
 
-**What people do:** Put workspace management, process lifecycle, MCP config, status tracking, and protocol translation all in one adapter file (the current `claude-adapter.ts` at 1900 lines is heading this direction).
+**Goal:** Dashboard and workspace views that show multiple agents.
 
-**Why it's wrong:** Impossible to test, impossible to extend, impossible for another developer to understand. Adapter changes risk breaking unrelated functionality.
+1. Create workspace grid view with agent status cards
+2. Wire status cards to `ThreadStatusStore`
+3. Create drill-down navigation (card click -> full Thread view)
+4. Add "New Agent" spawn flow through `AgentRegistry`
+5. Add background completion notifications
 
-**Do this instead:** Separate concerns into orchestration (AgentRegistry), config (WorkspaceManager, McpConfigResolver), and protocol (Provider). Each file under 400 lines.
+**Depends on:** Phase 2 (AgentRegistry provides status data).
+**Validates:** Full multi-agent orchestration UX.
 
-### Anti-Pattern 2: Shared Process Sessions
+### Phase 4: Resource Management + Polish
 
-**What people do:** Share a single CLI session across multiple agent threads to save resources.
+**Goal:** Process pool limits, idle timeout, graceful shutdown.
 
-**Why it's wrong:** One agent's context pollutes another's. Crashes affect all agents. Working directory conflicts. The Claude Agent SDK explicitly warns against this.
+1. Implement `maxConcurrentRuns` queuing in AgentProcessManager
+2. Implement idle timeout (release processes for idle agents)
+3. Implement app-exit cleanup (`releaseAll()`)
+4. Add resource usage display in Dashboard
+5. Background thread yield throttling
 
-**Do this instead:** One session per agent thread. Use session IDs for resumption. Accept the resource cost.
+**Depends on:** Phase 3 (multi-agent UX exists to exercise resource limits).
+**Can be deferred:** MVP works without resource limits if agent count stays under 10.
 
-### Anti-Pattern 3: Polling for Status
+---
 
-**What people do:** Poll each agent for status on a timer to update the dashboard.
+## Anti-Patterns to Avoid
 
-**Why it's wrong:** Wastes resources, introduces latency, and the dashboard feels sluggish.
+### Multiple AssistantRuntimeProviders for Concurrency
 
-**Do this instead:** Push-based status via Zustand. Providers emit status changes -> AgentRegistry updates store -> UI reacts immediately. The existing `ThreadStatusStore` pattern is correct; extend it, don't replace it.
+**Do not** create separate `AssistantRuntimeProvider` instances to achieve concurrent agent runs. The single runtime already supports this. Multiple providers create state synchronization nightmares between independent thread lists.
 
-### Anti-Pattern 4: UI-Driven Process Management
+**Exception:** Split-view panels (v1.1+) may need per-panel providers, but this is a UI concern, not a concurrency concern.
 
-**What people do:** Let React components directly spawn/kill processes via `Command.create()` or `invoke()`.
+### Process Management in Adapters
 
-**Why it's wrong:** Process lifecycle becomes tied to component mount/unmount. Navigating away kills the agent. Multiple components can spawn duplicate processes.
+**Do not** let provider implementations manage their own process lifecycle. The current architecture has three separate process management strategies (one per adapter). This makes resource limiting impossible because no single component knows how many processes exist.
 
-**Do this instead:** AgentRegistry owns all processes. UI components request actions via the registry. Processes survive navigation.
+### Direct Store Access from Providers
 
-### Anti-Pattern 5: Flat MCP Config
+**Do not** have providers write directly to `ThreadStatusStore` or `db.sessions`. Route all state changes through `AgentRegistry` / `OrchestratedAdapter`. This keeps the data flow unidirectional: Provider -> OrchestratedAdapter -> Registry -> Store -> UI.
 
-**What people do:** Store MCP server config globally with no workspace or thread scoping.
-
-**Why it's wrong:** Different projects need different MCP servers. A monorepo workspace needs different tools than a microservices workspace. Users end up manually reconfiguring MCP for every new agent.
-
-**Do this instead:** Three-level inheritance (global -> workspace -> thread). Resolve at spawn time. Store overrides in SQLite alongside workspace/thread records.
-
-## Integration Points
-
-### External Services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Claude CLI / Agent SDK | Bun sidecar, NDJSON over stdin/stdout | Existing pattern. Session IDs enable resume. Sidecar handles SDK dependency isolation. |
-| Codex CLI | Rust-managed child process, JSON-RPC over stdin/stdout | Existing pattern via `CodexService`. Thread-scoped. |
-| MCP Servers | Spawned per workspace or per agent, stdio transport | MCP servers are child processes themselves. Need lifecycle management alongside agent processes. Claude CLI can manage its own MCP connections if passed config. |
-| Git (workspace metadata) | Tauri shell plugin, `git` CLI | Existing `workspace-repo-metadata.ts`. Used for branch display, repo detection. |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| UI -> Orchestration | Function calls (TypeScript) | Direct imports. AgentRegistry is a singleton or Zustand store. |
-| Orchestration -> Providers | Provider interface (TypeScript) | Providers implement `AgentProvider`. Registry selects provider by model. |
-| Providers -> Tauri/Rust | `invoke()` for Codex, `Command.create()` for shell | Existing IPC patterns. No change needed. |
-| Orchestration -> Persistence | `db.*` namespace functions | Existing pattern. Add new tables for MCP config. |
-| Rust -> Frontend events | Tauri `emit()` -> frontend `listen()` | Used for Codex events. Could extend for process health monitoring. |
-| Dashboard -> WorkspaceView -> AgentThread | React Router navigation | New navigation hierarchy replacing current flat thread list. |
-
-## Build Order (Dependencies)
-
-The architecture has clear dependency layers that dictate build order:
-
-### Phase 1: Provider Abstraction
-Refactor existing adapters into the `AgentProvider` interface. No new functionality -- just restructuring. This unblocks everything else.
-- Depends on: nothing (existing code refactor)
-- Unblocks: AgentRegistry, process management
-
-### Phase 2: AgentRegistry + Process Management
-Build the central registry that tracks agent handles and delegates to providers. Integrate with ThreadStatusStore.
-- Depends on: Provider abstraction (Phase 1)
-- Unblocks: Multi-agent UI, workspace management
-
-### Phase 3: Workspace Management + MCP Config
-Extend existing workspace schema. Build McpConfigResolver with inheritance. Wire workspace config into agent spawn flow.
-- Depends on: AgentRegistry (Phase 2) for spawn integration
-- Unblocks: Dashboard, workspace views
-
-### Phase 4: Multi-Agent UI
-Dashboard, WorkspaceView, agent grid. Navigation hierarchy. Fire-and-forget with notification badges.
-- Depends on: AgentRegistry (Phase 2), WorkspaceManager (Phase 3)
-- Unblocks: nothing (top of stack)
-
-### Phase 5: Process Supervision (Rust-side)
-Health checks, graceful shutdown on app exit, restart policies. Move process management partially to Rust for reliability.
-- Depends on: AgentRegistry (Phase 2), working multi-agent flow
-- Can be deferred: MVP works without Rust-side supervision
+---
 
 ## Sources
 
-- [Tauri 2 Process Model](https://v2.tauri.app/concept/process-model/)
-- [Tauri Sidecar Lifecycle Management Discussion](https://github.com/tauri-apps/plugins-workspace/issues/3062)
-- [Claude Agent SDK Session Management](https://docs.claude.com/en/docs/agent-sdk/sessions)
-- [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) -- architecture patterns for orchestrating multiple Claude sessions
-- [MCP Client Concepts](https://modelcontextprotocol.io/docs/learn/client-concepts)
-- [assistant-ui Runtime Architecture](https://www.assistant-ui.com/docs/architecture)
-- [assistant-ui AssistantRuntime API](https://www.assistant-ui.com/docs/api-reference/runtimes/assistant-runtime)
-- [Azure AI Agent Orchestration Patterns](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) -- hub-and-spoke vs mesh analysis
+- [assistant-ui AssistantRuntime API](https://www.assistant-ui.com/docs/api-reference/runtimes/assistant-runtime) -- runtime architecture and thread management
+- [assistant-ui LocalRuntime](https://www.assistant-ui.com/docs/runtimes/custom/local) -- ChatModelAdapter contract
+- assistant-ui v0.12 source (`node_modules/@assistant-ui/react/src/legacy-runtime/`) -- verified `useRemoteThreadListRuntime` supports concurrent thread runs, `allowNesting` option for nested providers
+- Existing codebase analysis: `RuntimeProvider.tsx`, `router-adapter.ts`, `claude-adapter.ts`, `agent-sdk-adapter.ts`, `codex-adapter.ts`, `thread-status-store.ts`, `db.ts`
+- [Tauri 2 Process Model](https://v2.tauri.app/concept/process-model/) -- process lifecycle in Tauri apps
 
 ---
-*Architecture research for: multi-agent AI orchestration desktop app*
+*Architecture research for: multi-thread agent orchestration integration*
 *Researched: 2026-03-05*

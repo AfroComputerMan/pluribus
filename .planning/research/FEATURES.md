@@ -1,7 +1,7 @@
 # Feature Research
 
 **Domain:** AI Agent Orchestration Desktop App (Mission Control)
-**Researched:** 2026-03-05
+**Researched:** 2026-03-05 (updated)
 **Confidence:** HIGH
 
 ## Feature Landscape
@@ -12,15 +12,16 @@ Features users assume exist in any multi-agent coding tool. Missing these and th
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Real-time output streaming per agent | Every coding agent tool (Claude Code, Cursor, Cline, Aider) streams output live. Users will not wait for batch results. | MEDIUM | Pluribus already has streaming for single threads via assistant-ui. Needs multiplexing across N simultaneous streams without UI jank. Use virtualized rendering for inactive agents. |
-| Tool call approval / human-in-the-loop | Cline's core UX: every file edit shows a diff, every command requires approval. Claude Code defaults to asking permission. This is the safety contract users expect. | MEDIUM | Already partially built (tool display components exist). Needs: approve/reject buttons with keyboard shortcuts, diff previews for file edits, batch approve for trusted operations. |
-| Agent lifecycle management (start/stop/pause) | Cursor 2.0 and Windsurf both let you spin up, pause, and terminate agents. Basic process control is assumed. | MEDIUM | Maps to process lifecycle in Tauri shell/sidecar. Pause = interrupt stdin stream. Stop = SIGTERM + cleanup. Need graceful shutdown that preserves session state for resume. |
-| Agent status indicators | Every dashboard tool shows running/idle/error/completed states. Users managing multiple agents need status at a glance. | LOW | Color-coded badges or icons. Map to process states: spawning, running, waiting-for-approval, paused, completed, errored. |
+| Real-time output streaming per agent | Every coding agent tool (Claude Code, Cursor, Cline, Aider) streams output live. Users will not wait for batch results. | MEDIUM | Pluribus already has streaming for single threads via assistant-ui. Needs multiplexing across N simultaneous streams without UI jank. Use virtualized rendering for inactive agents -- only the focused agent gets full DOM rendering, background agents get lightweight status updates. |
+| Tool call approval / human-in-the-loop | Cline's core UX: every file edit shows a diff, every command requires approval. Claude Code defaults to asking permission. This is the safety contract users expect. | MEDIUM | Already partially built (tool display components exist). Needs: approve/reject buttons with keyboard shortcuts, diff previews for file edits, batch approve for trusted operations. Best practice from HITL research: define clear approval criteria -- only require confirmation for actions with meaningful consequences. Implement timeouts for unattended approvals (auto-reject or escalate after configurable period). |
+| Agent lifecycle management (start/stop/pause) | Cursor 2.0 and Windsurf both let you spin up, pause, and terminate agents. Basic process control is assumed. | MEDIUM | Maps to process lifecycle in Tauri shell/sidecar. Pause = interrupt stdin stream + persist state checkpoint. Stop = SIGTERM + cleanup. Resume = restore from checkpoint without replaying prior work. AG-UI protocol defines 5 event categories: Lifecycle, Text Messages, Tool Calls, State Management, Special events -- follow this mental model. |
+| Agent status indicators | Every dashboard tool shows running/idle/error/completed states. Users managing multiple agents need status at a glance. | LOW | Color-coded badges or icons. Map to process states: spawning, running, waiting-for-approval, paused, completed, errored. UX standard from orchestration tools: use verb phrases like "Searching files," "Editing code," "Waiting for approval" not just status dots. |
 | Thread/agent history and persistence | Existing Pluribus has SQLite persistence for threads. Users expect to close the app and resume where they left off. | LOW | Already built. Extend schema for workspace association and multi-agent metadata (provider, working directory, MCP config). |
 | Working directory scoping per agent | Claude Code, Aider, Cline all operate within a specific directory context. Each agent needs its own cwd. | LOW | Pass cwd to Tauri Command.create(). Store in thread metadata. |
-| Multi-provider support | The market has fragmented: Claude Code, Codex, Cursor agents, Windsurf Cascade. Users pick tools per task. Pluribus already supports 3 backends. | HIGH | Existing adapter pattern (Claude CLI, Agent SDK, Codex) is the foundation. Needs a unified provider abstraction with consistent lifecycle hooks (start, stream, interrupt, resume). |
+| Multi-provider support | The market has fragmented: Claude Code, Codex, Cursor agents, Windsurf Cascade. Users pick tools per task. Pluribus already supports 3 backends. | HIGH | Existing adapter pattern (Claude CLI, Agent SDK, Codex) is the foundation. Needs a unified provider abstraction with consistent lifecycle hooks (start, stream, interrupt, resume, getStatus). |
 | Markdown and code rendering in output | Every coding agent renders markdown, syntax-highlighted code, and diffs. | LOW | Already built via assistant-ui and existing components. |
-| Notification on agent completion/error | When running fire-and-forget agents, users need to know when something finishes or breaks. Cursor background agents notify on PR creation; Claude Code tasks notify on completion. | LOW | Desktop notifications via Tauri notification plugin. In-app toast/badge system (sonner toasts already exist per git history). |
+| Notification on agent completion/error | When running fire-and-forget agents, users need to know when something finishes or breaks. Cursor background agents notify on PR creation; Claude Code tasks notify on completion. | LOW | Desktop notifications via Tauri notification plugin. In-app toast/badge system. Notification should include agent name, workspace, and a one-line result summary. |
+| Concurrent agent output display | Users running 2-5 agents need to see output from multiple agents simultaneously without constant switching. AgentBase, Cursor Mission Control, and Antigravity all support this. | HIGH | Three display modes needed: (1) **Grid/card overview** -- all agents visible with truncated last output; (2) **Split pane** -- 2-3 agents side-by-side with scrollable output; (3) **Focused single** -- one agent full screen with sidebar list. Users toggle between these. Default to grid overview, drill into focused view on click. |
 
 ### Differentiators (Competitive Advantage)
 
@@ -28,7 +29,8 @@ Features that set Pluribus apart. These are where the product competes.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Dashboard-first multi-agent overview | Cursor 2.0 has Mission Control sidebar; Augment Intent has a coordinator view. But no standalone desktop app gives you a dedicated dashboard across multiple repos and providers simultaneously. This is the core value proposition. | HIGH | Grid layout showing all active agents with live status, last output preview, and workspace grouping. Think macOS Mission Control but for AI agents. Click to drill into full thread view. |
+| Dashboard-first multi-agent overview | Cursor 2.0 has Mission Control sidebar; AgentBase has a visual canvas; Augment Intent has a coordinator view. But no standalone desktop app gives you a dedicated dashboard across multiple repos and providers simultaneously. This is the core value proposition. | HIGH | Grid layout showing all active agents with live status, last output preview, and workspace grouping. Progressive disclosure: card shows status + last line of output, expand for recent history, click for full thread view. Think macOS Mission Control but for AI agents. |
+| Unified approval command center | AgentBase has a "Command Center" for handling pending approvals from multiple agents in one place. No other tool centralizes approval across providers. When running 5+ agents, checking each one for pending approvals is the pain point. | MEDIUM | Aggregate all pending approval requests across all agents into one view. Show: agent name, tool call type, diff preview, approve/reject buttons. Keyboard-navigable (j/k to move between requests, y/n to approve/reject). Badge count on dashboard shows total pending approvals. This is the killer feature for multi-agent workflows. |
 | Workspace model (repo grouping) | No existing tool lets you group repos into logical workspaces (monorepo, microservices cluster) and manage agents across them. Cursor works per-project; Claude Code works per-directory. | MEDIUM | Data model: Workspace -> repos (paths) -> agent threads. Workspace-level defaults (MCP config, provider preferences) inherited by threads. |
 | Fire-and-forget with async results | Claude Code has background/headless mode but no GUI. Cursor has background agents but tied to their cloud VMs. Pluribus can offer local fire-and-forget with a results inbox. | MEDIUM | Launch agent with a prompt, minimize/ignore it. Agent runs to completion or hits an approval gate. Results appear in dashboard with diff summary. Key UX: "inbox" pattern for completed agents needing review. |
 | MCP configuration with inheritance | Claude Code uses CLAUDE.md for project config. Codex uses config.toml. No tool provides a visual MCP configuration UI with workspace-level defaults and per-thread overrides. | HIGH | Three-tier config: global defaults -> workspace defaults -> thread overrides. Visual editor for MCP server definitions (command, args, env). Show effective config with override indicators. |
@@ -48,30 +50,49 @@ Features that set Pluribus apart. These are where the product competes.
 | Auto-approve everything mode | "I trust the agent, just let it run." Aider and Claude Code both support auto-approve modes. | Dangerous for a multi-agent tool where N agents could all be making destructive changes simultaneously. Risk multiplies with parallelism. | Per-operation-type approval rules (e.g., auto-approve file reads, require approval for shell commands). Tiered trust levels rather than binary on/off. |
 | Real-time collaboration between agents | "Agent A should talk to Agent B." Multi-agent communication patterns. | Extremely complex coordination problem. Agent SDKs don't support inter-agent messaging. Would require building a message bus, conflict resolution, shared state. | Sequential handoff: Agent A completes, its output becomes context for Agent B. Manual orchestration by the user, not automatic agent-to-agent communication. |
 | Custom AI model hosting | "Let me use my own fine-tuned model." | Pluribus orchestrates CLI tools, not models. Model hosting is infrastructure, not UX. | Support whatever models the underlying CLI tools support (Claude Code, Codex, Aider all handle model selection internally). |
+| Real-time everything (all agents streaming at full DOM simultaneously) | "Show me all 10 agents streaming live at once." Looks cool in demos. | DOM rendering of 10 concurrent rich markdown streams will destroy performance. Each stream has code blocks, diffs, tool call displays. React will buckle under the re-render load. | Focused rendering: only 1-2 agents get full live DOM rendering. Others show status + last line preview. Full output available on focus. AgentBase uses this pattern -- visual canvas with zoom-in/zoom-out. |
 
 ## Feature Dependencies
 
 ```
-[Workspace Model]
-    |-- requires --> [Working Directory Scoping]
-    |-- requires --> [Thread/Agent Persistence]
-    |-- enables  --> [MCP Config Inheritance]
-    |-- enables  --> [Dashboard Overview]
-
-[Multi-Provider Abstraction]
+[Provider Abstraction]
     |-- requires --> [Agent Lifecycle Management]
     |-- requires --> [Streaming Output]
     |-- enables  --> [Cross-Provider Comparison]
     |-- enables  --> [Cost Tracking]
+    |-- enables  --> [Dashboard Overview]
+
+[Concurrent Agent Display]
+    |-- requires --> [Multi-Agent Streaming]
+    |-- requires --> [Agent Status Indicators]
+    |-- enables  --> [Dashboard Overview]
+    |-- enables  --> [Drill-Down Navigation]
 
 [Dashboard Overview]
     |-- requires --> [Agent Status Indicators]
-    |-- requires --> [Workspace Model]
+    |-- requires --> [Concurrent Agent Display]
     |-- enhances --> [Fire-and-Forget Mode]
+    |-- enables  --> [Approval Command Center]
+
+[Approval Command Center]
+    |-- requires --> [Tool Call Approval UX]
+    |-- requires --> [Dashboard Overview] (aggregation point)
+    |-- requires --> [Agent Status Indicators] (waiting-for-approval state)
 
 [Tool Call Approval UX]
     |-- requires --> [Streaming Output]
     |-- enhances --> [Agent Lifecycle Management] (pause while waiting)
+
+[Drill-Down Navigation]
+    |-- requires --> [Concurrent Agent Display]
+    |-- requires --> [Thread/Agent History]
+    |-- enhances --> [Tool Call Approval UX] (full context for decisions)
+
+[Workspace Model]
+    |-- requires --> [Working Directory Scoping]
+    |-- requires --> [Thread/Agent Persistence]
+    |-- enables  --> [MCP Config Inheritance]
+    |-- enables  --> [Dashboard Grouping]
 
 [Fire-and-Forget Mode]
     |-- requires --> [Notification System]
@@ -89,71 +110,163 @@ Features that set Pluribus apart. These are where the product competes.
 
 [Cost Tracking]
     |-- requires --> [Streaming Output] (parse token counts)
-    |-- requires --> [Multi-Provider Abstraction] (normalize across providers)
+    |-- requires --> [Provider Abstraction] (normalize across providers)
 ```
 
 ### Dependency Notes
 
-- **Dashboard requires Workspace Model:** The dashboard organizes agents by workspace. Without workspaces, it is just a flat list (which is what current Pluribus already has).
-- **Fire-and-Forget requires Notifications:** Without alerts, fire-and-forget is just "fire-and-forget-about-it." The notification system is what makes async agents usable.
-- **MCP Config Inheritance requires Workspace Model:** The three-tier config (global -> workspace -> thread) only makes sense once workspaces exist.
-- **Checkpoint/Rollback conflicts with early phases:** Git worktree management and checkpoint UI is high complexity. Ship the core orchestration loop first, add checkpoints after validation.
-- **Cross-Provider Comparison requires Multi-Provider Abstraction:** Cannot compare providers without a unified interface that normalizes their outputs.
+- **Provider Abstraction is the foundation:** Everything else depends on a unified way to start, stream, pause, resume, and stop agents regardless of backend. This must come first.
+- **Concurrent Agent Display before Dashboard:** The dashboard is a layout of concurrent agent cards. You need the card/pane rendering before you can arrange them in a dashboard grid.
+- **Approval Command Center requires Dashboard:** The command center aggregates approvals from the dashboard view. Without the dashboard, approvals are per-thread only (which is what current Pluribus already does).
+- **Drill-Down is the bridge:** Users go from dashboard overview -> drill-down into single thread. This navigation pattern connects the overview features to the existing single-thread chat experience.
+- **Workspace Model is parallel to core orchestration:** Workspaces can be built alongside or after the core agent orchestration loop. They add organization but are not required for the core "run multiple agents" experience.
+- **Checkpoint/Rollback conflicts with early phases:** Git worktree management and checkpoint UI is high complexity. Ship the core orchestration loop first.
+
+## Detailed Feature Specifications
+
+### Concurrent Agent Output Display (Table Stakes, HIGH Complexity)
+
+Three-tier display model based on patterns from AgentBase, Cursor Mission Control, and Antigravity:
+
+**Tier 1 -- Overview Grid (dashboard default)**
+- Cards arranged in a responsive grid (2-4 columns depending on window width)
+- Each card shows: agent name, provider badge, workspace/repo, status indicator, last 2-3 lines of output (plain text, no markdown rendering)
+- Cards are color-bordered by status (green=running, yellow=waiting-approval, red=error, gray=completed)
+- Pending approval count badge on cards that need intervention
+- Click card to drill down to Tier 3
+
+**Tier 2 -- Split Pane (comparison/monitoring)**
+- 2-3 agents side by side with scrollable output
+- Each pane renders markdown but with reduced fidelity (no code block copy buttons, simplified tool call display)
+- Panes are resizable
+- Good for monitoring 2-3 related agents (e.g., same task, different repos)
+
+**Tier 3 -- Focused Single (drill-down)**
+- Full-screen agent view, identical to current single-thread chat experience
+- Sidebar shows list of other agents with status dots for quick switching
+- Full markdown rendering, tool call display, approval controls
+- Back button or Escape returns to Tier 1
+
+**Performance strategy:** Only Tier 3 (focused) gets full assistant-ui rendering. Tier 1 cards use plain text excerpts from a ring buffer. Tier 2 uses a lightweight markdown renderer. This prevents N simultaneous assistant-ui runtimes from killing performance.
+
+### Intervention Controls (Table Stakes, MEDIUM Complexity)
+
+Based on HITL best practices and AG-UI protocol patterns:
+
+**Per-Agent Controls (always visible in Tier 2/3):**
+- **Approve** (y or Enter) -- accept the pending tool call, agent continues
+- **Reject** (n) -- reject with optional feedback text, agent receives rejection and adapts
+- **Edit** (e) -- modify the tool call arguments before approval (e.g., edit a shell command)
+- **Pause** (Space) -- suspend agent execution, persist state checkpoint, agent can be resumed later
+- **Resume** (Space again or r) -- restore from checkpoint, continue execution
+- **Stop** (Ctrl+C or q) -- terminate agent process, mark as stopped, preserve output history
+- **Escalate** -- promote a pending approval to the Approval Command Center for later review
+
+**Approval Queue per Agent:**
+When an agent hits multiple approval gates (e.g., read file then write file), queue them. Show count of pending approvals. Allow batch approve for same-type operations (e.g., "approve all file reads").
+
+**Approval Command Center (Differentiator):**
+Aggregated view across all agents. Columns: Agent Name | Tool Call Type | Target (file/command) | Preview | Actions. Sortable by time, agent, type. Keyboard navigable. This is what makes multi-agent workflows manageable at scale -- you do not need to visit each agent individually to approve actions.
+
+### Agent Status Tracking (Table Stakes, LOW Complexity)
+
+Status state machine:
+
+```
+[Not Started] -> [Spawning] -> [Running] -> [Completed]
+                                   |
+                                   +-> [Waiting for Approval] -> [Running] (on approve)
+                                   |                          -> [Running] (on reject, agent adapts)
+                                   |
+                                   +-> [Paused] -> [Running] (on resume)
+                                   |            -> [Stopped] (on stop while paused)
+                                   |
+                                   +-> [Errored]
+                                   |
+                                   +-> [Stopped]
+```
+
+Each status maps to:
+- **Visual indicator**: Color + icon + verb phrase (e.g., "Editing src/main.ts", "Waiting: approve shell command?")
+- **Dashboard behavior**: Running agents sort to top, waiting-for-approval agents flash/pulse, completed agents sort to bottom
+- **Notification trigger**: Transition to Completed, Errored, or Waiting-for-Approval triggers notification if agent is not focused
+
+### Drill-Down Navigation (Table Stakes, MEDIUM Complexity)
+
+Three navigation patterns observed in competing tools:
+
+**Pattern chosen: Progressive drill-down (AgentBase-style)**
+1. Dashboard grid shows all agents as cards (Tier 1)
+2. Click card -> animate transition to focused view (Tier 3)
+3. Focused view has sidebar with other agent statuses for quick switching
+4. Breadcrumb: Dashboard > Workspace > Agent Name
+5. Escape or back button returns to dashboard
+
+**Why not tabs (Cursor-style):** Tabs work for 3-5 agents but break at 10+. Cards scale better visually and allow grouping by workspace.
+
+**Why not canvas (AgentBase-style free-form):** Canvas is complex to implement (drag, zoom, pan) and the spatial metaphor does not add value for code agents where the primary interaction is sequential text output. Grid is simpler and sufficient.
 
 ## MVP Definition
 
-### Launch With (v1)
+### Launch With (v1.0)
 
 Minimum viable product -- enough to validate that dashboard-first multi-agent orchestration is useful.
 
-- [ ] **Unified provider abstraction** -- Refactor existing 3 adapters (Claude CLI, Agent SDK, Codex) into a common interface with consistent lifecycle hooks
-- [ ] **Workspace model** -- Create/edit workspaces, associate repo paths, store in SQLite
-- [ ] **Dashboard overview** -- Grid of active agents grouped by workspace, status indicators, click-to-drill-down
-- [ ] **Multi-agent streaming** -- Run 2-4 agents simultaneously with live output in split/tabbed views
+- [ ] **Unified provider abstraction** -- Refactor existing 3 adapters (Claude CLI, Agent SDK, Codex) into a common interface with consistent lifecycle hooks (start, stream, interrupt, resume, getStatus)
+- [ ] **Agent status tracking** -- State machine with visual indicators, verb-phrase status messages
+- [ ] **Concurrent agent display (Tier 1 + Tier 3)** -- Grid overview cards with status and last output line, click to drill into full thread view
+- [ ] **Multi-agent streaming** -- Run 2-4 agents simultaneously with independent output streams
 - [ ] **Agent lifecycle controls** -- Start, pause, resume, stop per agent with keyboard shortcuts
 - [ ] **Tool call approval UX** -- Approve/reject with diff preview, keyboard shortcuts (y/n), per-thread approval queue
-- [ ] **Desktop notifications** -- Alert on agent completion, error, or approval-needed via Tauri notification plugin
 - [ ] **Working directory scoping** -- Each agent runs in its configured repo directory
+- [ ] **Desktop notifications** -- Alert on agent completion, error, or approval-needed via Tauri notification plugin
+- [ ] **Drill-down navigation** -- Dashboard grid -> focused single agent view -> back to dashboard
 
 ### Add After Validation (v1.x)
 
 Features to add once core orchestration is working and useful.
 
+- [ ] **Approval command center** -- Aggregated cross-agent approval queue. Trigger: users report losing track of which agents need attention
+- [ ] **Workspace model** -- Create/edit workspaces, associate repo paths, group agents. Trigger: users working across 3+ repos need organization
+- [ ] **Split pane view (Tier 2)** -- Side-by-side agent comparison. Trigger: users want to monitor 2-3 related agents simultaneously
 - [ ] **Fire-and-forget inbox** -- Results view for completed background agents with diff summaries
-- [ ] **MCP configuration UI** -- Visual editor for MCP server configs with workspace inheritance
 - [ ] **Cost/token tracking** -- Parse usage from agent output, aggregate by workspace and provider
 - [ ] **Keyboard-driven command palette** -- Cmd+K for all actions, agent switching, quick commands
-- [ ] **Agent templates** -- Save and reuse common agent configurations (provider + MCP + system prompt)
+- [ ] **Agent templates** -- Save and reuse common agent configurations (provider + system prompt + cwd)
 
 ### Future Consideration (v2+)
 
+- [ ] **MCP configuration UI with inheritance** -- Visual editor with workspace defaults and per-thread overrides. Defer because MCP config complexity is orthogonal to the core orchestration value.
 - [ ] **Checkpoint/rollback** -- Git-integrated snapshots with visual rollback UI. Defer because git worktree management is complex and the core value proposition does not depend on it.
 - [ ] **Cross-provider comparison** -- Side-by-side same-task execution. Defer because it requires the abstraction layer to be battle-tested first.
 - [ ] **Import from existing configs** -- Pull MCP config from claude_desktop_config.json, .cursor/mcp.json, codex config.toml. Nice-to-have onboarding convenience.
-- [ ] **Agent activity timeline** -- Chronological view of all agent actions across a workspace (like a git log but for agent operations). Useful for audit but not core.
+- [ ] **Agent activity timeline** -- Chronological view of all agent actions across a workspace. Useful for audit but not core.
 
 ## Feature Prioritization Matrix
 
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Dashboard overview | HIGH | HIGH | P1 |
-| Workspace model | HIGH | MEDIUM | P1 |
-| Unified provider abstraction | HIGH | HIGH | P1 |
-| Multi-agent streaming | HIGH | MEDIUM | P1 |
-| Agent lifecycle controls | HIGH | MEDIUM | P1 |
-| Tool call approval UX | HIGH | MEDIUM | P1 |
-| Agent status indicators | HIGH | LOW | P1 |
-| Desktop notifications | MEDIUM | LOW | P1 |
-| Working directory scoping | HIGH | LOW | P1 |
-| Fire-and-forget inbox | HIGH | MEDIUM | P2 |
-| MCP configuration UI | MEDIUM | HIGH | P2 |
-| Cost/token tracking | MEDIUM | MEDIUM | P2 |
-| Command palette | MEDIUM | MEDIUM | P2 |
-| Agent templates | MEDIUM | LOW | P2 |
-| Checkpoint/rollback | MEDIUM | HIGH | P3 |
-| Cross-provider comparison | LOW | MEDIUM | P3 |
-| Config import | LOW | LOW | P3 |
-| Activity timeline | LOW | MEDIUM | P3 |
+| Feature | User Value | Implementation Cost | Priority | Dependencies on Existing |
+|---------|------------|---------------------|----------|--------------------------|
+| Unified provider abstraction | HIGH | HIGH | P1 | Refactors existing 3 adapters |
+| Agent status tracking | HIGH | LOW | P1 | Extends existing thread metadata |
+| Concurrent agent display (grid + focused) | HIGH | HIGH | P1 | Extends existing thread list + single chat view |
+| Multi-agent streaming | HIGH | MEDIUM | P1 | Extends existing single-stream adapter |
+| Agent lifecycle controls | HIGH | MEDIUM | P1 | Extends existing process management in adapters |
+| Tool call approval UX | HIGH | MEDIUM | P1 | Extends existing tool call display components |
+| Working directory scoping | HIGH | LOW | P1 | Extends existing thread metadata in SQLite |
+| Desktop notifications | MEDIUM | LOW | P1 | New (Tauri notification plugin) |
+| Drill-down navigation | HIGH | MEDIUM | P1 | Transforms existing sidebar + chat layout |
+| Approval command center | HIGH | MEDIUM | P2 | Builds on P1 approval UX + dashboard |
+| Workspace model | HIGH | MEDIUM | P2 | Extends existing SQLite schema |
+| Split pane view | MEDIUM | MEDIUM | P2 | Builds on P1 concurrent display |
+| Fire-and-forget inbox | HIGH | MEDIUM | P2 | Builds on P1 lifecycle + notifications |
+| Cost/token tracking | MEDIUM | MEDIUM | P2 | Parses existing stream output |
+| Command palette | MEDIUM | MEDIUM | P2 | New, standalone component |
+| Agent templates | MEDIUM | LOW | P2 | New, SQLite storage |
+| MCP configuration UI | MEDIUM | HIGH | P3 | New, complex UI |
+| Checkpoint/rollback | MEDIUM | HIGH | P3 | New, heavy git integration |
+| Cross-provider comparison | LOW | MEDIUM | P3 | Builds on P1 provider abstraction |
+| Config import | LOW | LOW | P3 | New, file parsing |
+| Activity timeline | LOW | MEDIUM | P3 | New, event aggregation |
 
 **Priority key:**
 - P1: Must have for launch -- defines the product
@@ -162,35 +275,41 @@ Features to add once core orchestration is working and useful.
 
 ## Competitor Feature Analysis
 
-| Feature | Cursor 2.0 | Claude Code CLI | Cline | Windsurf | Augment Intent | Pluribus (Our Approach) |
-|---------|-------------|-----------------|-------|----------|----------------|------------------------|
-| Multi-agent parallel | Yes (8 agents, git worktrees) | Yes (subagents, background tasks) | No (single agent) | Yes (Wave 13, parallel Cascade) | Yes (coordinator + implementors) | Yes -- unlimited local agents, no cloud VMs required |
-| Dashboard / overview | Mission Control sidebar | None (CLI only, third-party dashboards) | None (VS Code panel) | None | Workspace view | Dedicated dashboard-first app, not a sidebar |
-| Agent isolation | Git worktrees + SVFS | Git worktrees | None | Git worktrees | Worktrees | Working directory scoping, git worktree support in v2 |
-| Tool approval UX | Inline in editor | Terminal prompts | Diff preview + explicit approval | Inline in editor | Spec-based verification | Dedicated approval queue with diff preview per agent |
-| Fire-and-forget | Background agents (cloud VMs) | Headless mode, Tasks | No | No | Background agents | Local fire-and-forget with results inbox |
-| MCP support | Yes (config file) | Yes (CLAUDE.md, project config) | Yes (config file) | Yes | Yes | Visual config UI with inheritance model |
-| Cost tracking | Usage dashboard (cloud) | Third-party tools (Sniffly, otel) | Token display | Usage limits | Unknown | Built-in aggregated cost view |
-| Provider flexibility | Cursor models only | Claude only | Any LLM provider | Windsurf models only | Multiple (Claude Code, Codex) | Any CLI agent (Claude, Codex, extensible) |
-| Platform | IDE (VS Code fork) | Terminal | VS Code extension | IDE (VS Code fork) | Desktop app | Desktop app (Tauri) |
+| Feature | Cursor 2.0 | Claude Code CLI | AgentBase | Cline | Windsurf | Augment Intent | Pluribus (Our Approach) |
+|---------|-------------|-----------------|-----------|-------|----------|----------------|------------------------|
+| Multi-agent parallel | Yes (8 agents, git worktrees) | Yes (subagents, background tasks) | Yes (visual canvas) | No (single agent) | Yes (Wave 13, parallel) | Yes (coordinator + implementors) | Yes -- unlimited local agents, no cloud VMs |
+| Dashboard / overview | Mission Control sidebar | None (CLI only) | Visual canvas with zoom | None (VS Code panel) | None | Workspace view | Dedicated dashboard-first app |
+| Centralized approval queue | No (per-agent inline) | No (per-terminal prompts) | Yes (Command Center) | No (per-panel) | No | No | Yes -- cross-agent approval command center |
+| Agent isolation | Git worktrees + SVFS | Git worktrees | Toggle edit isolation | None | Git worktrees | Worktrees | Working directory scoping, worktrees in v2 |
+| Tool approval UX | Inline in editor | Terminal prompts | Pending requests queue | Diff preview + explicit | Inline in editor | Spec-based verification | Dedicated approval queue with diff preview |
+| Fire-and-forget | Background agents (cloud VMs) | Headless mode, Tasks | No | No | No | Background agents | Local fire-and-forget with results inbox |
+| Progress tracking | Limited | None | Todo list + summaries | None | None | Spec tracking | Status state machine + verb phrases |
+| MCP support | Yes (config file) | Yes (CLAUDE.md) | Unknown | Yes (config file) | Yes | Yes | Visual config UI with inheritance |
+| Cost tracking | Usage dashboard (cloud) | Third-party tools | No | Token display | Usage limits | Unknown | Built-in aggregated cost view |
+| Provider flexibility | Cursor models only | Claude only | Claude, Cursor, Codex | Any LLM provider | Windsurf models only | Multiple | Any CLI agent (extensible) |
+| Platform | IDE (VS Code fork) | Terminal | Desktop app | VS Code extension | IDE (VS Code fork) | Desktop app | Desktop app (Tauri) |
 
-**Key competitive positioning:** Pluribus is the only tool that combines (1) standalone desktop app (not IDE-locked), (2) multi-provider support, (3) dashboard-first UX, and (4) local-only execution. Cursor 2.0 is the closest competitor but requires their cloud infrastructure for background agents and locks you into their models. Augment Intent is similar in concept but is tied to their Context Engine. Pluribus is provider-agnostic and fully local.
+**Key competitive positioning:** Pluribus is the only tool combining (1) standalone desktop app (not IDE-locked), (2) multi-provider support, (3) dashboard-first UX, (4) centralized approval command center, and (5) local-only execution. AgentBase is the closest competitor in concept (visual multi-agent control center, local-first) but lacks provider abstraction and approval aggregation. Cursor 2.0 is powerful but cloud-dependent for background agents and locked to their models.
 
 ## Sources
 
 - [Cursor 2.0 Features](https://cursor.com/changelog/2-0) -- Mission Control, background agents, SVFS
-- [Cursor Agent Product Page](https://cursor.com/product) -- Background agents, multi-agent parallelism
-- [Claude Code Subagents](https://code.claude.com/docs/en/sub-agents) -- Subagent architecture, parallel execution
-- [Claude Code Tasks (VentureBeat)](https://venturebeat.com/orchestration/claude-codes-tasks-update-lets-agents-work-longer-and-coordinate-across) -- DAG-based task coordination
+- [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) -- Experimental multi-agent coordination
+- [AgentBase](https://github.com/AgentOrchestrator/AgentBase) -- Multi-agent orchestrator for Claude Code, Cursor, Codex
 - [Cline GitHub](https://github.com/cline/cline) -- Approval UX, checkpoint system
-- [Cline CLI 2.0 (DevOps.com)](https://devops.com/cline-cli-2-0-turns-your-terminal-into-an-ai-agent-control-plane/) -- Auto-approve toggle, inline markdown
 - [Windsurf Cascade](https://windsurf.com/cascade) -- Flow awareness, multi-mode operation
-- [Augment Code Intent](https://www.augmentcode.com/blog/intent-a-workspace-for-agent-orchestration) -- Spec-driven development, coordinator/implementor pattern
+- [Augment Code Intent](https://www.augmentcode.com/blog/intent-a-workspace-for-agent-orchestration) -- Spec-driven development
+- [AG-UI Protocol](https://www.codecademy.com/article/ag-ui-agent-user-interaction-protocol) -- 16 event types across 5 categories for agent-UI interaction
+- [Smashing Magazine: Designing for Agentic AI](https://www.smashingmagazine.com/2026/02/designing-agentic-ai-practical-ux-patterns/) -- UX patterns for control, consent, accountability
+- [7 UX Patterns for Human Oversight](https://www.bprigent.com/article/7-ux-patterns-for-human-oversight-in-ambient-ai-agents) -- Oversight patterns for AI agents
+- [HITL Best Practices (Permit.io)](https://www.permit.io/blog/human-in-the-loop-for-ai-agents-best-practices-frameworks-use-cases-and-demo) -- Approval criteria, timeouts, audit trails
+- [LangGraph Human-in-the-Loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop) -- interrupt() pattern for pause/resume
+- [CrewAI Dashboard](https://crewai.com/) -- Centralized dashboard for agent crews
+- [Antigravity IDE](https://www.codecademy.com/article/agentic-ide-comparison-cursor-vs-windsurf-vs-antigravity) -- Parallel agents with artifact communication
+- [AI Coding Agent Dashboard (Marc Nuri)](https://blog.marcnuri.com/ai-coding-agent-dashboard) -- Session cards, device organization, status at a glance
+- [Claude Code Subagents](https://zachwills.net/how-to-use-claude-code-subagents-to-parallelize-development/) -- Parallelization patterns
 - [MCP Specification](https://modelcontextprotocol.io/specification/2025-03-26/server/tools) -- Tool protocol standard
-- [Git Worktrees for AI Agents (Medium)](https://medium.com/@mabd.dev/git-worktrees-the-secret-weapon-for-running-multiple-ai-coding-agents-in-parallel-e9046451eb96) -- Isolation patterns
-- [Claude Code Missing Dashboard (Medium)](https://ridjex.medium.com/claude-codes-missing-dashboard-so-i-built-one-999f41b97741) -- Gap in Claude Code ecosystem
-- [VS Code Multi-Agent Development](https://code.visualstudio.com/blogs/2026/02/05/multi-agent-development) -- IDE-level multi-agent support
 
 ---
 *Feature research for: AI Agent Orchestration Desktop App (Mission Control)*
-*Researched: 2026-03-05*
+*Researched: 2026-03-05 (updated with multi-agent orchestration UI patterns)*
