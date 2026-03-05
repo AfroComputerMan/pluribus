@@ -255,6 +255,13 @@ export function createCodexProvider(): AgentProvider {
       log("codex-provider", "Thread started", { codexThreadId });
       emitDevEvent(onDevEvent, "codex:thread_created", { codexThreadId });
 
+      // Report PID for process manager tracking (enables exit guard)
+      getCodexPid()
+        .then((pid) => {
+          if (pid) ctx.onProcessStarted?.(pid);
+        })
+        .catch(() => {});
+
       const pendingContent: ContentPart[] = [];
       let currentTextIdx: number | null = null;
       let closed = false;

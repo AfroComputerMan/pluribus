@@ -38,6 +38,8 @@ export interface RunContext {
   readonly abortSignal: AbortSignal;
   readonly threadId: string;
   readonly onDevEvent?: (event: DevEvent) => void;
+  /** Called by the provider when the underlying process PID is known. */
+  readonly onProcessStarted?: (pid: number) => void;
 }
 
 // ---------------------------------------------------------------------------

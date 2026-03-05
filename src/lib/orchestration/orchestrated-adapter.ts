@@ -13,7 +13,6 @@ import type { ProviderRegistry } from "@/lib/providers/provider-registry";
 import type { AgentProcessManager } from "@/lib/orchestration/agent-process-manager";
 import type { RunContext } from "@/lib/providers/types";
 import { extractUserPrompt } from "@/lib/providers/shared";
-import { getCodexPid } from "@/lib/providers/codex-provider";
 import { db } from "@/lib/db";
 import { resolveModel, resolveEffort } from "@/lib/models";
 import { useThreadStatusStore } from "@/lib/thread-status-store";
@@ -93,6 +92,11 @@ export function createOrchestratedAdapter(
         effort,
         abortSignal: abortController.signal,
         threadId,
+        onProcessStarted: (pid: number) => {
+          processManager
+            .trackProcess(processTrackingId, threadId, provider.id, pid)
+            .catch(() => {});
+        },
       };
 
       // Generate a unique process tracking ID
@@ -125,23 +129,6 @@ export function createOrchestratedAdapter(
         }
       }
 
-      // 13. Track PID for process management (post-run for providers
-      // that expose PID after invocation starts)
-      if (provider.id === "codex") {
-        try {
-          const pid = await getCodexPid();
-          if (pid) {
-            await processManager.trackProcess(
-              processTrackingId,
-              threadId,
-              "codex",
-              pid,
-            );
-          }
-        } catch {
-          // PID retrieval is best-effort
-        }
-      }
     },
   };
 }
