@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-03-05T15:53:00Z"
-last_activity: 2026-03-05 — Completed Plan 01-01 (Provider Type System)
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-03-05T15:57:36Z"
+last_activity: 2026-03-05 — Completed Plan 01-03 (Codex Provider)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
-  percent: 6
+  completed_plans: 2
+  percent: 12
 ---
 
 # Project State
@@ -26,28 +26,28 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 1 of 4 (Provider Abstraction)
-Plan: 1 of 4 in current phase
+Plan: 3 of 4 in current phase
 Status: Executing
-Last activity: 2026-03-05 — Completed Plan 01-01 (Provider Type System)
+Last activity: 2026-03-05 — Completed Plan 01-03 (Codex Provider)
 
-Progress: [█░░░░░░░░░] 6%
+Progress: [██░░░░░░░░] 12%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 3min
-- Total execution time: 0.05 hours
+- Total plans completed: 2
+- Average duration: 2.5min
+- Total execution time: 0.08 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-provider-abstraction | 1 | 3min | 3min |
+| 01-provider-abstraction | 2 | 5min | 2.5min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (3min)
-- Trend: Starting
+- Last 5 plans: 01-01 (3min), 01-03 (2min)
+- Trend: Accelerating
 
 *Updated after each plan completion*
 
@@ -63,6 +63,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Streaming and intervention controls (ORCH-04/05/06/07) separated from registry as Phase 3 -- registry must exist before real-time streaming layer
 - [01-01]: Used claude-stream-sh for OS-level PID kills (kill command not in Tauri shell permissions, sh is)
 - [01-01]: Dual kill strategy: Child.kill() for current session, OS kill for crash-recovery orphans
+- [01-03]: Captured child PID before moving Child into supervisor task (tokio consumes Child on wait())
+- [01-03]: Codex provider delegates thread status to orchestrated adapter, not provider-level
 
 ### Pending Todos
 
@@ -76,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-05T15:53:00Z
-Stopped at: Completed 01-01-PLAN.md
-Resume file: .planning/phases/01-provider-abstraction/01-01-SUMMARY.md
+Last session: 2026-03-05T15:57:36Z
+Stopped at: Completed 01-03-PLAN.md
+Resume file: .planning/phases/01-provider-abstraction/01-03-SUMMARY.md
