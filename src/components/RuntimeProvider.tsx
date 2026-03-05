@@ -7,16 +7,45 @@ import {
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
-import { createRouterAdapter } from "@/lib/router-adapter";
+import { createOrchestratedAdapter } from "@/lib/orchestration/orchestrated-adapter";
+import { createProviderRegistry } from "@/lib/providers/provider-registry";
+import { createAgentProcessManager } from "@/lib/orchestration/agent-process-manager";
+import {
+  AgentSdkSidecar,
+  createAgentSdkProvider,
+} from "@/lib/providers/agent-sdk-provider";
+import { createCodexProvider } from "@/lib/providers/codex-provider";
 import { createSQLiteThreadListAdapter } from "@/lib/sqlite-thread-list-adapter";
 import { ApprovalBanner } from "@/components/assistant-ui/approval-banner";
 import { ThreadStatusToasts } from "@/components/ThreadStatusToasts";
 
+// ---------------------------------------------------------------------------
+// Module-level singletons — created once on app load
+// ---------------------------------------------------------------------------
+
+const registry = createProviderRegistry();
+const processManager = createAgentProcessManager();
+const sidecar = new AgentSdkSidecar();
+
+// Register providers
+registry.register(createAgentSdkProvider(() => sidecar));
+registry.register(createCodexProvider());
+
+// Run orphan cleanup on module load (silent, no user notification)
+processManager
+  .cleanupOrphans()
+  .then((n) => {
+    if (n > 0) console.log(`Cleaned up ${n} orphan processes`);
+  })
+  .catch((err) => console.error("Orphan cleanup failed:", err));
+
 const threadListAdapter = createSQLiteThreadListAdapter();
 
-/** Inner hook — creates the per-thread local runtime with the router adapter. */
+/** Inner hook -- creates the per-thread local runtime with the orchestrated adapter. */
 function useRuntimeHook() {
-  return useLocalRuntime(useMemo(() => createRouterAdapter(), []));
+  return useLocalRuntime(
+    useMemo(() => createOrchestratedAdapter(registry, processManager), []),
+  );
 }
 
 /**
@@ -42,3 +71,6 @@ export function RuntimeProvider({
     </AssistantRuntimeProvider>
   );
 }
+
+/** Expose the process manager for exit confirmation dialog. */
+export { processManager };
