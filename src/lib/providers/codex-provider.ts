@@ -374,12 +374,10 @@ export function createCodexProvider(): AgentProvider {
 
             case "turn_completed": {
               closed = true;
-              if (pendingContent.length > 0) {
-                yield {
-                  content: [...pendingContent],
-                  status: { type: "complete", reason: "stop" },
-                } satisfies ChatModelRunResult;
-              }
+              yield {
+                content: [...pendingContent],
+                status: { type: "complete", reason: "stop" },
+              } satisfies ChatModelRunResult;
               break;
             }
 

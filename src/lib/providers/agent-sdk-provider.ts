@@ -385,6 +385,8 @@ export function createAgentSdkProvider(
 
     async *run(ctx: RunContext): AsyncGenerator<ChatModelRunResult, void> {
       const sidecar = getSidecar();
+      // Ensure the sidecar process is running before sending queries
+      await sidecar.start();
       const queryId = crypto.randomUUID();
       activeQueries.set(ctx.threadId, queryId);
 

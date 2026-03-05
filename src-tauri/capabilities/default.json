@@ -7,8 +7,11 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
     "dialog:allow-open",
     "dialog:allow-ask",
+    "dialog:allow-confirm",
     "sql:default",
     "sql:allow-execute",
     {
