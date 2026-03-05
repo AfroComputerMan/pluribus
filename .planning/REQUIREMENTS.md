@@ -77,35 +77,35 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PROV-01 | — | Pending |
-| PROV-02 | — | Pending |
-| PROV-03 | — | Pending |
-| PROV-04 | — | Pending |
-| PROV-05 | — | Pending |
-| PROV-06 | — | Pending |
-| PROV-07 | — | Pending |
-| ORCH-01 | — | Pending |
-| ORCH-02 | — | Pending |
-| ORCH-03 | — | Pending |
-| ORCH-04 | — | Pending |
-| ORCH-05 | — | Pending |
-| ORCH-06 | — | Pending |
-| ORCH-07 | — | Pending |
-| ORCH-08 | — | Pending |
-| MAUI-01 | — | Pending |
-| MAUI-02 | — | Pending |
-| MAUI-03 | — | Pending |
-| MAUI-04 | — | Pending |
-| MAUI-05 | — | Pending |
-| PERS-01 | — | Pending |
-| PERS-02 | — | Pending |
-| PERS-03 | — | Pending |
+| PROV-01 | Phase 1 | Pending |
+| PROV-02 | Phase 1 | Pending |
+| PROV-03 | Phase 1 | Pending |
+| PROV-04 | Phase 1 | Pending |
+| PROV-05 | Phase 1 | Pending |
+| PROV-06 | Phase 1 | Pending |
+| PROV-07 | Phase 1 | Pending |
+| ORCH-01 | Phase 2 | Pending |
+| ORCH-02 | Phase 2 | Pending |
+| ORCH-03 | Phase 2 | Pending |
+| ORCH-04 | Phase 3 | Pending |
+| ORCH-05 | Phase 3 | Pending |
+| ORCH-06 | Phase 3 | Pending |
+| ORCH-07 | Phase 3 | Pending |
+| ORCH-08 | Phase 2 | Pending |
+| MAUI-01 | Phase 4 | Pending |
+| MAUI-02 | Phase 4 | Pending |
+| MAUI-03 | Phase 4 | Pending |
+| MAUI-04 | Phase 4 | Pending |
+| MAUI-05 | Phase 4 | Pending |
+| PERS-01 | Phase 2 | Pending |
+| PERS-02 | Phase 2 | Pending |
+| PERS-03 | Phase 2 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23
+- Mapped to phases: 23
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-05 after initial definition*
+*Last updated: 2026-03-05 after roadmap creation*
