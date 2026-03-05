@@ -20,17 +20,45 @@ import { getModelById, isCodexModel } from "@/lib/models";
 // Protocol types (match Rust AgentEvent serde output with snake_case)
 // ---------------------------------------------------------------------------
 
+type CodexItemType =
+  | "agent_message"
+  | "user_message"
+  | "reasoning"
+  | "file_change"
+  | "command_execution"
+  | "web_search"
+  | "plan_update"
+  | "mcp_tool_call"
+  | "unknown";
+
 interface CodexItem {
-  type:
-    | "agent_message"
-    | "reasoning"
-    | "file_change"
-    | "command_execution"
-    | "web_search"
-    | "plan_update"
-    | "mcp_tool_call";
+  type: string;
   [key: string]: unknown;
 }
+
+interface CommandAction {
+  command: string;
+  name?: string;
+  path?: string;
+  type?: string;
+}
+
+interface CommandExecutionToolArgs {
+  type: "command_execution";
+  command: string;
+  cwd?: string;
+  exitCode?: number;
+  durationMs?: number;
+  aggregatedOutput?: string;
+  commandActions?: CommandAction[];
+}
+
+type ToolCallMapping = {
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  argsText: string;
+};
 
 type AgentEvent =
   | { type: "turn_started"; thread_id: string; turn_id: string }
@@ -74,6 +102,90 @@ function extractUserText(
     .join("\n");
 }
 
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeCodexItemType(rawType: unknown): CodexItemType {
+  switch (rawType) {
+    case "agent_message":
+    case "agentMessage":
+      return "agent_message";
+    case "user_message":
+    case "userMessage":
+      return "user_message";
+    case "reasoning":
+      return "reasoning";
+    case "file_change":
+    case "fileChange":
+      return "file_change";
+    case "command_execution":
+    case "commandExecution":
+      return "command_execution";
+    case "web_search":
+    case "webSearch":
+      return "web_search";
+    case "plan_update":
+    case "planUpdate":
+      return "plan_update";
+    case "mcp_tool_call":
+    case "mcpToolCall":
+      return "mcp_tool_call";
+    default:
+      return "unknown";
+  }
+}
+
+function normalizeCommandActions(raw: unknown): CommandAction[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const actions = raw
+    .map((entry) => asObject(entry))
+    .filter((entry): entry is Record<string, unknown> => entry !== null)
+    .map((entry) => ({
+      command: asString(entry.command) ?? "",
+      name: asString(entry.name),
+      path: asString(entry.path),
+      type: asString(entry.type),
+    }))
+    .filter((entry) => entry.command.length > 0 || entry.name || entry.path || entry.type);
+  return actions.length > 0 ? actions : undefined;
+}
+
+function mapCodexItemToToolArgs(item: CodexItem): { toolName: string; args: Record<string, unknown> } {
+  const normalizedType = normalizeCodexItemType(item.type);
+  const source = asObject(item) ?? {};
+
+  if (normalizedType === "command_execution") {
+    const args: CommandExecutionToolArgs = {
+      type: "command_execution",
+      command: asString(source.command) ?? "",
+      cwd: asString(source.cwd),
+      exitCode: asNumber(source.exitCode ?? source.exit_code),
+      durationMs: asNumber(source.durationMs ?? source.duration_ms),
+      aggregatedOutput: asString(source.aggregatedOutput ?? source.output),
+      commandActions: normalizeCommandActions(source.commandActions ?? source.command_actions),
+    };
+    return {
+      toolName: "command_execution",
+      args: args as unknown as Record<string, unknown>,
+    };
+  }
+
+  return {
+    toolName: normalizedType === "unknown" ? asString(source.type) ?? "unknown" : normalizedType,
+    args: source,
+  };
+}
+
 async function getOrCreateCodexThread(
   threadKey: string,
   model?: string,
@@ -105,12 +217,13 @@ async function getOrCreateCodexThread(
 function mapItemToToolCall(
   itemId: string,
   item: CodexItem,
-): { toolCallId: string; toolName: string; args: Record<string, never>; argsText: string } {
+): ToolCallMapping {
+  const mapped = mapCodexItemToToolArgs(item);
   return {
     toolCallId: itemId,
-    toolName: item.type,
-    args: item as unknown as Record<string, never>,
-    argsText: JSON.stringify(item),
+    toolName: mapped.toolName,
+    args: mapped.args,
+    argsText: JSON.stringify(mapped.args),
   };
 }
 
@@ -158,8 +271,14 @@ export function createCodexAdapter(): ChatModelAdapter {
         "agent:event",
         ({ payload }) => {
           // Filter events for this thread
-          if ("thread_id" in payload && payload.thread_id !== codexThreadId)
+          if (
+            "thread_id" in payload &&
+            typeof payload.thread_id === "string" &&
+            payload.thread_id.length > 0 &&
+            payload.thread_id !== codexThreadId
+          ) {
             return;
+          }
           push(payload);
         },
       );
@@ -230,8 +349,9 @@ export function createCodexAdapter(): ChatModelAdapter {
             case "item_completed": {
               // agentMessage text was already streamed via item_delta.
               // userMessage is an echo of the user's own input — skip both.
-              const skipTypes = new Set(["agent_message", "user_message"]);
-              if (!skipTypes.has(event.item.type as string)) {
+              const skipTypes = new Set<CodexItemType>(["agent_message", "user_message"]);
+              const normalizedType = normalizeCodexItemType(event.item.type);
+              if (!skipTypes.has(normalizedType)) {
                 currentTextIdx = null;
                 const mapped = mapItemToToolCall(event.item_id, event.item);
                 pendingContent.push({

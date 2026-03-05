@@ -15,8 +15,16 @@ interface CodexApprovalStore {
 
 export const useCodexApprovalStore = create<CodexApprovalStore>((set) => ({
   pending: [],
-  push: (payload) =>
-    set((state) => ({ pending: [...state.pending, payload] })),
+  push: (payload) => {
+    console.log("[agent-permission-request]", {
+      source: "codex",
+      threadId: payload.thread_id,
+      approvalId: payload.approval_id,
+      command: payload.command,
+      reason: payload.reason ?? null,
+    });
+    set((state) => ({ pending: [...state.pending, payload] }));
+  },
   dismiss: (approvalId) =>
     set((state) => ({
       pending: state.pending.filter((p) => p.approval_id !== approvalId),

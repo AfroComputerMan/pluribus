@@ -95,7 +95,20 @@ impl CodexService {
 
                     let thread_id = params
                         .get("threadId")
+                        .or_else(|| params.get("thread_id"))
                         .and_then(|v| v.as_str())
+                        .or_else(|| {
+                            params
+                                .get("thread")
+                                .and_then(|t| t.get("id"))
+                                .and_then(|v| v.as_str())
+                        })
+                        .or_else(|| {
+                            params
+                                .get("turn")
+                                .and_then(|t| t.get("threadId").or_else(|| t.get("thread_id")))
+                                .and_then(|v| v.as_str())
+                        })
                         .map(|s| s.to_string());
 
                     let event = match method.as_str() {
@@ -210,11 +223,18 @@ impl CodexService {
                         _ => None,
                     };
 
-                    // Broadcast event to thread subscribers
-                    if let (Some(event), Some(tid)) = (event, &thread_id) {
-                        let subs = thread_subs.lock().await;
-                        if let Some(tx) = subs.get(tid) {
-                            let _ = tx.send(event);
+                    // Route events:
+                    // - Thread-scoped events go through per-thread broadcast channels.
+                    // - If thread_id is missing (some approval notifications), emit
+                    //   directly so the frontend still receives them.
+                    if let Some(event) = event {
+                        if let Some(tid) = &thread_id {
+                            let subs = thread_subs.lock().await;
+                            if let Some(tx) = subs.get(tid) {
+                                let _ = tx.send(event);
+                            }
+                        } else {
+                            let _ = app_handle.emit("agent:event", &event);
                         }
                     }
                 }

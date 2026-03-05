@@ -1,6 +1,7 @@
-import { memo, useState, type ReactNode } from "react";
-import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
+import { memo, useMemo, useState, type ReactNode } from "react";
+import type { ToolCallMessagePartComponent, ToolCallMessagePartStatus } from "@assistant-ui/react";
 import {
+  MessageSquareIcon,
   FileTextIcon,
   GlobeIcon,
   ListIcon,
@@ -8,12 +9,32 @@ import {
   WrenchIcon,
   BrainIcon,
 } from "lucide-react";
+import hljs from "highlight.js/lib/core";
+import type { LanguageFn } from "highlight.js";
+import bash from "highlight.js/lib/languages/bash";
+import diff from "highlight.js/lib/languages/diff";
+import json from "highlight.js/lib/languages/json";
 import {
   ToolFallbackContent,
   ToolFallbackRoot,
   ToolFallbackTrigger,
 } from "@/components/assistant-ui/tool-fallback";
 import { cn } from "@/lib/utils";
+
+const REGISTERED_LANGUAGES: Array<[string, LanguageFn]> = [
+  ["bash", bash],
+  ["diff", diff],
+  ["json", json],
+];
+
+for (const [name, language] of REGISTERED_LANGUAGES) {
+  if (!hljs.getLanguage(name)) {
+    hljs.registerLanguage(name, language);
+  }
+}
+
+type HighlightLanguage = "bash" | "diff" | "json";
+const COMPLETED_STATUS: ToolCallMessagePartStatus = { type: "complete" };
 
 // ---------------------------------------------------------------------------
 // Shared primitives (mirrors claude-tool-display.tsx patterns)
@@ -40,17 +61,46 @@ function CodePanel({
   text,
   maxLines = 25,
   mono = true,
+  language,
   error,
 }: {
   text: string;
   maxLines?: number;
   mono?: boolean;
+  language?: HighlightLanguage;
   error?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const lines = text.split("\n");
+  const display = useMemo(() => {
+    if (language === "json") {
+      try {
+        return JSON.stringify(JSON.parse(text), null, 2);
+      } catch {
+        return text;
+      }
+    }
+    return text;
+  }, [text, language]);
+  const highlightedHtml = useMemo(() => {
+    const inferredLanguage = language ?? inferTextLanguage(display);
+    if (inferredLanguage) {
+      try {
+        return hljs.highlight(display, {
+          language: inferredLanguage,
+          ignoreIllegals: true,
+        }).value;
+      } catch {
+        return hljs.highlightAuto(display, REGISTERED_LANGUAGES.map(([name]) => name)).value;
+      }
+    }
+    return hljs.highlightAuto(display, REGISTERED_LANGUAGES.map(([name]) => name)).value;
+  }, [display, language]);
+  const lines = display.split("\n");
   const truncated = !expanded && lines.length > maxLines;
-  const displayText = truncated ? lines.slice(0, maxLines).join("\n") : text;
+  const displayText = truncated ? lines.slice(0, maxLines).join("\n") : display;
+  const displayHtml = truncated
+    ? highlightedHtml.split("\n").slice(0, maxLines).join("\n")
+    : highlightedHtml;
 
   return (
     <div className={cn(mono && "font-mono")}>
@@ -60,7 +110,10 @@ function CodePanel({
           error && "text-red-200/90",
         )}
       >
-        {displayText}
+        <code
+          className={cn("hljs bg-transparent p-0", error && "text-red-200/90")}
+          dangerouslySetInnerHTML={{ __html: displayHtml || displayText }}
+        />
       </pre>
       {truncated && (
         <button
@@ -100,13 +153,42 @@ function firstString(...values: unknown[]): string {
   return "";
 }
 
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function inferTextLanguage(text: string): HighlightLanguage | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && safeParseJson(trimmed) !== null) {
+    return "json";
+  }
+  if (trimmed.startsWith("diff --git") || /^@@\s/m.test(trimmed)) {
+    return "diff";
+  }
+  if (trimmed.startsWith("$ ") || trimmed.startsWith("#!/")) {
+    return "bash";
+  }
+  return undefined;
+}
+
+function safeParseJson(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tool renderers per Codex item type
 // ---------------------------------------------------------------------------
 
 const FileChangeImpl: ToolCallMessagePartComponent = ({
   argsText,
-  status,
 }) => {
   const args = safeParseArgs(argsText);
   const path = firstString(args?.path);
@@ -119,7 +201,7 @@ const FileChangeImpl: ToolCallMessagePartComponent = ({
         toolName={fileName || "file change"}
         toolLabel="file change"
         leadingIcon={FileTextIcon}
-        status={status}
+        status={COMPLETED_STATUS}
       />
       <ToolFallbackContent>
         {path && (
@@ -141,13 +223,17 @@ const FileChangeImpl: ToolCallMessagePartComponent = ({
 
 const CommandExecutionImpl: ToolCallMessagePartComponent = ({
   argsText,
-  status,
 }) => {
   const args = safeParseArgs(argsText);
   const command = firstString(args?.command);
-  const output = firstString(args?.output);
-  const exitCode =
-    typeof args?.exit_code === "number" ? args.exit_code : undefined;
+  const output = firstString(args?.aggregatedOutput, args?.aggregated_output, args?.output);
+  const exitCode = firstNumber(args?.exitCode, args?.exit_code);
+  const durationMs = firstNumber(args?.durationMs, args?.duration_ms);
+  const commandActions = Array.isArray(args?.commandActions)
+    ? args.commandActions
+    : Array.isArray(args?.command_actions)
+      ? args.command_actions
+      : [];
   const title =
     command.length > 90 ? `${command.slice(0, 87)}...` : command || "command";
 
@@ -157,15 +243,19 @@ const CommandExecutionImpl: ToolCallMessagePartComponent = ({
         toolName={title}
         toolLabel="command"
         toolMeta={
-          typeof exitCode === "number" ? `exit ${exitCode}` : undefined
+          typeof exitCode === "number"
+            ? `exit ${exitCode}${typeof durationMs === "number" ? ` | ${durationMs} ms` : ""}`
+            : typeof durationMs === "number"
+              ? `${durationMs} ms`
+              : undefined
         }
         leadingIcon={TerminalIcon}
-        status={status}
+        status={COMPLETED_STATUS}
       />
       <ToolFallbackContent>
         {command && (
           <Section title="command">
-            <CodePanel text={`$ ${command}`} maxLines={10} />
+            <CodePanel text={`$ ${command}`} maxLines={10} language="bash" />
           </Section>
         )}
         {output && (
@@ -177,6 +267,46 @@ const CommandExecutionImpl: ToolCallMessagePartComponent = ({
             />
           </Section>
         )}
+        {commandActions.length > 0 && (
+          <Section title="actions">
+            <CodePanel
+              text={JSON.stringify(commandActions, null, 2)}
+              maxLines={16}
+              language="json"
+            />
+          </Section>
+        )}
+      </ToolFallbackContent>
+    </ToolFallbackRoot>
+  );
+};
+
+const AgentMessageImpl: ToolCallMessagePartComponent = ({ argsText }) => {
+  const args = safeParseArgs(argsText);
+  const phase = firstString(args?.phase);
+  const text = firstString(args?.text);
+  const id = firstString(args?.id);
+
+  return (
+    <ToolFallbackRoot>
+      <ToolFallbackTrigger
+        toolName={phase || "message"}
+        toolLabel="agent message"
+        toolMeta={id || undefined}
+        leadingIcon={MessageSquareIcon}
+        status={COMPLETED_STATUS}
+      />
+      <ToolFallbackContent>
+        {text && (
+          <Section title="content">
+            <CodePanel text={text} maxLines={20} mono={false} />
+          </Section>
+        )}
+        {!text && args && (
+          <Section title="details">
+            <CodePanel text={JSON.stringify(args, null, 2)} maxLines={20} language="json" />
+          </Section>
+        )}
       </ToolFallbackContent>
     </ToolFallbackRoot>
   );
@@ -184,7 +314,6 @@ const CommandExecutionImpl: ToolCallMessagePartComponent = ({
 
 const WebSearchImpl: ToolCallMessagePartComponent = ({
   argsText,
-  status,
 }) => {
   const args = safeParseArgs(argsText);
   const query = firstString(args?.query);
@@ -202,7 +331,7 @@ const WebSearchImpl: ToolCallMessagePartComponent = ({
         toolName={query || "web search"}
         toolLabel="web search"
         leadingIcon={GlobeIcon}
-        status={status}
+        status={COMPLETED_STATUS}
       />
       <ToolFallbackContent>
         {query && (
@@ -222,7 +351,6 @@ const WebSearchImpl: ToolCallMessagePartComponent = ({
 
 const PlanUpdateImpl: ToolCallMessagePartComponent = ({
   argsText,
-  status,
 }) => {
   const args = safeParseArgs(argsText);
   const plan = firstString(args?.plan, args?.text, args?.content);
@@ -233,7 +361,7 @@ const PlanUpdateImpl: ToolCallMessagePartComponent = ({
         toolName="plan update"
         toolLabel="plan"
         leadingIcon={ListIcon}
-        status={status}
+        status={COMPLETED_STATUS}
       />
       <ToolFallbackContent>
         {plan && (
@@ -248,7 +376,6 @@ const PlanUpdateImpl: ToolCallMessagePartComponent = ({
 
 const McpToolCallImpl: ToolCallMessagePartComponent = ({
   argsText,
-  status,
 }) => {
   const args = safeParseArgs(argsText);
   const toolName = firstString(args?.name, args?.tool_name);
@@ -269,7 +396,7 @@ const McpToolCallImpl: ToolCallMessagePartComponent = ({
         toolName={toolName || "mcp tool"}
         toolLabel="mcp tool"
         leadingIcon={WrenchIcon}
-        status={status}
+        status={COMPLETED_STATUS}
       />
       <ToolFallbackContent>
         {toolArgs && (
@@ -289,7 +416,6 @@ const McpToolCallImpl: ToolCallMessagePartComponent = ({
 
 const ReasoningImpl: ToolCallMessagePartComponent = ({
   argsText,
-  status,
 }) => {
   const args = safeParseArgs(argsText);
   const text = firstString(args?.text, args?.content, args?.thinking);
@@ -300,7 +426,7 @@ const ReasoningImpl: ToolCallMessagePartComponent = ({
         toolName="reasoning"
         toolLabel="thinking"
         leadingIcon={BrainIcon}
-        status={status}
+        status={COMPLETED_STATUS}
       />
       <ToolFallbackContent>
         {text && (
@@ -324,12 +450,19 @@ const CodexToolDisplayImpl: ToolCallMessagePartComponent = (props) => {
     case "file_change":
       return <FileChangeImpl {...props} />;
     case "command_execution":
+    case "commandExecution":
       return <CommandExecutionImpl {...props} />;
+    case "agent_message":
+    case "agentMessage":
+      return <AgentMessageImpl {...props} />;
     case "web_search":
+    case "webSearch":
       return <WebSearchImpl {...props} />;
     case "plan_update":
+    case "planUpdate":
       return <PlanUpdateImpl {...props} />;
     case "mcp_tool_call":
+    case "mcpToolCall":
       return <McpToolCallImpl {...props} />;
     case "reasoning":
       return <ReasoningImpl {...props} />;
@@ -345,7 +478,7 @@ const CodexToolDisplayImpl: ToolCallMessagePartComponent = (props) => {
             toolName={props.toolName}
             toolLabel="codex"
             leadingIcon={WrenchIcon}
-            status={props.status}
+            status={COMPLETED_STATUS}
           />
           <ToolFallbackContent>
             {summary && (

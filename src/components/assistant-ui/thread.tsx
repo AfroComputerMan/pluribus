@@ -436,6 +436,16 @@ const PermissionApprovalBar: FC = () => {
   if (!requests.length) return null;
   const current = requests[0]!;
 
+  useEffect(() => {
+    console.log("[agent-permission-request]", {
+      source: "claude",
+      threadId: current.threadKey,
+      requestId: current.id,
+      prompt: current.prompt,
+      createdAt: current.createdAt,
+    });
+  }, [current.id, current.threadKey, current.prompt, current.createdAt]);
+
   return (
     <div className="aui-permission-approval-bar flex items-center justify-between rounded-lg border border-border/70 bg-background/95 px-3 py-2 text-sm shadow-sm">
       <p className="mr-3 line-clamp-2 text-foreground">{current.prompt}</p>
@@ -942,9 +952,15 @@ const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
     // Codex App Server item types
     case "file_change":
     case "command_execution":
+    case "commandExecution":
+    case "agent_message":
+    case "agentMessage":
     case "web_search":
+    case "webSearch":
     case "plan_update":
+    case "planUpdate":
     case "mcp_tool_call":
+    case "mcpToolCall":
     case "reasoning": return <CodexToolDisplay {...props} />;
     default: return <ToolFallback {...props} />;
   }
