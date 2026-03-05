@@ -29,11 +29,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. All agent processes are cleaned up when the app exits or crashes (no orphaned processes remain)
   4. On app startup, orphaned processes from previous sessions are detected and terminated
   5. The old Claude CLI adapter and sh -c shell wrapper are fully removed from the codebase
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md -- Foundation: types, provider registry, process manager, PID tracking migration
+- [ ] 01-02-PLAN.md -- Agent SDK provider + sidecar shutdown/ping protocol
+- [ ] 01-03-PLAN.md -- Codex provider + Rust PID exposure
+- [ ] 01-04-PLAN.md -- Orchestrated adapter wiring, legacy removal, exit dialog
 
 ### Phase 2: Agent Registry and Lifecycle
 **Goal**: Users can spawn multiple agents simultaneously, each with its own working directory and status, managed through a central registry with concurrency limits
@@ -88,7 +90,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Provider Abstraction | 0/0 | Not started | - |
+| 1. Provider Abstraction | 0/4 | Planning complete | - |
 | 2. Agent Registry and Lifecycle | 0/0 | Not started | - |
 | 3. Real-Time Streaming and Intervention | 0/0 | Not started | - |
 | 4. Multi-Agent UI | 0/0 | Not started | - |
