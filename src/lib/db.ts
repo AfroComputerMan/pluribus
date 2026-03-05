@@ -1,4 +1,5 @@
 import Database from "@tauri-apps/plugin-sql";
+import type { ActiveProcess } from "@/lib/providers/types";
 
 // ---------------------------------------------------------------------------
 // Connection singleton
@@ -884,6 +885,43 @@ async function configOverridesDeleteByScope(
 }
 
 // ---------------------------------------------------------------------------
+// active_processes (PID tracking for orphan cleanup)
+// ---------------------------------------------------------------------------
+
+async function processesTrack(
+  id: string,
+  provider: string,
+  pid: number,
+  threadId: string | null,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    `INSERT INTO active_processes (id, provider, pid, thread_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (id) DO UPDATE SET pid = $3, thread_id = $4`,
+    [id, provider, pid, threadId],
+  );
+}
+
+async function processesUntrack(id: string): Promise<void> {
+  const conn = await getDb();
+  await conn.execute("DELETE FROM active_processes WHERE id = $1", [id]);
+}
+
+async function processesGetAll(): Promise<ActiveProcess[]> {
+  const conn = await getDb();
+  return conn.select<ActiveProcess[]>(
+    "SELECT * FROM active_processes",
+    [],
+  );
+}
+
+async function processesClearAll(): Promise<void> {
+  const conn = await getDb();
+  await conn.execute("DELETE FROM active_processes", []);
+}
+
+// ---------------------------------------------------------------------------
 // Public API — namespaced for clean imports
 // ---------------------------------------------------------------------------
 
@@ -954,5 +992,11 @@ export const db = {
   globalSettings: {
     get: globalSettingsGet,
     set: globalSettingsSet,
+  },
+  processes: {
+    track: processesTrack,
+    untrack: processesUntrack,
+    getAll: processesGetAll,
+    clearAll: processesClearAll,
   },
 } as const;
