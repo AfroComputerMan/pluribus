@@ -21,6 +21,8 @@ import { ThreadListPrimitive, useAui, useAuiState } from "@assistant-ui/react";
 import {
   AlertTriangleIcon,
   ArchiveIcon,
+  BotIcon,
+  BrainCircuitIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -37,6 +39,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { SettingsOverlay } from "@/components/settings-overlay";
+import { getModelById, isCodexModel } from "@/lib/models";
 import { useThreadStatusStore } from "@/lib/thread-status-store";
 import type { FC, ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -84,7 +87,8 @@ function ThreadDetailsTooltip({
   repoMeta?: WorkspaceRepoMeta;
   children: ReactNode;
 }) {
-  const modelLabel = modelId ?? "Default model";
+  const modelInfo = modelId ? getModelById(modelId) : undefined;
+  const modelLabel = modelInfo?.label ?? modelId ?? "Default model";
   const branchLabel = branch || repoMeta?.branch || "unknown";
 
   return (
@@ -96,6 +100,12 @@ function ThreadDetailsTooltip({
             <span className="text-background/70">Model</span>
             <span className="truncate">{modelLabel}</span>
           </div>
+          {modelId ? (
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-background/70">Provider</span>
+              <span className="truncate">{isCodexModel(modelId) ? "Codex" : "Agent SDK"}</span>
+            </div>
+          ) : null}
           <div className="flex items-center gap-1.5 text-[11px]">
             {repoMeta?.isGithub ? (
               <GithubIcon className="size-3.5 shrink-0" />
@@ -174,6 +184,14 @@ function ThreadStatusIcon({ threadId }: { threadId: string }) {
     return <span className="size-2 shrink-0 rounded-full bg-primary" />;
   }
   return null;
+}
+
+function ThreadModelIcon({ modelId }: { modelId: string | null }) {
+  if (!modelId) return null;
+  if (isCodexModel(modelId)) {
+    return <BrainCircuitIcon className="size-3 shrink-0 text-muted-foreground" />;
+  }
+  return <BotIcon className="size-3 shrink-0 text-muted-foreground" />;
 }
 
 export const ThreadList: FC = () => {
@@ -294,7 +312,7 @@ export const ThreadList: FC = () => {
           workspaceId: row.workspace_id,
           cwd: row.cwd,
           gitBranch: row.git_branch,
-          modelId: usageRow?.model_id ?? null,
+          modelId: row.model ?? usageRow?.model_id ?? null,
         };
       }
 
@@ -767,7 +785,10 @@ export const ThreadList: FC = () => {
                                   className="h-9 min-w-0 flex-1 px-2 text-left"
                                   onClick={() => switchToThread(thread.id)}
                                 >
-                                  <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                                  <span className="flex items-center gap-1.5">
+                                    <ThreadModelIcon modelId={threadMeta?.modelId ?? null} />
+                                    <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                                  </span>
                                 </button>
                               </ThreadDetailsTooltip>
                             )}
@@ -877,7 +898,10 @@ export const ThreadList: FC = () => {
                             className="h-9 min-w-0 flex-1 px-2 text-left"
                             onClick={() => switchToThread(thread.id)}
                           >
-                            <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                            <span className="flex items-center gap-1.5">
+                              <ThreadModelIcon modelId={threadMeta?.modelId ?? null} />
+                              <span className="block truncate text-sm">{thread.title ?? "New Thread"}</span>
+                            </span>
                           </button>
                         </ThreadDetailsTooltip>
                       )}
