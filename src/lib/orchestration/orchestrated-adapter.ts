@@ -46,6 +46,11 @@ export function createOrchestratedAdapter(
       const model = resolveModel(threadRow?.model ?? null);
       const effort = resolveEffort(threadRow?.effort ?? null);
 
+      // Persist resolved model to thread row so thread list can display it
+      if (threadRow && threadRow.model !== model) {
+        await db.threads.updateModel(threadRow.id, model);
+      }
+
       // 4. Select provider
       const provider = registry.getProviderForModel(model);
 
