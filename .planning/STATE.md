@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 Phase: 2 of 4 (Agent Registry and Lifecycle) -- COMPLETE
 Plan: 4 of 4 in current phase (02-04 complete)
 Status: Phase Complete
-Last activity: 2026-03-06 - Completed quick task 1: Add agent icon with on hover details for which agent is being used in a thread
+Last activity: 2026-03-06 - Completed quick task 2: Add agent indicator icon and model persistence on thread list
 
 Progress: [██████████] 100%
 
@@ -104,9 +104,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 1 | Add agent icon with on hover details for which agent is being used in a thread | 2026-03-06 | f8082c6 | [1-add-agent-icon-with-on-hover-details-for](./quick/1-add-agent-icon-with-on-hover-details-for/) |
+| 2 | Add agent indicator icon and model persistence on thread list | 2026-03-06 | 68f84c7 | [2-add-agent-indicator-and-icon-on-thread-l](./quick/2-add-agent-indicator-and-icon-on-thread-l/) |
 
 ## Session Continuity
 
-Last session: 2026-03-06T11:00:00.000Z
-Stopped at: Completed 02-04-PLAN.md — Phase 2 complete
+Last session: 2026-03-06T10:54:27.000Z
+Stopped at: Completed quick task 2 — Add agent indicator and icon on thread list
 Resume file: None
