@@ -13,7 +13,7 @@ Pluribus v1.0 transforms a single-chat prototype into a multi-agent orchestratio
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Provider Abstraction** - Unified agent provider interface with SDK and Codex implementations, process lifecycle management, and CLI adapter removal (completed 2026-03-05)
-- [ ] **Phase 2: Agent Registry and Lifecycle** - Central registry for spawning, tracking, and managing multiple agents with persistence and concurrency controls
+- [x] **Phase 2: Agent Registry and Lifecycle** - Central registry for spawning, tracking, and managing multiple agents with persistence and concurrency controls (completed 2026-03-06)
 - [ ] **Phase 3: Real-Time Streaming and Intervention** - Multiplexed output streaming from concurrent agents with tool approval, pause/resume, and backpressure
 - [ ] **Phase 4: Multi-Agent UI** - Agent overview, drill-down views, split-pane layout, status indicators, and desktop notifications
 
@@ -93,6 +93,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Provider Abstraction | 4/4 | Complete   | 2026-03-05 |
-| 2. Agent Registry and Lifecycle | 0/4 | Planning complete | - |
+| 2. Agent Registry and Lifecycle | 4/4 | Complete   | 2026-03-06 |
 | 3. Real-Time Streaming and Intervention | 0/0 | Not started | - |
 | 4. Multi-Agent UI | 0/0 | Not started | - |

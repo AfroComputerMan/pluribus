@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-03-06T10:15:01.844Z"
-last_activity: 2026-03-06 — Completed Plan 02-02 (Agent State Persistence)
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-03-06T11:00:00.000Z"
+last_activity: 2026-03-06 — Completed Plan 02-04 (Registry Integration) — Phase 2 complete
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
-  percent: 88
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Run multiple AI agents simultaneously across repos and have full control over every one of them
-**Current focus:** Phase 2: Agent Registry and Lifecycle
+**Current focus:** Phase 2 complete, ready for Phase 3
 
 ## Current Position
 
-Phase: 2 of 4 (Agent Registry and Lifecycle)
-Plan: 3 of 4 in current phase (02-03 complete)
-Status: In Progress
-Last activity: 2026-03-06 — Completed Plan 02-03 (Agent Registry and Status Store)
+Phase: 2 of 4 (Agent Registry and Lifecycle) -- COMPLETE
+Plan: 4 of 4 in current phase (02-04 complete)
+Status: Phase Complete
+Last activity: 2026-03-06 — Completed Plan 02-04 (Registry Integration) — Phase 2 complete
 
-Progress: [█████████░] 88%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [█████████░] 88%
 | Phase 02 P02 | 1min | 1 task | 2 files |
 | Phase 02 P01 | 2min | 2 tasks | 8 files |
 | Phase 02 P03 | 192s | 2 tasks | 4 files |
+| Phase 02 P04 | 25min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase 02-01]: AgentStatus has no idle state -- agents start as queued and are removed when done
 - [Phase 02]: Registry does NOT call provider.run() -- only manages slots, status, and persistence
 - [Phase 02]: DB interface extracted into AgentRegistryDeps for testability without mocking db.ts
+- [02-04]: OrchestratedAdapter receives AgentRegistry as constructor parameter for lifecycle coordination
+- [02-04]: thread-status-store.ts becomes a re-export shim for backward compatibility during incremental migration
+- [02-04]: Crash recovery runs at startup via agentRegistry.initFromDb() marking running agents as error
 
 ### Pending Todos
 
@@ -92,9 +96,11 @@ None yet.
 - [Research]: CLAUDE_CONFIG_DIR support unverified -- may affect per-agent config isolation (PROV-07)
 - [Research]: Agent SDK 12s cold-start per query() call -- no known workaround
 - [Research]: assistant-ui multi-runtime memory leaks -- needs profiling in Phase 4
+- [02-04 Verification]: IPC custom protocol overload ("TypeError: Load failed") when 5 agents stream simultaneously -- needs Phase 3 batching
+- [02-04 Verification]: Error indicator shows in sidebar but no error message in thread, no retry button -- needs Phase 4 UX
 
 ## Session Continuity
 
-Last session: 2026-03-06T10:15:01.841Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-03-06T11:00:00.000Z
+Stopped at: Completed 02-04-PLAN.md — Phase 2 complete
 Resume file: None
