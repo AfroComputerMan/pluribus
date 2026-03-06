@@ -47,11 +47,13 @@ Plans:
   3. Attempting to exceed the concurrent agent limit (default 5) queues or rejects the request with clear feedback
   4. Agent state (provider type, working directory, status) persists across app restarts
   5. Multiple agents writing to the database concurrently do not corrupt data (WAL mode + write serialization)
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md -- TDD: Vitest setup, ConcurrencyGovernor, WriteSerializer, AgentStatus FSM
+- [ ] 02-02-PLAN.md -- SQLite migration for agent state, WAL enforcement, DB operations
+- [ ] 02-03-PLAN.md -- AgentRegistry class, AgentStatusStore (Zustand), spawn/kill/restart/query
+- [ ] 02-04-PLAN.md -- OrchestratedAdapter wiring, RuntimeProvider integration, status migration, checkpoint
 
 ### Phase 3: Real-Time Streaming and Intervention
 **Goal**: Users can watch live output from multiple concurrent agents and intervene in real-time with tool approval and pause/resume controls
@@ -91,6 +93,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Provider Abstraction | 4/4 | Complete   | 2026-03-05 |
-| 2. Agent Registry and Lifecycle | 0/0 | Not started | - |
+| 2. Agent Registry and Lifecycle | 0/4 | Planning complete | - |
 | 3. Real-Time Streaming and Intervention | 0/0 | Not started | - |
 | 4. Multi-Agent UI | 0/0 | Not started | - |
