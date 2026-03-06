@@ -19,14 +19,14 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 
 ### Agent Orchestration
 
-- [ ] **ORCH-01**: AgentRegistry as central hub for all agent lifecycle operations (spawn/kill/query)
+- [x] **ORCH-01**: AgentRegistry as central hub for all agent lifecycle operations (spawn/kill/query)
 - [x] **ORCH-02**: Concurrency governor with configurable max concurrent agents (default 5)
 - [x] **ORCH-03**: Push-based agent status tracking via Zustand (running/idle/error/waiting-approval/completed)
 - [ ] **ORCH-04**: Multiplexed real-time output streaming from N concurrent agents
 - [ ] **ORCH-05**: IPC streaming backpressure with batched event delivery (50ms windows)
 - [ ] **ORCH-06**: Per-agent tool call approve/reject with diff preview
 - [ ] **ORCH-07**: Per-agent pause/resume controls
-- [ ] **ORCH-08**: Per-thread working directory scoping
+- [x] **ORCH-08**: Per-thread working directory scoping
 
 ### Multi-Agent UI
 
@@ -84,14 +84,14 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 | PROV-05 | Phase 1 | Complete |
 | PROV-06 | Phase 1 | Complete |
 | PROV-07 | Phase 1 | Complete |
-| ORCH-01 | Phase 2 | Pending |
+| ORCH-01 | Phase 2 | Complete |
 | ORCH-02 | Phase 2 | Complete |
 | ORCH-03 | Phase 2 | Complete |
 | ORCH-04 | Phase 3 | Pending |
 | ORCH-05 | Phase 3 | Pending |
 | ORCH-06 | Phase 3 | Pending |
 | ORCH-07 | Phase 3 | Pending |
-| ORCH-08 | Phase 2 | Pending |
+| ORCH-08 | Phase 2 | Complete |
 | MAUI-01 | Phase 4 | Pending |
 | MAUI-02 | Phase 4 | Pending |
 | MAUI-03 | Phase 4 | Pending |
