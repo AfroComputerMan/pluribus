@@ -170,7 +170,7 @@ function ThreadStatusIcon({ threadId }: { threadId: string }) {
   if (record.status === "error") {
     return <XCircleIcon className="size-3.5 shrink-0 text-destructive" />;
   }
-  if (record.status === "idle" && record.unread) {
+  if (record.status === "completed" && record.unread) {
     return <span className="size-2 shrink-0 rounded-full bg-primary" />;
   }
   return null;

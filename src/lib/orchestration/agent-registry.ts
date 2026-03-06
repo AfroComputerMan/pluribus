@@ -43,16 +43,20 @@ export class AgentRegistry {
   /**
    * Request a slot for an agent. Returns 'running' if a slot was acquired,
    * 'queued' if the agent must wait.
+   *
+   * @param onPromoted Optional callback invoked when a queued agent is promoted
+   *   to a running slot. Used by OrchestratedAdapter to show toast and resume.
    */
   async spawn(
     threadId: string,
     cwd: string,
     model: string,
+    onPromoted?: () => void,
   ): Promise<"running" | "queued"> {
     const { governor, statusStore, writeSerializer, db } = this.deps;
 
     const providerType = this._resolveProviderType(model);
-    const result = governor.acquire(threadId);
+    const result = governor.acquire(threadId, onPromoted);
 
     if (result === "queued") {
       statusStore.getState().setStatus(threadId, "queued", {
@@ -273,6 +277,19 @@ export class AgentRegistry {
     statusStore.getState().loadFromDb(records);
   }
 
+  /**
+   * Safety net: ensure the governor slot is released for a thread.
+   * Called in finally blocks to prevent slot leaks on unexpected exit paths.
+   * Idempotent -- no-op if slot was already released by markCompleted/markError.
+   */
+  ensureSlotReleased(threadId: string): void {
+    const promoted = this.deps.governor.release(threadId);
+    if (promoted) {
+      // Fire-and-forget promotion
+      this._promoteAgent(promoted).catch(() => {});
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -280,7 +297,7 @@ export class AgentRegistry {
   private _resolveProviderType(model: string): string {
     try {
       const provider = this.deps.providerRegistry.getProviderForModel(model);
-      return provider.type;
+      return provider.id;
     } catch {
       return "unknown";
     }

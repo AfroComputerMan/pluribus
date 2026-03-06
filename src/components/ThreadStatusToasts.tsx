@@ -24,7 +24,7 @@ export function ThreadStatusToasts() {
 
         const label = record.title ?? "A thread";
 
-        if (prevRecord.status === "running" && record.status === "idle") {
+        if (prevRecord.status === "running" && record.status === "completed") {
           toast(`${label} finished`, {
             duration: 4000,
             action: {

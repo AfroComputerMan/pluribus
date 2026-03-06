@@ -11,11 +11,11 @@ import { toast } from "sonner";
 
 import type { ProviderRegistry } from "@/lib/providers/provider-registry";
 import type { AgentProcessManager } from "@/lib/orchestration/agent-process-manager";
+import type { AgentRegistry } from "@/lib/orchestration/agent-registry";
 import type { RunContext } from "@/lib/providers/types";
 import { extractUserPrompt } from "@/lib/providers/shared";
 import { db } from "@/lib/db";
 import { resolveModel, resolveEffort } from "@/lib/models";
-import { useThreadStatusStore } from "@/lib/thread-status-store";
 
 /**
  * Create the orchestrated adapter that wraps the provider registry.
@@ -23,12 +23,13 @@ import { useThreadStatusStore } from "@/lib/thread-status-store";
  * This is the only ChatModelAdapter the app needs. It:
  * 1. Reads thread config (model, effort, cwd) from SQLite
  * 2. Resolves the correct provider via the registry
- * 3. Manages thread status (running/idle/error)
+ * 3. Manages agent lifecycle via the AgentRegistry
  * 4. Tracks PIDs via the process manager
  * 5. Shows crash toasts on errors
  */
 export function createOrchestratedAdapter(
   registry: ProviderRegistry,
+  agentRegistry: AgentRegistry,
   processManager: AgentProcessManager,
 ): ChatModelAdapter {
   return {
@@ -62,9 +63,30 @@ export function createOrchestratedAdapter(
       // 8. Get title for status display
       const title = threadRow?.title ?? undefined;
 
-      // 9. Set status to running
-      const { setStatus } = useThreadStatusStore.getState();
-      setStatus(threadId, "running", title);
+      // 9. Request slot from AgentRegistry
+      // If queued, wait for promotion via a promise resolved by the governor callback.
+      let promotionResolve: (() => void) | null = null;
+      const promotionPromise = new Promise<void>((resolve) => {
+        promotionResolve = resolve;
+      });
+
+      const spawnResult = await agentRegistry.spawn(
+        threadId,
+        cwd,
+        model,
+        () => {
+          // Governor onPromoted callback -- fires when this queued agent gets a slot
+          toast.success(`Agent ${title ?? threadId} started (was queued)`);
+          promotionResolve?.();
+        },
+      );
+
+      if (spawnResult === "queued") {
+        toast.info(
+          "5 agents running -- this one will start when a slot opens",
+        );
+        await promotionPromise;
+      }
 
       // 10. Build RunContext and delegate to provider
       const abortController = new AbortController();
@@ -84,6 +106,9 @@ export function createOrchestratedAdapter(
         }
       }
 
+      // Generate a unique process tracking ID
+      const processTrackingId = `${provider.id}-${threadId}-${Date.now()}`;
+
       const ctx: RunContext = {
         prompt,
         sessionId,
@@ -99,18 +124,18 @@ export function createOrchestratedAdapter(
         },
       };
 
-      // Generate a unique process tracking ID
-      const processTrackingId = `${provider.id}-${threadId}-${Date.now()}`;
-
       try {
         // Yield from the provider's run generator
         yield* provider.run(ctx);
 
-        // 11. Success: set status idle
-        setStatus(threadId, "idle", title);
+        // 11. Success: mark completed
+        await agentRegistry.markCompleted(threadId);
       } catch (err) {
-        // 12. Error: set status error, show crash toast
-        setStatus(threadId, "error", title);
+        // 12. Error: mark error, show crash toast
+        await agentRegistry.markError(
+          threadId,
+          err instanceof Error ? err.message : "Unknown error",
+        );
 
         const errorMessage =
           err instanceof Error ? err.message : "Unknown error";
@@ -127,8 +152,16 @@ export function createOrchestratedAdapter(
         } catch {
           // Process may not have been tracked yet
         }
-      }
 
+        // Safety net: ensure governor slot is released if not already
+        // (markCompleted/markError already release, but in case of unexpected
+        // exit paths, this ensures no slot leak -- release is idempotent)
+        try {
+          agentRegistry.ensureSlotReleased(threadId);
+        } catch {
+          // Best-effort cleanup
+        }
+      }
     },
   };
 }
