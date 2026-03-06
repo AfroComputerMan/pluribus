@@ -16,7 +16,18 @@ let ensureWorkspaceUniquenessPromise: Promise<void> | null = null;
 export async function getDb(): Promise<Database> {
   if (dbInstance) return dbInstance;
   if (!dbPromise) {
-    dbPromise = Database.load(DB_URL).then((d) => {
+    dbPromise = Database.load(DB_URL).then(async (d) => {
+      // Enforce WAL mode on every connection for concurrent read support
+      const result = await d.select<Array<{ journal_mode: string }>>(
+        "PRAGMA journal_mode=WAL",
+        [],
+      );
+      const mode = result[0]?.journal_mode;
+      if (mode !== "wal") {
+        console.warn(
+          `[db] WAL mode enforcement returned '${mode}' instead of 'wal'`,
+        );
+      }
       dbInstance = d;
       return d;
     });
@@ -40,6 +51,8 @@ export interface ThreadRow {
   model: string | null;
   effort: string | null;
   dev_panel_open: number;
+  agent_status: string | null;
+  provider_type: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -338,6 +351,51 @@ async function threadsSetDevPanelOpen(id: string, open: boolean): Promise<void> 
     "UPDATE threads SET dev_panel_open = $1, updated_at = $2 WHERE id = $3",
     [open ? 1 : 0, new Date().toISOString(), id],
   );
+}
+
+async function threadsUpdateAgentStatus(
+  id: string,
+  agentStatus: string | null,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET agent_status = $1, updated_at = $2 WHERE id = $3",
+    [agentStatus, new Date().toISOString(), id],
+  );
+}
+
+async function threadsUpdateProviderType(
+  id: string,
+  providerType: string | null,
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE threads SET provider_type = $1, updated_at = $2 WHERE id = $3",
+    [providerType, new Date().toISOString(), id],
+  );
+}
+
+async function threadsListByAgentStatus(
+  agentStatus: string,
+): Promise<ThreadRow[]> {
+  const conn = await getDb();
+  return conn.select<ThreadRow[]>(
+    "SELECT * FROM threads WHERE agent_status = $1 AND status = 'regular' ORDER BY updated_at DESC",
+    [agentStatus],
+  );
+}
+
+async function threadsArchiveStaleCompleted(
+  daysOld: number,
+): Promise<number> {
+  const conn = await getDb();
+  const result = await conn.execute(
+    `UPDATE threads SET status = 'archived', updated_at = $1
+     WHERE agent_status = 'completed'
+       AND updated_at < datetime('now', '-' || $2 || ' days')`,
+    [new Date().toISOString(), daysOld],
+  );
+  return result.rowsAffected;
 }
 
 // ---------------------------------------------------------------------------
@@ -942,6 +1000,10 @@ export const db = {
     updateEffort: threadsUpdateEffort,
     getDevPanelOpen: threadsGetDevPanelOpen,
     setDevPanelOpen: threadsSetDevPanelOpen,
+    updateAgentStatus: threadsUpdateAgentStatus,
+    updateProviderType: threadsUpdateProviderType,
+    listByAgentStatus: threadsListByAgentStatus,
+    archiveStaleCompleted: threadsArchiveStaleCompleted,
   },
   workspaces: {
     list: workspacesList,

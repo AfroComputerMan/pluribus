@@ -1,0 +1,2 @@
+ALTER TABLE threads ADD COLUMN agent_status TEXT DEFAULT NULL;
+ALTER TABLE threads ADD COLUMN provider_type TEXT DEFAULT NULL;
