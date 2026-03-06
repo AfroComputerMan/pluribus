@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 Phase: 2 of 4 (Agent Registry and Lifecycle) -- COMPLETE
 Plan: 4 of 4 in current phase (02-04 complete)
 Status: Phase Complete
-Last activity: 2026-03-06 — Completed Plan 02-04 (Registry Integration) — Phase 2 complete
+Last activity: 2026-03-06 - Completed quick task 1: Add agent icon with on hover details for which agent is being used in a thread
 
 Progress: [██████████] 100%
 
@@ -98,6 +98,12 @@ None yet.
 - [Research]: assistant-ui multi-runtime memory leaks -- needs profiling in Phase 4
 - [02-04 Verification]: IPC custom protocol overload ("TypeError: Load failed") when 5 agents stream simultaneously -- needs Phase 3 batching
 - [02-04 Verification]: Error indicator shows in sidebar but no error message in thread, no retry button -- needs Phase 4 UX
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Add agent icon with on hover details for which agent is being used in a thread | 2026-03-06 | f8082c6 | [1-add-agent-icon-with-on-hover-details-for](./quick/1-add-agent-icon-with-on-hover-details-for/) |
 
 ## Session Continuity
 
