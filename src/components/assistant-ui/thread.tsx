@@ -14,6 +14,7 @@ import {
 import { CodexToolDisplay } from "@/components/assistant-ui/codex-tool-display";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +65,8 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BotIcon,
+  BrainCircuitIcon,
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
@@ -903,6 +906,54 @@ const MessageError: FC = () => {
   );
 };
 
+const AgentBadge: FC = () => {
+  const remoteId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const [modelId, setModelId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!remoteId) {
+      setModelId(null);
+      return;
+    }
+    let cancelled = false;
+    db.threads
+      .get(remoteId)
+      .then((row) => {
+        if (!cancelled) setModelId(row?.model ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setModelId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteId]);
+
+  if (!modelId) return null;
+
+  const model = getModelById(modelId);
+  if (!model) return null;
+
+  const isCodex = isCodexModel(modelId);
+  const providerType = isCodex ? "Codex" : "Agent SDK";
+  const Icon = isCodex ? BrainCircuitIcon : BotIcon;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-default">
+          <Icon className="size-3.5 text-muted-foreground" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="grid gap-1 text-xs">
+        <div className="font-medium">{model.label}</div>
+        <div className="text-muted-foreground">Provider: {providerType}</div>
+        <div className="text-muted-foreground">Family: {model.family}</div>
+      </TooltipContent>
+    </Tooltip>
+  );
+};
+
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -920,6 +971,7 @@ const AssistantMessage: FC = () => {
       </div>
 
       <div className="aui-assistant-message-footer mt-1 ml-2 flex items-center gap-3">
+        <AgentBadge />
         <AssistantActionBar />
         <AssistantMessageMetrics />
       </div>
