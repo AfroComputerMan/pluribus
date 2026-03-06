@@ -38,8 +38,8 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 
 ### Persistence
 
-- [ ] **PERS-01**: Extended SQLite schema for multi-agent state (provider type, working directory, agent status per thread)
-- [ ] **PERS-02**: WAL mode enabled for concurrent write safety
+- [x] **PERS-01**: Extended SQLite schema for multi-agent state (provider type, working directory, agent status per thread)
+- [x] **PERS-02**: WAL mode enabled for concurrent write safety
 - [ ] **PERS-03**: Write serialization through single-writer pattern for high-contention paths
 
 ## Future Requirements (v1.1+)
@@ -97,8 +97,8 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 | MAUI-03 | Phase 4 | Pending |
 | MAUI-04 | Phase 4 | Pending |
 | MAUI-05 | Phase 4 | Pending |
-| PERS-01 | Phase 2 | Pending |
-| PERS-02 | Phase 2 | Pending |
+| PERS-01 | Phase 2 | Complete |
+| PERS-02 | Phase 2 | Complete |
 | PERS-03 | Phase 2 | Pending |
 
 **Coverage:**
