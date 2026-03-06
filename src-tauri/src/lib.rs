@@ -90,6 +90,12 @@ pub fn run() {
             sql: include_str!("../migrations/008_active_processes.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 9,
+            description: "agent_state",
+            sql: include_str!("../migrations/009_agent_state.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
