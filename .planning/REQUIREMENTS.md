@@ -20,8 +20,8 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 ### Agent Orchestration
 
 - [ ] **ORCH-01**: AgentRegistry as central hub for all agent lifecycle operations (spawn/kill/query)
-- [ ] **ORCH-02**: Concurrency governor with configurable max concurrent agents (default 5)
-- [ ] **ORCH-03**: Push-based agent status tracking via Zustand (running/idle/error/waiting-approval/completed)
+- [x] **ORCH-02**: Concurrency governor with configurable max concurrent agents (default 5)
+- [x] **ORCH-03**: Push-based agent status tracking via Zustand (running/idle/error/waiting-approval/completed)
 - [ ] **ORCH-04**: Multiplexed real-time output streaming from N concurrent agents
 - [ ] **ORCH-05**: IPC streaming backpressure with batched event delivery (50ms windows)
 - [ ] **ORCH-06**: Per-agent tool call approve/reject with diff preview
@@ -40,7 +40,7 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 
 - [x] **PERS-01**: Extended SQLite schema for multi-agent state (provider type, working directory, agent status per thread)
 - [x] **PERS-02**: WAL mode enabled for concurrent write safety
-- [ ] **PERS-03**: Write serialization through single-writer pattern for high-contention paths
+- [x] **PERS-03**: Write serialization through single-writer pattern for high-contention paths
 
 ## Future Requirements (v1.1+)
 
@@ -85,8 +85,8 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 | PROV-06 | Phase 1 | Complete |
 | PROV-07 | Phase 1 | Complete |
 | ORCH-01 | Phase 2 | Pending |
-| ORCH-02 | Phase 2 | Pending |
-| ORCH-03 | Phase 2 | Pending |
+| ORCH-02 | Phase 2 | Complete |
+| ORCH-03 | Phase 2 | Complete |
 | ORCH-04 | Phase 3 | Pending |
 | ORCH-05 | Phase 3 | Pending |
 | ORCH-06 | Phase 3 | Pending |
@@ -99,7 +99,7 @@ Requirements for milestone v1.0: Multi-Thread Agent Orchestration.
 | MAUI-05 | Phase 4 | Pending |
 | PERS-01 | Phase 2 | Complete |
 | PERS-02 | Phase 2 | Complete |
-| PERS-03 | Phase 2 | Pending |
+| PERS-03 | Phase 2 | Complete |
 
 **Coverage:**
 - v1.0 requirements: 23 total

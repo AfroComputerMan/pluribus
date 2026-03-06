@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in-progress
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-03-06T10:08:22.000Z"
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-03-06T10:10:27.686Z"
 last_activity: 2026-03-06 — Completed Plan 02-02 (Agent State Persistence)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 63
 ---
 
@@ -52,6 +52,7 @@ Progress: [██████░░░░] 63%
 *Updated after each plan completion*
 | Phase 01 P04 | 45min | 3 tasks | 18 files |
 | Phase 02 P02 | 1min | 1 task | 2 files |
+| Phase 02 P01 | 2min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Recent decisions affecting current work:
 - [01-04]: Process PIDs tracked via onProcessStarted callback during provider run
 - [02-02]: WAL mode enforced via PRAGMA in getDb() after Database.load(), not in migration SQL
 - [02-02]: agent_status and provider_type columns use DEFAULT NULL for backward compatibility
+- [Phase 02-01]: ConcurrencyGovernor.acquire() is synchronous -- caller handles async wait via onPromoted callback
+- [Phase 02-01]: WriteSerializer swallows errors in chain to prevent blocking subsequent writes
+- [Phase 02-01]: AgentStatus has no idle state -- agents start as queued and are removed when done
 
 ### Pending Todos
 
@@ -88,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-06T10:08:22.000Z
-Stopped at: Completed 02-02-PLAN.md
-Resume file: .planning/phases/02-agent-registry-and-lifecycle/02-02-SUMMARY.md
+Last session: 2026-03-06T10:10:27.480Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
