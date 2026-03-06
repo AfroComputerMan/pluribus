@@ -22,7 +22,7 @@ function createMockProcessManager() {
 function createMockProviderRegistry() {
   return {
     getProviderForModel: vi.fn().mockReturnValue({
-      type: "agent-sdk",
+      id: "agent-sdk",
       supportedModels: ["claude-sonnet-4-20250514"],
     }),
     register: vi.fn(),
