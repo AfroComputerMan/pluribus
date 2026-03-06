@@ -10,6 +10,10 @@ import { Toaster } from "sonner";
 import { createOrchestratedAdapter } from "@/lib/orchestration/orchestrated-adapter";
 import { createProviderRegistry } from "@/lib/providers/provider-registry";
 import { createAgentProcessManager } from "@/lib/orchestration/agent-process-manager";
+import { createAgentRegistry } from "@/lib/orchestration/agent-registry";
+import { ConcurrencyGovernor } from "@/lib/orchestration/concurrency-governor";
+import { WriteSerializer } from "@/lib/orchestration/write-serializer";
+import { useAgentStatusStore } from "@/lib/orchestration/agent-status-store";
 import {
   AgentSdkSidecar,
   createAgentSdkProvider,
@@ -19,18 +23,43 @@ import { createSQLiteThreadListAdapter } from "@/lib/sqlite-thread-list-adapter"
 import { ApprovalBanner } from "@/components/assistant-ui/approval-banner";
 import { ThreadStatusToasts } from "@/components/ThreadStatusToasts";
 import { ExitGuard } from "@/components/ExitGuard";
+import { db } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Module-level singletons — created once on app load
 // ---------------------------------------------------------------------------
 
-const registry = createProviderRegistry();
+const providerRegistry = createProviderRegistry();
 const processManager = createAgentProcessManager();
 const sidecar = new AgentSdkSidecar();
 
 // Register providers
-registry.register(createAgentSdkProvider(() => sidecar));
-registry.register(createCodexProvider());
+providerRegistry.register(createAgentSdkProvider(() => sidecar));
+providerRegistry.register(createCodexProvider());
+
+// Create AgentRegistry with all dependencies
+const governor = new ConcurrencyGovernor();
+const writeSerializer = new WriteSerializer();
+const agentRegistry = createAgentRegistry({
+  governor,
+  processManager,
+  providerRegistry,
+  statusStore: useAgentStatusStore,
+  writeSerializer,
+  db: {
+    threads: {
+      updateAgentStatus: (id, agentStatus) =>
+        db.threads.updateAgentStatus(id, agentStatus),
+      updateProviderType: (id, providerType) =>
+        db.threads.updateProviderType(id, providerType),
+      listByAgentStatus: (agentStatus) =>
+        db.threads.listByAgentStatus(agentStatus),
+      archiveStaleCompleted: (daysOld) =>
+        db.threads.archiveStaleCompleted(daysOld),
+      get: (id) => db.threads.get(id),
+    },
+  },
+});
 
 // Run orphan cleanup on module load (silent, no user notification)
 processManager
@@ -40,12 +69,35 @@ processManager
   })
   .catch((err) => console.error("Orphan cleanup failed:", err));
 
+// Initialize AgentRegistry from DB (crash recovery + load persisted statuses)
+agentRegistry
+  .initFromDb()
+  .then(() => console.log("AgentRegistry initialized from DB"))
+  .catch((err) => console.error("AgentRegistry init failed:", err));
+
+// Auto-archive stale completed agents (7-day threshold) hourly
+const runArchive = () => {
+  db.threads
+    .archiveStaleCompleted(7)
+    .catch((err: unknown) => console.error("Auto-archive failed:", err));
+};
+runArchive(); // Run once at startup
+setInterval(runArchive, 60 * 60 * 1000); // Hourly
+
 const threadListAdapter = createSQLiteThreadListAdapter();
 
 /** Inner hook -- creates the per-thread local runtime with the orchestrated adapter. */
 function useRuntimeHook() {
   return useLocalRuntime(
-    useMemo(() => createOrchestratedAdapter(registry, processManager), []),
+    useMemo(
+      () =>
+        createOrchestratedAdapter(
+          providerRegistry,
+          agentRegistry,
+          processManager,
+        ),
+      [],
+    ),
   );
 }
 
