@@ -1,0 +1,84 @@
+name: CI
+
+# Build + verify every PR (and pushes to main). There is no test framework yet,
+# so the gate is: the frontend type-checks & builds, the Bun sidecar compiles,
+# and the Rust/Tauri backend compiles (cargo check). fmt/clippy are advisory for now.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    name: Build & verify (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri v2 Linux system dependencies (from v2.tauri.app/start/prerequisites).
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install JS dependencies (root)
+        run: bun install
+
+      # The sidecar is a nested package with its own deps + lockfile; `bun run
+      # build:sidecar` (bun --compile) resolves them from this directory.
+      - name: Install JS dependencies (sidecar)
+        run: bun install
+        working-directory: sidecar/agent-sdk-bridge
+
+      # Gate: compiles the Bun sidecar (writes src-tauri/binaries/agent-sdk-bridge-<triple>,
+      # required by externalBin), type-checks (tsc) and builds the frontend (vite -> ../dist,
+      # required by tauri-build before cargo check).
+      - name: Build frontend + sidecar
+        run: bun run build
+
+      - name: cargo fmt (advisory)
+        run: cargo fmt --check
+        working-directory: src-tauri
+        continue-on-error: true
+
+      - name: cargo clippy (advisory)
+        run: cargo clippy --all-targets
+        working-directory: src-tauri
+        continue-on-error: true
+
+      # Gate: the Rust/Tauri backend must compile.
+      - name: cargo check
+        run: cargo check --all-targets
+        working-directory: src-tauri
