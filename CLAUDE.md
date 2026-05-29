@@ -103,3 +103,17 @@ A circular buffer (500 entries max) logs all stream events from Claude CLI. The 
 - **Adapter sends only last message** — `extractUserPrompt()` discards conversation history (Claude CLI manages its own via `--resume`). This means edit/branch/regenerate operations in the UI diverge from the CLI session.
 - **No attachment adapter** — The UI has attachment components wired up but no `adapters.attachments` is passed to `useLocalRuntime`, so attachments are non-functional.
 - **Shell security** — The adapter invokes Claude CLI via a `sh -c` wrapper (`claude-stream-sh`). Replacing this with a direct `Command.create("claude", [...args])` invocation would be more secure.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as GitHub issues in `OriginalByteMe/Pluribus` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default canonical vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
