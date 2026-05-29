@@ -16,7 +16,7 @@ Resolution order (the hybrid from earlier): reuse existing repo config → deter
 loop (max N attempts):
   model → Dockerfile text (Base layer only)
   Rust: docker build (base) → overlay Agent layer (FROM base; install Node+Pi)
-        → start pi --rpc, ping it
+        → start pi --mode rpc, probe it (get_state)
         → run detected install/build (npm ci | pip install | go build | make)
   any failure → feed error back to model for next revision
   all pass → user approves → store app-side
