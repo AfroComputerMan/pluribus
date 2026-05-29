@@ -4,11 +4,11 @@
 
 ## Context & Decision
 
-The pivot to a Pi-based agent harness raised the question of rewriting the backend from Rust/Tauri to Go/Wails. The original motivation — "the agent SDK is Python (PyCoder), so pick a friendlier host language" — turned out to be false: **Pi ([pi.dev](https://pi.dev/)) is a Node/TypeScript harness driven as a `pi --rpc` subprocess over stdio**, which is host-language-agnostic. We will **keep Rust/Tauri** and build the POC on it.
+The pivot to a Pi-based agent harness raised the question of rewriting the backend from Rust/Tauri to Go/Wails. The original motivation — "the agent SDK is Python (PyCoder), so pick a friendlier host language" — turned out to be false: **Pi ([pi.dev](https://pi.dev/)) is a Node/TypeScript harness driven as a `pi --mode rpc` subprocess over stdio**, which is host-language-agnostic. We will **keep Rust/Tauri** and build the POC on it.
 
 ## Why
 
-- The existing `codex/service.rs` already implements the exact runtime pattern Pi needs: a long-lived child process streaming JSON-RPC over stdio with Tokio (stdout reader, stdin writer, supervisor). Driving `pi --rpc` is the same shape.
+- The existing `codex/service.rs` already implements the exact runtime *pattern* Pi needs: a long-lived child process streaming newline-delimited JSON over stdio with Tokio (stdout reader, stdin writer, supervisor). Driving `pi --mode rpc` reuses that **process pattern** — but note the **wire protocol differs**: Pi is *not* JSON-RPC (it is `type`-tagged messages with a `{type:"response",command,success}` reply shape, no `initialize` handshake), so the dispatch/correlation layer is rewritten, not copied. See [ADR 0005](0005-pi-rpc-protocol.md).
 - **bollard** (mature async Rust Docker client, v0.20) covers local Docker — build/exec/attach/stream — so Go's native Docker SDK is no longer a differentiator.
 - Tauri is more mature than Wails; a rewrite also re-does `tauri-plugin-sql`, 7 migrations, and the IPC layer — high cost, zero user-facing gain.
 - A backend rewrite competes directly with building the sandbox/agent features that are the point of this milestone.
