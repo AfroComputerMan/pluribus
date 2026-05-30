@@ -13,6 +13,7 @@ use pi::commands::{
     clone_dir_exists, dispose_clone, list_clone_dirs, pi_abort, pi_get_state, pi_prompt,
     pi_start_session, pi_stop, PiState,
 };
+use pi::diff::pi_clone_diff;
 use pi::service::PiService;
 
 #[tauri::command]
@@ -173,6 +174,7 @@ pub fn run() {
             dispose_clone,
             clone_dir_exists,
             list_clone_dirs,
+            pi_clone_diff,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
