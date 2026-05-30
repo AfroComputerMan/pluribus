@@ -3,13 +3,13 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 use tokio::sync::Mutex;
 
 mod codex;
-mod pi;
+pub mod pi;
 use codex::commands::{
     codex_approve_tool, codex_get_auth_status, codex_get_pid, codex_interrupt_turn,
     codex_send_turn, codex_start_thread,
 };
 use codex::service::CodexService;
-use pi::commands::{pi_abort, pi_get_state, pi_prompt, pi_start_session, pi_stop};
+use pi::commands::{pi_abort, pi_get_state, pi_prompt, pi_start_session, pi_stop, PiState};
 use pi::service::PiService;
 
 #[tauri::command]
@@ -120,7 +120,32 @@ pub fn run() {
             app.manage(Mutex::new(
                 std::collections::HashMap::<String, PiService>::new(),
             ));
+            // Orphan reconcile (#18): force-remove any containers labeled
+            // `pluribus.managed=true` left over from a prior run that skipped
+            // teardown (TS `kill_pid` can't stop containers). Best-effort, async.
+            tauri::async_runtime::spawn(async {
+                pi::container::reap_managed_containers().await;
+            });
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Window close (#18): teardown EVERY live pi session so no container
+            // is orphaned. Drains the map under the lock, then stops+removes
+            // outside it (#25 — no lock across bollard awaits).
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let Some(state) = window.try_state::<PiState>() {
+                    let state: &PiState = state.inner();
+                    tauri::async_runtime::block_on(async move {
+                        let drained: Vec<PiService> = {
+                            let mut guard = state.lock().await;
+                            guard.drain().map(|(_, svc)| svc).collect()
+                        };
+                        for svc in &drained {
+                            svc.teardown().await;
+                        }
+                    });
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             greet,
