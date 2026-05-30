@@ -1,3 +1,4 @@
+pub mod clone;
 pub mod commands;
 pub mod container;
 pub mod io;

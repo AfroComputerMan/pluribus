@@ -9,7 +9,10 @@ use codex::commands::{
     codex_send_turn, codex_start_thread,
 };
 use codex::service::CodexService;
-use pi::commands::{pi_abort, pi_get_state, pi_prompt, pi_start_session, pi_stop, PiState};
+use pi::commands::{
+    clone_dir_exists, dispose_clone, list_clone_dirs, pi_abort, pi_get_state, pi_prompt,
+    pi_start_session, pi_stop, PiState,
+};
 use pi::service::PiService;
 
 #[tauri::command]
@@ -105,6 +108,12 @@ pub fn run() {
             sql: include_str!("../migrations/010_agents.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 11,
+            description: "clones_table_per_agent",
+            sql: include_str!("../migrations/011_clones.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -161,6 +170,9 @@ pub fn run() {
             pi_abort,
             pi_stop,
             pi_get_state,
+            dispose_clone,
+            clone_dir_exists,
+            list_clone_dirs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

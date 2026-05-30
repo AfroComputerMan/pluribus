@@ -26,6 +26,12 @@ pub const MANAGED_LABEL_VALUE: &str = "true";
 pub struct ContainerExec {
     /// Deterministic, per-session name: `pluribus-sandbox-<thread-id-prefix>`.
     pub container_name: String,
+    /// Optional per-agent clone bind-mount (#19): `(host_path, container_path)`.
+    /// When `Some`, the host clone dir is bind-mounted read-write into the
+    /// container at `container_path`, and the `pi` exec runs with that path as
+    /// its `working_dir` (Pi has NO `--cwd` flag — it uses the process cwd).
+    /// When `None`, behave exactly as #18 (no mount, default cwd).
+    pub mount: Option<(String, String)>,
 }
 
 #[async_trait::async_trait]
@@ -74,10 +80,21 @@ impl PiIo for ContainerExec {
             MANAGED_LABEL_KEY.to_string(),
             MANAGED_LABEL_VALUE.to_string(),
         );
+        // When a clone mount is configured (#19), bind-mount the host clone dir
+        // into the container read-write (NO `:ro` — Pi must edit it; the clone,
+        // not a read-only mount, is the source-protecting boundary). When `None`,
+        // host_config stays absent and behaviour matches #18 exactly.
+        let host_config = self.mount.as_ref().map(|(host, container)| {
+            bollard::models::HostConfig {
+                binds: Some(vec![format!("{host}:{container}")]),
+                ..Default::default()
+            }
+        });
         let body = bollard::models::ContainerCreateBody {
             image: Some(PI_SANDBOX_IMAGE.to_string()),
             open_stdin: Some(true),
             labels: Some(labels),
+            host_config,
             ..Default::default()
         };
         let create_opts = CreateContainerOptionsBuilder::default()
@@ -99,6 +116,10 @@ impl PiIo for ContainerExec {
         //    image). `tty: false` keeps stdout multiplexed framing intact (a
         //    PTY would corrupt the NDJSON stream); attach all three streams so
         //    stdin stays writable and stdout is readable.
+        // Pi has NO `--cwd` flag — it operates on the process cwd. When a clone
+        // is mounted (#19), set the exec `working_dir` to the container mount
+        // path so Pi's native tools act on the clone. `None` when unmounted (#18).
+        let working_dir = self.mount.as_ref().map(|(_, container)| container.clone());
         let exec = docker
             .create_exec(
                 &container_id,
@@ -113,6 +134,7 @@ impl PiIo for ContainerExec {
                         model.to_string(),
                     ]),
                     env: Some(vec![format!("{key_name}={api_key}")]),
+                    working_dir,
                     attach_stdin: Some(true),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
