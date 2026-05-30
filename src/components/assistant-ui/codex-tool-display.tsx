@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type { ToolCallMessagePartComponent, ToolCallMessagePartStatus } from "@assistant-ui/react";
 import {
   MessageSquareIcon,
@@ -9,11 +9,7 @@ import {
   WrenchIcon,
   BrainIcon,
 } from "lucide-react";
-import hljs from "highlight.js/lib/core";
-import type { LanguageFn } from "highlight.js";
-import bash from "highlight.js/lib/languages/bash";
-import diff from "highlight.js/lib/languages/diff";
-import json from "highlight.js/lib/languages/json";
+import { CodePanel } from "@/components/assistant-ui/code-panel";
 import {
   ToolFallbackContent,
   ToolFallbackRoot,
@@ -21,19 +17,6 @@ import {
 } from "@/components/assistant-ui/tool-fallback";
 import { cn } from "@/lib/utils";
 
-const REGISTERED_LANGUAGES: Array<[string, LanguageFn]> = [
-  ["bash", bash],
-  ["diff", diff],
-  ["json", json],
-];
-
-for (const [name, language] of REGISTERED_LANGUAGES) {
-  if (!hljs.getLanguage(name)) {
-    hljs.registerLanguage(name, language);
-  }
-}
-
-type HighlightLanguage = "bash" | "diff" | "json";
 const COMPLETED_STATUS: ToolCallMessagePartStatus = { type: "complete" };
 
 // ---------------------------------------------------------------------------
@@ -53,86 +36,6 @@ function Section({
     <div className={cn("px-0.5", className)}>
       <p className="mb-0.5 text-[10px] text-muted-foreground">{title}</p>
       {children}
-    </div>
-  );
-}
-
-function CodePanel({
-  text,
-  maxLines = 25,
-  mono = true,
-  language,
-  error,
-}: {
-  text: string;
-  maxLines?: number;
-  mono?: boolean;
-  language?: HighlightLanguage;
-  error?: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const display = useMemo(() => {
-    if (language === "json") {
-      try {
-        return JSON.stringify(JSON.parse(text), null, 2);
-      } catch {
-        return text;
-      }
-    }
-    return text;
-  }, [text, language]);
-  const highlightedHtml = useMemo(() => {
-    const inferredLanguage = language ?? inferTextLanguage(display);
-    if (inferredLanguage) {
-      try {
-        return hljs.highlight(display, {
-          language: inferredLanguage,
-          ignoreIllegals: true,
-        }).value;
-      } catch {
-        return hljs.highlightAuto(display, REGISTERED_LANGUAGES.map(([name]) => name)).value;
-      }
-    }
-    return hljs.highlightAuto(display, REGISTERED_LANGUAGES.map(([name]) => name)).value;
-  }, [display, language]);
-  const lines = display.split("\n");
-  const truncated = !expanded && lines.length > maxLines;
-  const displayText = truncated ? lines.slice(0, maxLines).join("\n") : display;
-  const displayHtml = truncated
-    ? highlightedHtml.split("\n").slice(0, maxLines).join("\n")
-    : highlightedHtml;
-
-  return (
-    <div className={cn(mono && "font-mono")}>
-      <pre
-        className={cn(
-          "whitespace-pre-wrap text-[11px] leading-relaxed border-border/50 border-l pl-2",
-          error && "text-red-200/90",
-        )}
-      >
-        <code
-          className={cn("hljs bg-transparent p-0", error && "text-red-200/90")}
-          dangerouslySetInnerHTML={{ __html: displayHtml || displayText }}
-        />
-      </pre>
-      {truncated && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="mt-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-        >
-          +{lines.length - maxLines} lines
-        </button>
-      )}
-      {expanded && lines.length > maxLines && (
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          className="mt-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-        >
-          collapse
-        </button>
-      )}
     </div>
   );
 }
@@ -158,29 +61,6 @@ function firstNumber(...values: unknown[]): number | undefined {
     if (typeof value === "number" && Number.isFinite(value)) return value;
   }
   return undefined;
-}
-
-function inferTextLanguage(text: string): HighlightLanguage | undefined {
-  const trimmed = text.trim();
-  if (!trimmed) return undefined;
-  if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && safeParseJson(trimmed) !== null) {
-    return "json";
-  }
-  if (trimmed.startsWith("diff --git") || /^@@\s/m.test(trimmed)) {
-    return "diff";
-  }
-  if (trimmed.startsWith("$ ") || trimmed.startsWith("#!/")) {
-    return "bash";
-  }
-  return undefined;
-}
-
-function safeParseJson(text: string): unknown | null {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
 }
 
 // ---------------------------------------------------------------------------
