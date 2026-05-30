@@ -19,6 +19,7 @@ import {
   createAgentSdkProvider,
 } from "@/lib/providers/agent-sdk-provider";
 import { createCodexProvider } from "@/lib/providers/codex-provider";
+import { createPiProvider } from "@/lib/providers/pi-provider";
 import { createSQLiteThreadListAdapter } from "@/lib/sqlite-thread-list-adapter";
 import { ApprovalBanner } from "@/components/assistant-ui/approval-banner";
 import { ThreadStatusToasts } from "@/components/ThreadStatusToasts";
@@ -36,6 +37,7 @@ const sidecar = new AgentSdkSidecar();
 // Register providers
 providerRegistry.register(createAgentSdkProvider(() => sidecar));
 providerRegistry.register(createCodexProvider());
+providerRegistry.register(createPiProvider());
 
 // Create AgentRegistry with all dependencies
 const governor = new ConcurrencyGovernor();

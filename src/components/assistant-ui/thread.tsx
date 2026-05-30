@@ -1,5 +1,4 @@
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
-import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import {
   ReadTool,
   EditTool,
@@ -12,6 +11,7 @@ import {
   TaskTool,
 } from "@/components/assistant-ui/claude-tool-display";
 import { CodexToolDisplay } from "@/components/assistant-ui/codex-tool-display";
+import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -33,6 +33,7 @@ import { db, type WorkspaceRow } from "@/lib/db";
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
+  PI_MODELS,
   EFFORT_LEVELS,
   CODEX_EFFORT_LEVELS,
   resolveModel,
@@ -820,6 +821,22 @@ const ComposerModelSelector: FC<{ modelId: string; onModelChange: (id: string) =
             <span className="ml-auto text-[0.58rem] text-muted-foreground/60">Codex</span>
           </button>
         ))}
+        <div className="mt-1 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">Pi</div>
+        {PI_MODELS.map((m) => (
+          <button
+            key={m.id}
+            className={`aui-model-option ${m.id === modelId ? "aui-model-option-active" : ""}`}
+            onClick={() => void handleSelect(m.id)}
+          >
+            <span
+              className="aui-composer-chip-dot"
+              style={{ opacity: m.id === modelId ? 1 : 0.3 }}
+            />
+            <span>{m.label}</span>
+            <span className="aui-model-option-family">{m.family}</span>
+            <span className="ml-auto text-[0.58rem] text-muted-foreground/60">Pi</span>
+          </button>
+        ))}
       </PopoverContent>
     </Popover>
   );
@@ -990,7 +1007,7 @@ const ReasoningPart: FC<ReasoningMessagePartProps> = () => {
 /**
  * Single dispatcher used inside ChainOfThoughtPrimitive.Parts, which only
  * accepts a Fallback (not a by_name map). Routes to the named tool component
- * for known tools, or to ToolFallback for anything else.
+ * for known tools, or to ToolFallback (generic) for anything else.
  */
 const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
   switch (props.toolName) {
@@ -1016,6 +1033,10 @@ const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
     case "mcp_tool_call":
     case "mcpToolCall":
     case "reasoning": return <CodexToolDisplay {...props} />;
+    // Pi (`pi --mode rpc`) tool names are dynamic (native tools + Skills/
+    // Extensions); they fall through to the shared ToolFallback, which renders
+    // a generic args + result view AND honors live status (running/cancelled/error)
+    // for every provider's unknown tools.
     default: return <ToolFallback {...props} />;
   }
 };

@@ -3,11 +3,14 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 use tokio::sync::Mutex;
 
 mod codex;
+mod pi;
 use codex::commands::{
     codex_approve_tool, codex_get_auth_status, codex_get_pid, codex_interrupt_turn,
     codex_send_turn, codex_start_thread,
 };
 use codex::service::CodexService;
+use pi::commands::{pi_abort, pi_get_state, pi_prompt, pi_start_session, pi_stop};
+use pi::service::PiService;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -96,6 +99,12 @@ pub fn run() {
             sql: include_str!("../migrations/009_agent_state.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 10,
+            description: "agents_table_pi_restart_survival",
+            sql: include_str!("../migrations/010_agents.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -108,6 +117,9 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(Mutex::new(Option::<CodexService>::None));
+            app.manage(Mutex::new(
+                std::collections::HashMap::<String, PiService>::new(),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -119,6 +131,11 @@ pub fn run() {
             codex_approve_tool,
             codex_get_auth_status,
             codex_get_pid,
+            pi_start_session,
+            pi_prompt,
+            pi_abort,
+            pi_stop,
+            pi_get_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

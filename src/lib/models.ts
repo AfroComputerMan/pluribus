@@ -26,6 +26,17 @@ export interface CodexModel {
   supportsEffort: boolean;
 }
 
+export interface PiModel {
+  /** Full model ID, provider-prefixed, e.g. "openrouter/deepseek/deepseek-v4-flash" */
+  id: string;
+  /** Human-readable label for the UI */
+  label: string;
+  /** Model family */
+  family: string;
+  /** Whether the model supports reasoning effort */
+  supportsEffort: boolean;
+}
+
 export const CLAUDE_MODELS: ClaudeModel[] = [
   { id: "claude-opus-4-6",   alias: "opus",   label: "Opus 4.6",   family: "4.6", supportsEffort: true },
   { id: "claude-sonnet-4-6", alias: "sonnet", label: "Sonnet 4.6", family: "4.6", supportsEffort: true },
@@ -42,6 +53,15 @@ export const CODEX_MODELS: CodexModel[] = [
   { id: "gpt-5-codex-mini",    label: "Codex 5 Mini",    family: "5",   supportsEffort: false },
 ];
 
+export const PI_MODELS: PiModel[] = [
+  {
+    id: "openrouter/deepseek/deepseek-v4-flash",
+    label: "DeepSeek V4 Flash (Pi)",
+    family: "deepseek",
+    supportsEffort: false,
+  },
+];
+
 export type EffortLevel = "low" | "medium" | "high" | "xhigh";
 
 /** Claude-compatible effort levels (no xhigh) */
@@ -55,6 +75,7 @@ const ALL_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh"];
 
 export const DEFAULT_MODEL_ID = "claude-opus-4-6";
 export const DEFAULT_CODEX_MODEL_ID = "gpt-5.3-codex";
+export const DEFAULT_PI_MODEL_ID = "openrouter/deepseek/deepseek-v4-flash";
 export const DEFAULT_EFFORT: EffortLevel = "high";
 
 /** Returns true if the model ID belongs to the Codex family. */
@@ -62,9 +83,20 @@ export function isCodexModel(id: string): boolean {
   return CODEX_MODELS.some((m) => m.id === id);
 }
 
-/** Lookup a model by its full ID, searching both Claude and Codex registries. */
-export function getModelById(id: string): ClaudeModel | CodexModel | undefined {
-  return CLAUDE_MODELS.find((m) => m.id === id) ?? CODEX_MODELS.find((m) => m.id === id);
+/** Returns true if the model ID belongs to the Pi family. */
+export function isPiModel(id: string): boolean {
+  return PI_MODELS.some((m) => m.id === id);
+}
+
+/** Lookup a model by its full ID, searching Claude, Codex, and Pi registries. */
+export function getModelById(
+  id: string,
+): ClaudeModel | CodexModel | PiModel | undefined {
+  return (
+    CLAUDE_MODELS.find((m) => m.id === id) ??
+    CODEX_MODELS.find((m) => m.id === id) ??
+    PI_MODELS.find((m) => m.id === id)
+  );
 }
 
 /** Resolve the effective model for a thread, falling back through the chain:
