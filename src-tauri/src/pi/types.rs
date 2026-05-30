@@ -48,6 +48,13 @@ pub enum PiEvent {
     AgentEnd {
         session_id: String,
     },
+    /// Emitted when a `steer` is queued in Pi's default one-at-a-time mode
+    /// (#20). Surfaced to the UI as a transient "steer queued — applies at the
+    /// next step" signal; not persisted as a thread message. Pi carries no
+    /// session id, so the reader injects this session's id.
+    QueueUpdate {
+        session_id: String,
+    },
     ProcessExit {
         session_id: String,
         code: Option<i32>,

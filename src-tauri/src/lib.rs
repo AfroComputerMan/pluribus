@@ -10,8 +10,8 @@ use codex::commands::{
 };
 use codex::service::CodexService;
 use pi::commands::{
-    clone_dir_exists, dispose_clone, list_clone_dirs, pi_abort, pi_get_state, pi_prompt,
-    pi_start_session, pi_stop, PiState,
+    clone_dir_exists, dispose_clone, list_clone_dirs, pi_abort, pi_agent_running, pi_get_state,
+    pi_prompt, pi_start_session, pi_steer_agent, pi_stop, PiState,
 };
 use pi::diff::pi_clone_diff;
 use pi::service::PiService;
@@ -169,8 +169,10 @@ pub fn run() {
             pi_start_session,
             pi_prompt,
             pi_abort,
+            pi_steer_agent,
             pi_stop,
             pi_get_state,
+            pi_agent_running,
             dispose_clone,
             clone_dir_exists,
             list_clone_dirs,

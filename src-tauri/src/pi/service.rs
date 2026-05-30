@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -37,6 +37,11 @@ pub struct PiService {
     ready_rx: TokioMutex<Option<oneshot::Receiver<()>>>,
     /// This session's id, injected into every emitted `PiEvent` (Pi carries none).
     session_id: String,
+    /// Authoritative agent run-state (#20): `true` between `agent_start`/
+    /// `turn_start` and `agent_end`; cleared on process exit. The reader and
+    /// supervisor own writers; `pi_get_state` reads it to gate the UI steer/
+    /// abort controls (instead of relying on `thread.isRunning`).
+    running: Arc<AtomicBool>,
 }
 
 /// Teardown-only projection of `PiHandle`, owned by `PiService` so `pi_stop` /
@@ -120,6 +125,10 @@ impl PiService {
         // Host resolves it just as fast (pi acks immediately).
         let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
+        // Authoritative agent run-state (#20). Cloned into the reader (flips on
+        // agent_start/turn_start/agent_end) and the supervisor (clears on exit).
+        let running = Arc::new(AtomicBool::new(false));
+
         // stdout_reader task
         {
             let events = events.clone();
@@ -127,6 +136,8 @@ impl PiService {
             let session_id = session_id.clone();
             // Clone so the reader can auto-answer extension_ui_request via stdin.
             let reader_stdin_tx = stdin_tx.clone();
+            // Clone the run-state Arc so the reader can flip it (like session_id).
+            let running = running.clone();
             let mut ready_tx = Some(ready_tx);
             tokio::spawn(async move {
                 let reader = BufReader::new(stdout);
@@ -154,19 +165,51 @@ impl PiService {
                             None
                         }
 
-                        "agent_start" => Some(PiEvent::AgentStart {
-                            session_id: session_id.clone(),
-                        }),
-                        "turn_start" => Some(PiEvent::TurnStart {
-                            session_id: session_id.clone(),
-                        }),
+                        "agent_start" => {
+                            running.store(true, Ordering::SeqCst);
+                            Some(PiEvent::AgentStart {
+                                session_id: session_id.clone(),
+                            })
+                        }
+                        "turn_start" => {
+                            running.store(true, Ordering::SeqCst);
+                            Some(PiEvent::TurnStart {
+                                session_id: session_id.clone(),
+                            })
+                        }
                         "turn_end" => Some(PiEvent::TurnEnd {
                             session_id: session_id.clone(),
                         }),
                         // TERMINATOR for the prompt (NOT turn_end).
-                        "agent_end" => Some(PiEvent::AgentEnd {
-                            session_id: session_id.clone(),
-                        }),
+                        "agent_end" => {
+                            running.store(false, Ordering::SeqCst);
+                            Some(PiEvent::AgentEnd {
+                                session_id: session_id.clone(),
+                            })
+                        }
+
+                        // A steer queued in Pi's default one-at-a-time mode (#20):
+                        // surfaced to the UI as a transient "steer queued" signal.
+                        // Pi emits queue_update TWICE — once when a steer is
+                        // QUEUED (`steering` non-empty) and again when it is
+                        // CONSUMED at the next turn (`steering` empty). Only emit
+                        // on the queued edge so the UI doesn't flash "queued"
+                        // when the steer is actually being applied (verified
+                        // shape: {type:"queue_update",steering:[...],followUp:[...]}).
+                        "queue_update" => {
+                            let queued = msg
+                                .get("steering")
+                                .and_then(|v| v.as_array())
+                                .map(|a| !a.is_empty())
+                                .unwrap_or(false);
+                            if queued {
+                                Some(PiEvent::QueueUpdate {
+                                    session_id: session_id.clone(),
+                                })
+                            } else {
+                                None
+                            }
+                        }
 
                         // The prompt is echoed back as role:"user"; tool results
                         // arrive as role:"toolResult". Both are skipped — deltas
@@ -312,8 +355,11 @@ impl PiService {
             let app_handle = app_handle.clone();
             let session_id = session_id.clone();
             let mut handle = handle;
+            // Clone so the supervisor can clear the run-state on process exit.
+            let running = running.clone();
             tokio::spawn(async move {
                 let code = handle.wait().await;
+                running.store(false, Ordering::SeqCst);
                 let _ = app_handle.emit(
                     "pi:event",
                     &PiEvent::ProcessExit {
@@ -332,6 +378,7 @@ impl PiService {
             teardown,
             ready_rx: TokioMutex::new(Some(ready_rx)),
             session_id,
+            running,
         })
     }
 
@@ -353,6 +400,14 @@ impl PiService {
     /// Send `{type:"abort"}` — halts the current turn promptly (~6ms to agent_end).
     pub async fn abort(&self) -> Result<(), String> {
         self.send(json!({ "type": "abort" })).await
+    }
+
+    /// Send `{type:"steer",message}` (#20) — queues mid-run guidance, applied at
+    /// the next turn/tool boundary (one-at-a-time mode), NOT a mid-token
+    /// interrupt. `serde_json` escapes newlines, so LF JSONL framing is safe.
+    pub async fn steer(&self, message: String) -> Result<(), String> {
+        self.send(json!({ "type": "steer", "message": message }))
+            .await
     }
 
     /// Send `{type:"set_model",provider,model}` (internal seed for #20).
@@ -382,6 +437,13 @@ impl PiService {
     /// Host PID for the `pi_stop` kill safety-net; `None` for container sessions.
     pub fn pid(&self) -> Option<u32> {
         self.pid
+    }
+
+    /// Authoritative agent run-state (#20): `true` while the agent is mid-turn
+    /// (between `agent_start`/`turn_start` and `agent_end`/exit). Used by
+    /// `pi_get_state` to gate the UI steer/abort controls.
+    pub fn agent_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
     }
 
     /// Block until pi is ready (first `{type:"response"}`) or `timeout` elapses.
