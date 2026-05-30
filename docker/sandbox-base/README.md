@@ -25,12 +25,20 @@ target repo is written in), and are entirely composable.
 docker build --target pi-base -t pluribus-pi-sandbox:base docker/sandbox-base
 ```
 
-Confirm the pinned version:
+Confirm the pinned version. Because the image's `ENTRYPOINT` is `sleep infinity`,
+a bare `docker run … pi --version` appends `pi --version` as args to `sleep`
+(you'll see coreutils output, not Pi). Override the entrypoint for ad-hoc checks:
 
 ```sh
-docker run --rm pluribus-pi-sandbox:base pi --version
+docker run --rm --entrypoint pi pluribus-pi-sandbox:base --version
 # expect: 0.73.1
 ```
+
+This caveat only affects `docker run`. The Tauri backend drives Pi with
+`docker exec … pi --mode rpc`, and `docker exec` ignores the `ENTRYPOINT`
+entirely — so the runtime path is unaffected. (Verified 2026-05-30: a
+`get_state` probe over `docker exec -i … pi --mode rpc` returns a well-formed
+`{"type":"response","command":"get_state","success":true,…}` line.)
 
 ## Build a toolchain overlay
 
