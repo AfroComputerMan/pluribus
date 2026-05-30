@@ -23,6 +23,7 @@ import type { ChatModelRunResult } from "@assistant-ui/react";
 import type { AgentProvider, DevEvent, RunContext } from "@/lib/providers/types";
 import { PI_MODELS } from "@/lib/models";
 import { log } from "@/lib/providers/shared";
+import { pushPiSteerNotice } from "@/lib/providers/pi-steer";
 import { db } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,9 @@ type PiEvent =
     }
   | { type: "turn_end"; session_id: string }
   | { type: "agent_end"; session_id: string }
+  // Emitted when a `steer` is queued (Pi's one-at-a-time mode). Surfaced as a
+  // TRANSIENT "steer queued — applies at the next step" notice; never persisted.
+  | { type: "queue_update"; session_id: string }
   | { type: "process_exit"; session_id: string; code: number | null }
   | { type: "process_error"; session_id: string; message: string };
 
@@ -337,6 +341,14 @@ export function createPiProvider(): AgentProvider {
 
             case "turn_end": {
               // Intermediate — Pi may run multiple turns per prompt. Loop continues.
+              break;
+            }
+
+            case "queue_update": {
+              // A steer was queued (#20). Surface a TRANSIENT notice for the UI;
+              // do NOT yield content or terminate — the turn keeps streaming and
+              // Pi applies the guidance at the next turn/tool boundary.
+              pushPiSteerNotice(sessionId, "queued");
               break;
             }
 

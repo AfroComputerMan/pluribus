@@ -18,6 +18,7 @@ import {
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -34,6 +35,11 @@ import {
   subscribePermissionRequests,
 } from "@/lib/dev-events";
 import { db, type WorkspaceRow } from "@/lib/db";
+import {
+  getPiAgentRunning,
+  steerPiAgent,
+  usePiSteerStore,
+} from "@/lib/providers/pi-steer";
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
@@ -75,6 +81,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
+  CornerDownLeftIcon,
   DownloadIcon,
   FolderOpenIcon,
   FolderRootIcon,
@@ -166,7 +173,10 @@ export const Thread: FC = () => {
               Select a workspace above to start chatting
             </div>
           ) : (
-            <Composer />
+            <>
+              <SteerControl />
+              <Composer />
+            </>
           )}
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
@@ -409,6 +419,136 @@ const WorkspacePicker: FC<{
           )}
         </div>
       </div>
+    </div>
+  );
+};
+
+/**
+ * Poll the Rust-authoritative mid-turn flag (#20) while a run is in flight.
+ *
+ * `agent_running` is true only between `agent_start`/`turn_start` and
+ * `agent_end`/exit (flipped in the Rust reader) — NOT derived from
+ * `thread.isRunning`. We only poll while assistant-ui reports the thread as
+ * running (cheap gate), and reset to false the instant the run settles so the
+ * controls disappear without waiting for the next poll tick.
+ */
+function useAgentRunning(threadId: string | null): boolean {
+  const isRunning = useAuiState(({ thread }) => thread.isRunning);
+  const [agentRunning, setAgentRunning] = useState(false);
+
+  useEffect(() => {
+    if (!threadId || !isRunning) {
+      setAgentRunning(false);
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      const running = await getPiAgentRunning(threadId);
+      if (!cancelled) setAgentRunning(running);
+    };
+
+    void poll();
+    const intervalId = window.setInterval(() => void poll(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [threadId, isRunning]);
+
+  return agentRunning;
+}
+
+/**
+ * Steer control (#20): a side-channel text input shown only while the agent is
+ * actively running (Rust-authoritative `agent_running`). Submitting QUEUES the
+ * message via `pi_steer_agent` — Pi applies it at the next turn/tool boundary,
+ * NOT a mid-token interrupt — so the copy says "applies at the next step". The
+ * steered text is never persisted as a chat message; its only visibility is a
+ * TRANSIENT inline annotation (decision A), plus a "Steer queued." annotation
+ * driven by the `queue_update` event the provider surfaces.
+ */
+const SteerControl: FC = () => {
+  const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  const agentRunning = useAgentRunning(threadId);
+  const [value, setValue] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const notice = usePiSteerStore((s) =>
+    threadId ? s.noticeByThread[threadId] : undefined,
+  );
+  const dismissNotice = usePiSteerStore((s) => s.dismissNotice);
+  const pushNotice = usePiSteerStore((s) => s.pushNotice);
+
+  // Auto-dismiss the transient annotation a few seconds after it appears.
+  useEffect(() => {
+    if (!threadId || !notice) return;
+    const id = notice.id;
+    const timeoutId = window.setTimeout(() => {
+      dismissNotice(threadId, id);
+    }, 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [threadId, notice, dismissNotice]);
+
+  const submit = useCallback(async () => {
+    const message = value.trim();
+    if (!threadId || !message || sending) return;
+    setSending(true);
+    try {
+      await steerPiAgent(threadId, message);
+      setValue("");
+      pushNotice(threadId, "steered");
+    } catch (error) {
+      console.error("[pi-steer] failed to steer", error);
+    } finally {
+      setSending(false);
+    }
+  }, [threadId, value, sending, pushNotice]);
+
+  if (!agentRunning) return null;
+
+  const noticeText =
+    notice?.kind === "queued"
+      ? "Steer queued — applies at the next step"
+      : notice?.kind === "steered"
+        ? "↪ Steered — applies at the next step"
+        : null;
+
+  return (
+    <div className="aui-steer-control flex flex-col gap-1">
+      <div className="flex w-full items-center gap-2 rounded-xl border border-input bg-background/80 px-2 py-1.5">
+        <CornerDownLeftIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <Input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void submit();
+            }
+          }}
+          placeholder="Steer the agent — applies at the next step..."
+          aria-label="Steer the running agent"
+          disabled={sending}
+          className="h-7 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0"
+        />
+        <TooltipIconButton
+          tooltip="Steer (applies at the next step)"
+          side="top"
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 shrink-0"
+          aria-label="Send steer"
+          disabled={sending || !value.trim()}
+          onClick={() => void submit()}
+        >
+          <ArrowUpIcon className="size-4" />
+        </TooltipIconButton>
+      </div>
+      {noticeText ? (
+        <p className="px-2 text-muted-foreground text-xs">{noticeText}</p>
+      ) : null}
     </div>
   );
 };
@@ -665,6 +805,12 @@ const ComposerBranchControl: FC = () => {
 
 const ComposerAction: FC = () => {
   const threadId = useAuiState(({ threadListItem }) => threadListItem.remoteId ?? null);
+  // Gate the stop/abort control on the same Rust-authoritative `agent_running`
+  // signal that drives SteerControl (#20), NOT `thread.isRunning`. The latter is
+  // true for the whole run() generator lifetime (including the pre-`agent_start`
+  // spawn/clone window and while the generator yields its terminal status),
+  // which would surface abort while the agent is not actually running.
+  const agentRunning = useAgentRunning(threadId);
   const [modelId, setModelId] = useState<string>(() => {
     const stored = localStorage.getItem("pluribus:lastModel");
     return stored ?? "claude-opus-4-6";
@@ -692,7 +838,19 @@ const ComposerAction: FC = () => {
         <ComposerBranchControl />
         <ReviewChangesButton threadId={threadId} />
       </div>
-      <AuiIf condition={(s) => !s.thread.isRunning}>
+      {agentRunning ? (
+        <ComposerPrimitive.Cancel asChild>
+          <Button
+            type="button"
+            variant="default"
+            size="icon"
+            className="aui-composer-cancel size-8 rounded-full"
+            aria-label="Stop generating"
+          >
+            <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
+          </Button>
+        </ComposerPrimitive.Cancel>
+      ) : (
         <ComposerPrimitive.Send asChild>
           <TooltipIconButton
             tooltip="Send message"
@@ -706,20 +864,7 @@ const ComposerAction: FC = () => {
             <ArrowUpIcon className="aui-composer-send-icon size-4" />
           </TooltipIconButton>
         </ComposerPrimitive.Send>
-      </AuiIf>
-      <AuiIf condition={(s) => s.thread.isRunning}>
-        <ComposerPrimitive.Cancel asChild>
-          <Button
-            type="button"
-            variant="default"
-            size="icon"
-            className="aui-composer-cancel size-8 rounded-full"
-            aria-label="Stop generating"
-          >
-            <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
-          </Button>
-        </ComposerPrimitive.Cancel>
-      </AuiIf>
+      )}
     </div>
   );
 };

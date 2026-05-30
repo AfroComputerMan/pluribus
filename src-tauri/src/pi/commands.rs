@@ -191,6 +191,29 @@ pub async fn pi_abort(state: State<'_, PiState>, session_id: String) -> Result<(
     Ok(())
 }
 
+/// Steer the current turn (#20): queue mid-run guidance that Pi applies at the
+/// next turn/tool boundary (one-at-a-time mode) — NOT a mid-token interrupt.
+///
+/// The `message` is serialized Rust-side by `serde_json`, so newlines are
+/// escaped and the LF JSONL framing into pi's stdin stays intact. Mirrors
+/// `pi_abort`: the guard is held only across `svc.steer`, which is an `mpsc`
+/// channel send drained by the writer task — it never touches bollard/stdin IO
+/// under the lock, satisfying #25's "no lock across an .await" discipline.
+#[tauri::command]
+pub async fn pi_steer_agent(
+    state: State<'_, PiState>,
+    session_id: String,
+    message: String,
+) -> Result<(), String> {
+    let guard = state.lock().await;
+    let svc = guard
+        .get(&session_id)
+        .ok_or_else(|| format!("No pi session for {session_id}"))?;
+    svc.steer(message).await?;
+    Ok(())
+    // guard drops here
+}
+
 /// Stop a pi session (transport-aware).
 ///
 /// Remove the `PiService` from the map FIRST (dropping it closes stdin → pi gets
@@ -227,12 +250,33 @@ pub async fn pi_get_state(
     match guard.get(&session_id) {
         Some(svc) => {
             let pid = svc.pid();
+            // Authoritative mid-turn flag (#20): `running` = session alive,
+            // `agent_running` = agent actively mid-turn (gates UI controls).
+            let agent_running = svc.agent_running();
             // Fire-and-forget probe; ack correlation is deferred to #20.
             let _ = svc.get_state().await;
-            Ok(json!({ "running": true, "pid": pid }))
+            Ok(json!({ "running": true, "pid": pid, "agent_running": agent_running }))
         }
         None => Ok(json!({ "running": false })),
     }
+}
+
+/// Read the authoritative mid-turn flag for `session_id` WITHOUT nudging pi.
+///
+/// `pi_get_state` fires a `get_state` line into pi's stdin on every call; the UI
+/// polls run-state ~1/s while a turn is active, so it uses this probe-free
+/// command instead to avoid recurring mid-run stdin traffic (#20). Reads the
+/// `AtomicBool` directly; returns `false` if the session is gone.
+#[tauri::command]
+pub async fn pi_agent_running(
+    state: State<'_, PiState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let guard = state.lock().await;
+    Ok(guard
+        .get(&session_id)
+        .map(|svc| svc.agent_running())
+        .unwrap_or(false))
 }
 
 /// Dispose a per-agent clone dir (#19): best-effort `rm -rf` of the clone's
