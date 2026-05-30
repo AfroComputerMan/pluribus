@@ -11,6 +11,10 @@ import {
   TaskTool,
 } from "@/components/assistant-ui/claude-tool-display";
 import { CodexToolDisplay } from "@/components/assistant-ui/codex-tool-display";
+import {
+  CloneDiffView,
+  type DiffResult,
+} from "@/components/assistant-ui/clone-diff-view";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
@@ -75,11 +79,13 @@ import {
   FolderOpenIcon,
   FolderRootIcon,
   GitBranchIcon,
+  GitCompareIcon,
   GithubIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
   SquareIcon,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { type FC, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 /** Hook to check whether the current thread has a workspace assigned. */
@@ -684,6 +690,7 @@ const ComposerAction: FC = () => {
         <ComposerEffortSelector modelId={modelId} />
         <RunningElapsed />
         <ComposerBranchControl />
+        <ReviewChangesButton threadId={threadId} />
       </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
@@ -714,6 +721,82 @@ const ComposerAction: FC = () => {
         </ComposerPrimitive.Cancel>
       </AuiIf>
     </div>
+  );
+};
+
+const ReviewChangesButton: FC<{ threadId: string | null }> = ({ threadId }) => {
+  const isRunning = useAuiState(({ thread }) => thread.isRunning);
+  const [hasClone, setHasClone] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<DiffResult | null>(null);
+
+  // Re-check for a clone row whenever the run settles (a clone is created at
+  // the start of a Pi run; the row is keyed by the persisted remoteId).
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      if (!threadId) {
+        if (!cancelled) setHasClone(false);
+        return;
+      }
+      const row = await db.clones.getByThread(threadId);
+      if (!cancelled) setHasClone(row != null);
+    };
+    void check();
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId, isRunning]);
+
+  const handleOpen = useCallback(async () => {
+    if (!threadId) return;
+    setOpen(true);
+    setLoading(true);
+    setResult(null);
+    try {
+      const row = await db.clones.getByThread(threadId);
+      if (!row) {
+        setResult({ kind: "no_clone" });
+        return;
+      }
+      const diff = await invoke<DiffResult>("pi_clone_diff", {
+        cloneDir: row.clone_dir,
+        baseSha: row.base_sha,
+      });
+      setResult(diff);
+    } catch (error) {
+      setResult({
+        kind: "git_error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [threadId]);
+
+  // Gate: only after the run completes and a clone exists for this thread.
+  if (isRunning || !hasClone) return null;
+
+  return (
+    <>
+      <TooltipIconButton
+        tooltip="Review changes"
+        side="bottom"
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        onClick={handleOpen}
+      >
+        <GitCompareIcon className="size-4" />
+      </TooltipIconButton>
+      <CloneDiffView
+        open={open}
+        onOpenChange={setOpen}
+        result={result}
+        loading={loading}
+      />
+    </>
   );
 };
 

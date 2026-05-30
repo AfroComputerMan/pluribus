@@ -7,8 +7,10 @@
 //! `agent/<thread-id>`. The source repo on disk is never mutated.
 //!
 //! `base_sha` is captured from the source HEAD *before* `checkout -b` (== the
-//! clone's HEAD immediately after `git clone`), so #21 can run a deterministic
-//! `git diff <base_sha> HEAD`.
+//! clone's HEAD immediately after `git clone`), so #21 can diff the clone's
+//! working tree against it with `git diff <base_sha>` (NOT `base_sha..HEAD` —
+//! Pi edits the working tree without committing, so HEAD stays at `base_sha`
+//! and a commit-range diff would always be empty; see `pi/diff.rs`).
 //!
 //! Uses host `git` via `std::process::Command` (confirmed 2.43).
 
