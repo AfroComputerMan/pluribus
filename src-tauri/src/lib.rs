@@ -99,6 +99,12 @@ pub fn run() {
             sql: include_str!("../migrations/009_agent_state.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 10,
+            description: "agents_table_pi_restart_survival",
+            sql: include_str!("../migrations/010_agents.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
