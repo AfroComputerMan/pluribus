@@ -3,6 +3,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 use tokio::sync::Mutex;
 
 mod codex;
+mod pi;
 use codex::commands::{
     codex_approve_tool, codex_get_auth_status, codex_get_pid, codex_interrupt_turn,
     codex_send_turn, codex_start_thread,
