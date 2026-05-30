@@ -19,7 +19,7 @@ import {
   createAgentSdkProvider,
 } from "@/lib/providers/agent-sdk-provider";
 import { createCodexProvider } from "@/lib/providers/codex-provider";
-import { createPiProvider } from "@/lib/providers/pi-provider";
+import { createPiProvider, reconcileClones } from "@/lib/providers/pi-provider";
 import { createSQLiteThreadListAdapter } from "@/lib/sqlite-thread-list-adapter";
 import { ApprovalBanner } from "@/components/assistant-ui/approval-banner";
 import { ThreadStatusToasts } from "@/components/ThreadStatusToasts";
@@ -70,6 +70,12 @@ processManager
     if (n > 0) console.log(`Cleaned up ${n} orphan processes`);
   })
   .catch((err) => console.error("Orphan cleanup failed:", err));
+
+// Reconcile per-agent clone dirs (#19): log orphaned active clones whose dir
+// vanished. Best-effort, retains active clones (the #21 review artifact).
+reconcileClones().catch((err) =>
+  console.error("Clone reconcile failed:", err),
+);
 
 // Initialize AgentRegistry from DB (crash recovery + load persisted statuses)
 agentRegistry

@@ -5,6 +5,7 @@ use serde_json::json;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 
+use super::clone::{self, CloneInfo};
 use super::container::ContainerExec;
 use super::io::{HostProcess, PiIo};
 use super::service::PiService;
@@ -57,11 +58,13 @@ pub async fn pi_start_session(
     provider: String,
     model: String,
     sandbox: Option<String>,
-) -> Result<(), String> {
+    source_repo: Option<String>,
+    clone_root: Option<String>,
+) -> Result<Option<CloneInfo>, String> {
     {
         let guard = state.lock().await;
         if guard.contains_key(&session_id) {
-            return Ok(()); // idempotent
+            return Ok(None); // idempotent — no new clone created
         }
         // guard drops here — no lock held across spawn/await (#25).
     }
@@ -71,13 +74,46 @@ pub async fn pi_start_session(
 
     // Pick transport. Default (and any non-"host" value) is the container.
     let use_host = sandbox.as_deref() == Some("host");
+
+    // #19: when running in the container AND a source repo + clone root are
+    // supplied, create a per-agent `git clone --local` and bind-mount it into
+    // the container at `/workspaces/<thread_id>`. The clone is created OUTSIDE
+    // the map lock (#25). A clone failure surfaces as `Err` (TS sets the thread
+    // to `error`). The mount container path and the clone dir use the SAME
+    // thread-id basis (the full `session_id`).
+    let clone_info: Option<CloneInfo> = if !use_host {
+        match (source_repo.as_deref(), clone_root.as_deref()) {
+            (Some(source_repo), Some(clone_root)) => Some(
+                clone::create_agent_clone(source_repo, clone_root, &session_id).await?,
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    // Build the transport. The container carries the optional clone mount; the
+    // host transport ignores clones entirely.
+    let mount = clone_info
+        .as_ref()
+        .map(|info| (info.clone_dir.clone(), format!("/workspaces/{session_id}")));
     let host = HostProcess;
     let container = ContainerExec {
         container_name: container_name_for_session(&session_id),
+        mount,
     };
     let io: &dyn PiIo = if use_host { &host } else { &container };
 
-    let svc = PiService::start(
+    // Helper: on any failure AFTER the clone is created, dispose the half-clone
+    // (the clone is retained ONLY on success — retention-until-dispose applies
+    // to completed runs per plan §1).
+    let cleanup_clone = |clone_info: &Option<CloneInfo>| {
+        if let Some(info) = clone_info {
+            let _ = clone::dispose_clone(&info.clone_dir);
+        }
+    };
+
+    let svc = match PiService::start(
         session_id.clone(),
         provider,
         model,
@@ -86,29 +122,41 @@ pub async fn pi_start_session(
         app_handle,
         io,
     )
-    .await?;
+    .await
+    {
+        Ok(svc) => svc,
+        Err(e) => {
+            cleanup_clone(&clone_info);
+            return Err(e);
+        }
+    };
 
     // Readiness gate: nudge pi with `get_state` and await the first `response`
     // (or timeout). On failure, teardown the transport (stop+remove the
-    // container) before surfacing the error so nothing is orphaned. None of
-    // this holds the map lock (#25).
+    // container) AND dispose the clone before surfacing the error so nothing is
+    // orphaned. None of this holds the map lock (#25).
     let _ = svc.get_state().await;
     if let Err(e) = svc.wait_ready(READY_TIMEOUT).await {
         svc.teardown().await;
+        cleanup_clone(&clone_info);
         return Err(format!("pi did not become ready: {e}"));
     }
 
     let mut guard = state.lock().await;
     // Re-check under the lock in case of a concurrent start. If we lost the
     // race, tear down OUR freshly-started session (the winner is already
-    // inserted) — but do the teardown AFTER dropping the guard (#25).
+    // inserted) and dispose OUR clone — but do the teardown AFTER dropping the
+    // guard (#25).
     if guard.contains_key(&session_id) {
         drop(guard);
         svc.teardown().await;
-        return Ok(());
+        cleanup_clone(&clone_info);
+        return Ok(None);
     }
     guard.insert(session_id, svc);
-    Ok(())
+    // On success the clone is retained; return its info so TS persists the
+    // `clones` row (`None` for host / no-clone starts).
+    Ok(clone_info)
 }
 
 /// Send a prompt to an existing pi session (fire-and-forget; events stream back).
@@ -185,4 +233,46 @@ pub async fn pi_get_state(
         }
         None => Ok(json!({ "running": false })),
     }
+}
+
+/// Dispose a per-agent clone dir (#19): best-effort `rm -rf` of the clone's
+/// working tree. The command surface only — TS marks the `clones` row
+/// `discarded` after a successful call (no UI in #19; #21 adds the button).
+/// Missing dirs are treated as success.
+#[tauri::command]
+pub async fn dispose_clone(clone_dir: String) -> Result<(), String> {
+    clone::dispose_clone(&clone_dir)
+}
+
+/// Probe whether a clone dir still exists on disk. Used by the TS startup
+/// orphan-clone reconcile (#19 TASK 6): an `active` row whose dir has vanished
+/// is logged as an orphan. Read-only — never mutates the filesystem.
+#[tauri::command]
+pub async fn clone_dir_exists(clone_dir: String) -> Result<bool, String> {
+    Ok(std::path::Path::new(&clone_dir).exists())
+}
+
+/// List the immediate subdirectories of `clone_root` as absolute paths (#19
+/// TASK 6). Used by the TS startup orphan-clone reconcile to walk the on-disk
+/// `clones/` tree and compare it against the `clones` table: dirs with no row
+/// or a `discarded` row are reaped via `dispose_clone`; `active` dirs survive.
+///
+/// Read-only — never mutates the filesystem. A missing `clone_root` (no clone
+/// has ever been created) yields an empty list, not an error.
+#[tauri::command]
+pub async fn list_clone_dirs(clone_root: String) -> Result<Vec<String>, String> {
+    let root = std::path::Path::new(&clone_root);
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("failed to read clone root {clone_root}: {e}")),
+    };
+    let mut dirs = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("failed to read clone root entry: {e}"))?;
+        if entry.path().is_dir() {
+            dirs.push(entry.path().to_string_lossy().into_owned());
+        }
+    }
+    Ok(dirs)
 }
