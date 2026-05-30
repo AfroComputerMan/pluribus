@@ -22,6 +22,7 @@ import type { ChatModelRunResult } from "@assistant-ui/react";
 import type { AgentProvider, DevEvent, RunContext } from "@/lib/providers/types";
 import { PI_MODELS } from "@/lib/models";
 import { log } from "@/lib/providers/shared";
+import { db } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // Protocol types — match the Rust `PiEvent` enum serde output.
@@ -113,8 +114,13 @@ export function createPiProvider(): AgentProvider {
       log("pi-provider", "Starting session", { model, provider, sessionId });
       emitDevEvent(onDevEvent, "pi:start", { model, provider, sessionId });
 
-      // Spawn (idempotent) the pi --mode rpc child for this session.
-      await invoke("pi_start_session", { sessionId, provider, model });
+      // Transport selection (#18): `pi_sandbox` defaults to "container" (pi runs
+      // inside a per-agent Docker sandbox); set the DB row to "host" for the dev
+      // fallback. Settings UI is deferred — the global_settings row drives it.
+      const sandbox = (await db.globalSettings.get("pi_sandbox")) ?? "container";
+
+      // Spawn (idempotent) the pi --mode rpc session for this thread.
+      await invoke("pi_start_session", { sessionId, provider, model, sandbox });
 
       // NOTE: DO NOT call ctx.onProcessStarted — Rust owns PID tracking (ADR 0003).
 
