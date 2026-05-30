@@ -52,6 +52,8 @@ pub enum PiEvent {
         session_id: String,
         code: Option<i32>,
     },
+    // Seed for the supervisor error path / #18; not yet constructed in the host POC.
+    #[allow(dead_code)]
     ProcessError {
         session_id: String,
         message: String,

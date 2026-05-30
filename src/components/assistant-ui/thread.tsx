@@ -33,6 +33,7 @@ import { db, type WorkspaceRow } from "@/lib/db";
 import {
   CLAUDE_MODELS,
   CODEX_MODELS,
+  PI_MODELS,
   EFFORT_LEVELS,
   CODEX_EFFORT_LEVELS,
   resolveModel,
@@ -818,6 +819,22 @@ const ComposerModelSelector: FC<{ modelId: string; onModelChange: (id: string) =
             <span>{m.label}</span>
             <span className="aui-model-option-family">{m.family}</span>
             <span className="ml-auto text-[0.58rem] text-muted-foreground/60">Codex</span>
+          </button>
+        ))}
+        <div className="mt-1 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">Pi</div>
+        {PI_MODELS.map((m) => (
+          <button
+            key={m.id}
+            className={`aui-model-option ${m.id === modelId ? "aui-model-option-active" : ""}`}
+            onClick={() => void handleSelect(m.id)}
+          >
+            <span
+              className="aui-composer-chip-dot"
+              style={{ opacity: m.id === modelId ? 1 : 0.3 }}
+            />
+            <span>{m.label}</span>
+            <span className="aui-model-option-family">{m.family}</span>
+            <span className="ml-auto text-[0.58rem] text-muted-foreground/60">Pi</span>
           </button>
         ))}
       </PopoverContent>
