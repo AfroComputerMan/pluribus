@@ -177,7 +177,14 @@ export function createPiProvider(): AgentProvider {
           const event = queue.shift()!;
 
           if ("_done" in event) {
+            // Abort safety-net fired (pushed by onAbort) and won the race vs the
+            // real agent_end. Emit a terminal status so assistant-ui doesn't leave
+            // the message stuck in a running state.
             closed = true;
+            yield {
+              content: [...pendingContent],
+              status: { type: "incomplete", reason: "cancelled" },
+            } satisfies ChatModelRunResult;
             break;
           }
 
@@ -304,7 +311,15 @@ export function createPiProvider(): AgentProvider {
               if (event.code !== null && event.code !== 0) {
                 throw new Error(`pi exited unexpectedly (code ${event.code})`);
               }
+              // Clean exit (stdin EOF / pi_stop) before an agent_end was seen.
+              // Emit a terminal status so the message doesn't hang in 'running'.
               closed = true;
+              yield {
+                content: [...pendingContent],
+                status: abortSignal.aborted
+                  ? { type: "incomplete", reason: "cancelled" }
+                  : { type: "complete", reason: "stop" },
+              } satisfies ChatModelRunResult;
               break;
             }
 

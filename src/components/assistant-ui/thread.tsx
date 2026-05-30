@@ -11,7 +11,7 @@ import {
   TaskTool,
 } from "@/components/assistant-ui/claude-tool-display";
 import { CodexToolDisplay } from "@/components/assistant-ui/codex-tool-display";
-import { PiToolDisplay } from "@/components/assistant-ui/pi-tool-display";
+import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -1007,7 +1007,7 @@ const ReasoningPart: FC<ReasoningMessagePartProps> = () => {
 /**
  * Single dispatcher used inside ChainOfThoughtPrimitive.Parts, which only
  * accepts a Fallback (not a by_name map). Routes to the named tool component
- * for known tools, or to PiToolDisplay (generic) for anything else.
+ * for known tools, or to ToolFallback (generic) for anything else.
  */
 const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
   switch (props.toolName) {
@@ -1034,9 +1034,10 @@ const ChainOfThoughtToolDispatcher: ToolCallMessagePartComponent = (props) => {
     case "mcpToolCall":
     case "reasoning": return <CodexToolDisplay {...props} />;
     // Pi (`pi --mode rpc`) tool names are dynamic (native tools + Skills/
-    // Extensions), so they fall through to PiToolDisplay, which renders a
-    // generic args + result view (a graceful superset of ToolFallback).
-    default: return <PiToolDisplay {...props} />;
+    // Extensions); they fall through to the shared ToolFallback, which renders
+    // a generic args + result view AND honors live status (running/cancelled/error)
+    // for every provider's unknown tools.
+    default: return <ToolFallback {...props} />;
   }
 };
 
