@@ -4,9 +4,9 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as TokioMutex};
 
-use super::io::PiIo;
+use super::io::{PiHandle, PiIo, PiTransport};
 use super::types::PiEvent;
 
 /// A single, per-session `pi --mode rpc` process and its three Tokio tasks.
@@ -23,10 +23,64 @@ pub struct PiService {
     /// Monotonic id counter, seeded for future get_state/set_model ack correlation.
     #[allow(dead_code)]
     next_id: Arc<AtomicU64>,
-    /// PID of the `pi` child (captured before moving child into the supervisor).
-    child_pid: u32,
+    /// Host PID for the `pi_stop` kill safety-net (`None` for container transport).
+    pid: Option<u32>,
+    /// Transport teardown view: host (no-op — drop EOFs stdin, `pi_stop` kills
+    /// the pid) or container (stop+remove). This is a clone-free *teardown-only*
+    /// projection of the spawn `PiHandle`; the owning `PiHandle` (with the host
+    /// child / the exec wait state) is moved into the supervisor task, so the
+    /// two never contend.
+    teardown: PiTeardown,
+    /// One-shot readiness signal (#18): resolved by the reader on the first
+    /// `{type:"response"}`. `wait_ready` takes it (once) and awaits with a
+    /// timeout so `pi_start_session` can gate the first prompt on pi being live.
+    ready_rx: TokioMutex<Option<oneshot::Receiver<()>>>,
     /// This session's id, injected into every emitted `PiEvent` (Pi carries none).
     session_id: String,
+}
+
+/// Teardown-only projection of `PiHandle`, owned by `PiService` so `pi_stop` /
+/// window-close can stop+remove the container without touching the supervisor's
+/// owned handle. Host is a pure no-op; the container variant carries a cloned
+/// bollard client + the container id (both cheap to clone).
+enum PiTeardown {
+    Host,
+    Container {
+        docker: bollard::Docker,
+        container_id: String,
+    },
+}
+
+impl PiTeardown {
+    /// Derive a teardown view from the spawn handle WITHOUT consuming it (the
+    /// handle itself is moved into the supervisor for `wait()`).
+    fn from_handle(handle: &PiHandle) -> Self {
+        match handle {
+            PiHandle::Host(_) => PiTeardown::Host,
+            PiHandle::Container {
+                docker,
+                container_id,
+                ..
+            } => PiTeardown::Container {
+                docker: docker.clone(),
+                container_id: container_id.clone(),
+            },
+        }
+    }
+
+    /// Stop+remove the container (best-effort); host is a no-op. Mirrors
+    /// `PiHandle::teardown` for the container path.
+    async fn teardown(&self) {
+        match self {
+            PiTeardown::Host => { /* drop EOFs stdin; pi_stop kills the pid */ }
+            PiTeardown::Container {
+                docker,
+                container_id,
+            } => {
+                super::container::stop_and_remove(docker, container_id).await;
+            }
+        }
+    }
 }
 
 impl PiService {
@@ -44,12 +98,27 @@ impl PiService {
         app_handle: AppHandle,
         io: &dyn PiIo,
     ) -> Result<Self, String> {
-        let (mut child, stdout, stdin) = io.spawn(&provider, &model, &key_name, &api_key)?;
+        let PiTransport {
+            stdout,
+            stdin,
+            handle,
+        } = io.spawn(&provider, &model, &key_name, &api_key).await?;
+
+        // Host PID for the kill safety-net; teardown view for container stop+remove.
+        // Derive both BEFORE the handle is moved into the supervisor task.
+        let pid = handle.pid();
+        let teardown = PiTeardown::from_handle(&handle);
 
         // Higher capacity than codex (256): Pi emits high-rate token deltas; a
         // lagged receiver drops events. The frontend gets events via direct emit.
         let (events, _) = broadcast::channel::<PiEvent>(1024);
         let (stdin_tx, stdin_rx) = mpsc::channel::<String>(256);
+
+        // Readiness gate (#18): `start_exec`/spawn returns BEFORE pi is listening.
+        // The reader resolves this oneshot on the first `{type:"response"}` (the
+        // `get_state` ack the caller sends); `wait_ready` awaits it with a timeout.
+        // Host resolves it just as fast (pi acks immediately).
+        let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
         // stdout_reader task
         {
@@ -58,6 +127,7 @@ impl PiService {
             let session_id = session_id.clone();
             // Clone so the reader can auto-answer extension_ui_request via stdin.
             let reader_stdin_tx = stdin_tx.clone();
+            let mut ready_tx = Some(ready_tx);
             tokio::spawn(async move {
                 let reader = BufReader::new(stdout);
                 let mut lines = reader.lines();
@@ -75,7 +145,14 @@ impl PiService {
                     let ev: Option<PiEvent> = match kind {
                         // Command ack ({type:"response",command,success}). The id is
                         // an echo, not a terminator — ignore (no pending-oneshot map).
-                        "response" => None,
+                        // Additionally resolve the readiness gate on the FIRST
+                        // response (#18): pi is now listening on stdin.
+                        "response" => {
+                            if let Some(tx) = ready_tx.take() {
+                                let _ = tx.send(());
+                            }
+                            None
+                        }
 
                         "agent_start" => Some(PiEvent::AgentStart {
                             session_id: session_id.clone(),
@@ -228,19 +305,15 @@ impl PiService {
             });
         }
 
-        // Capture PID before moving child into the supervisor task.
-        let child_pid = child.id().unwrap_or(0);
-
         // supervisor task — exit code 0 is NORMAL (stdin EOF / abort).
+        // Owns the spawn `PiHandle` and blocks on `handle.wait()` (host:
+        // child.wait().code(); container: poll inspect_exec until running:false).
         {
             let app_handle = app_handle.clone();
             let session_id = session_id.clone();
+            let mut handle = handle;
             tokio::spawn(async move {
-                let status = child.wait().await;
-                let code = match status {
-                    Ok(s) => s.code(),
-                    Err(_) => None,
-                };
+                let code = handle.wait().await;
                 let _ = app_handle.emit(
                     "pi:event",
                     &PiEvent::ProcessExit {
@@ -255,7 +328,9 @@ impl PiService {
             stdin_tx,
             events,
             next_id: Arc::new(AtomicU64::new(1)),
-            child_pid,
+            pid,
+            teardown,
+            ready_rx: TokioMutex::new(Some(ready_rx)),
             session_id,
         })
     }
@@ -304,12 +379,32 @@ impl PiService {
         &self.session_id
     }
 
-    /// PID of the `pi` child, or `None` if it was not captured.
+    /// Host PID for the `pi_stop` kill safety-net; `None` for container sessions.
     pub fn pid(&self) -> Option<u32> {
-        if self.child_pid == 0 {
-            None
-        } else {
-            Some(self.child_pid)
+        self.pid
+    }
+
+    /// Block until pi is ready (first `{type:"response"}`) or `timeout` elapses.
+    ///
+    /// Returns `Ok(())` on the readiness signal, `Err` on timeout / channel drop
+    /// (the reader task died before any response). Idempotent-ish: the receiver
+    /// is consumed on first call, so a second call returns `Err` immediately.
+    pub async fn wait_ready(&self, timeout: std::time::Duration) -> Result<(), String> {
+        let rx = {
+            let mut guard = self.ready_rx.lock().await;
+            guard.take()
+        };
+        let rx = rx.ok_or_else(|| "readiness already consumed".to_string())?;
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(_)) => Err("pi reader closed before ready".to_string()),
+            Err(_) => Err("pi did not become ready in time".to_string()),
         }
+    }
+
+    /// Transport-aware session-end teardown: container → stop+remove; host → no-op
+    /// (the `pi_stop` `kill_pid` safety-net handles the host child).
+    pub async fn teardown(&self) {
+        self.teardown.teardown().await;
     }
 }
