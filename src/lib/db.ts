@@ -145,6 +145,18 @@ export interface ConfigOverrideRow {
   created_at: string;
 }
 
+export interface CloneRow {
+  clone_id: string;
+  thread_id: string | null;
+  source_repo_path: string;
+  clone_dir: string;
+  base_sha: string;
+  agent_branch: string;
+  container_id: string | null;
+  status: "active" | "merged" | "discarded";
+  created_at: string;
+}
+
 export class DuplicateWorkspaceCwdError extends Error {
   readonly existingWorkspaceId: string;
   readonly cwd: string;
@@ -980,6 +992,78 @@ async function processesClearAll(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// clones
+// ---------------------------------------------------------------------------
+
+async function clonesCreate(opts: {
+  cloneId: string;
+  threadId: string | null;
+  sourceRepoPath: string;
+  cloneDir: string;
+  baseSha: string;
+  agentBranch: string;
+  containerId?: string | null;
+}): Promise<CloneRow> {
+  const conn = await getDb();
+  await conn.execute(
+    `INSERT INTO clones (clone_id, thread_id, source_repo_path, clone_dir, base_sha, agent_branch, container_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      opts.cloneId,
+      opts.threadId ?? null,
+      opts.sourceRepoPath,
+      opts.cloneDir,
+      opts.baseSha,
+      opts.agentBranch,
+      opts.containerId ?? null,
+    ],
+  );
+  const rows = await conn.select<CloneRow[]>(
+    "SELECT * FROM clones WHERE clone_id = $1",
+    [opts.cloneId],
+  );
+  const row = rows[0];
+  if (!row) throw new Error(`Failed to create clone: ${opts.cloneId}`);
+  return row;
+}
+
+async function clonesGetByThread(threadId: string): Promise<CloneRow | null> {
+  const conn = await getDb();
+  const rows = await conn.select<CloneRow[]>(
+    "SELECT * FROM clones WHERE thread_id = $1 ORDER BY created_at DESC LIMIT 1",
+    [threadId],
+  );
+  return rows[0] ?? null;
+}
+
+async function clonesSetStatus(
+  cloneId: string,
+  status: CloneRow["status"],
+): Promise<void> {
+  const conn = await getDb();
+  await conn.execute(
+    "UPDATE clones SET status = $1 WHERE clone_id = $2",
+    [status, cloneId],
+  );
+}
+
+async function clonesListActive(): Promise<CloneRow[]> {
+  const conn = await getDb();
+  return conn.select<CloneRow[]>(
+    "SELECT * FROM clones WHERE status = 'active' ORDER BY created_at DESC",
+    [],
+  );
+}
+
+async function clonesListAll(): Promise<CloneRow[]> {
+  const conn = await getDb();
+  return conn.select<CloneRow[]>(
+    "SELECT * FROM clones ORDER BY created_at DESC",
+    [],
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Public API — namespaced for clean imports
 // ---------------------------------------------------------------------------
 
@@ -1060,5 +1144,12 @@ export const db = {
     untrack: processesUntrack,
     getAll: processesGetAll,
     clearAll: processesClearAll,
+  },
+  clones: {
+    create: clonesCreate,
+    getByThread: clonesGetByThread,
+    setStatus: clonesSetStatus,
+    listActive: clonesListActive,
+    listAll: clonesListAll,
   },
 } as const;

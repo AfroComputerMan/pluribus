@@ -17,6 +17,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { appDataDir, join } from "@tauri-apps/api/path";
 import type { ChatModelRunResult } from "@assistant-ui/react";
 
 import type { AgentProvider, DevEvent, RunContext } from "@/lib/providers/types";
@@ -69,6 +70,17 @@ type PiEvent =
 
 type ContentPart = NonNullable<ChatModelRunResult["content"]>[number];
 
+/**
+ * Mirrors the Rust `CloneInfo` serde struct returned by `pi_start_session`
+ * (#19). `null` when the start was host transport / no-clone / idempotent (a
+ * session already existed). Non-null only on a fresh clone-mounted container.
+ */
+interface CloneInfo {
+  clone_dir: string;
+  base_sha: string;
+  agent_branch: string;
+}
+
 function emitDevEvent(
   onDevEvent: ((event: DevEvent) => void) | undefined,
   category: string,
@@ -103,7 +115,7 @@ export function createPiProvider(): AgentProvider {
     supportedModels: PI_MODELS.map((m) => m.id),
 
     async *run(ctx: RunContext): AsyncGenerator<ChatModelRunResult, void> {
-      const { prompt, model, abortSignal, threadId, onDevEvent } = ctx;
+      const { prompt, model, cwd, abortSignal, threadId, onDevEvent } = ctx;
 
       if (!prompt.trim()) return;
 
@@ -119,8 +131,39 @@ export function createPiProvider(): AgentProvider {
       // fallback. Settings UI is deferred — the global_settings row drives it.
       const sandbox = (await db.globalSettings.get("pi_sandbox")) ?? "container";
 
-      // Spawn (idempotent) the pi --mode rpc session for this thread.
-      await invoke("pi_start_session", { sessionId, provider, model, sandbox });
+      // #19: resolve the host clone root (`<app_data_dir>/clones`) app-side via
+      // the Tauri path API and pass it + the workspace repo path (ctx.cwd) to the
+      // backend. When sandbox != "host", Rust makes a per-agent `git clone --local`
+      // of ctx.cwd, bind-mounts it into the container, and returns its CloneInfo.
+      const cloneRoot = await join(await appDataDir(), "clones");
+
+      // Spawn (idempotent) the pi --mode rpc session for this thread. Resolves
+      // with a CloneInfo on a fresh clone-mounted container start, or null for
+      // host / no-clone / idempotent (already-running) starts. A clone or
+      // start/readiness failure rejects → thrown here → the orchestrated adapter
+      // marks the thread `error` and shows the crash toast (we do NOT persist a
+      // clones row on failure).
+      const cloneInfo = await invoke<CloneInfo | null>("pi_start_session", {
+        sessionId,
+        provider,
+        model,
+        sandbox,
+        sourceRepo: cwd,
+        cloneRoot,
+      });
+
+      // Persist the durable clone artifact (#21 reads base_sha + agent_branch).
+      if (cloneInfo) {
+        emitDevEvent(onDevEvent, "pi:clone", cloneInfo);
+        await db.clones.create({
+          cloneId: crypto.randomUUID(),
+          threadId: sessionId,
+          sourceRepoPath: cwd,
+          cloneDir: cloneInfo.clone_dir,
+          baseSha: cloneInfo.base_sha,
+          agentBranch: cloneInfo.agent_branch,
+        });
+      }
 
       // NOTE: DO NOT call ctx.onProcessStarted — Rust owns PID tracking (ADR 0003).
 
@@ -356,4 +399,62 @@ export function createPiProvider(): AgentProvider {
       await invoke("pi_abort", { sessionId: threadId });
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Startup orphan-clone reconcile (#19 TASK 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconcile the on-disk clone dirs against the `clones` table at app boot.
+ *
+ * Retention policy (plan §1, §6 "retain active, reap discarded"): walk the
+ * on-disk `<app_data_dir>/clones/` tree and compare each dir against the
+ * `clones` table by `clone_dir`. REAP (`dispose_clone` → `rm -rf`) dirs whose
+ * row is `discarded` or absent (no row — e.g. a crash after `git clone` but
+ * before the TS `db.clones.create` insert). RETAIN dirs backed by a non-
+ * `discarded` row (`active`/`merged`) — they are the durable artifact #21
+ * reviews and must NEVER be deleted here. A `discarded` row whose dir is
+ * already gone is left as-is (the dispose already ran).
+ *
+ * Best-effort: any failure (DB unavailable, command error) is swallowed/logged
+ * so it can run silently alongside the container reconcile on boot.
+ */
+export async function reconcileClones(): Promise<void> {
+  try {
+    const cloneRoot = await join(await appDataDir(), "clones");
+
+    // Disk dirs (absolute paths) under the clone root, and every clones row
+    // keyed by its `clone_dir` so we can classify each on-disk dir.
+    const [diskDirs, rows] = await Promise.all([
+      invoke<string[]>("list_clone_dirs", { cloneRoot }),
+      db.clones.listAll(),
+    ]);
+    const rowByDir = new Map(rows.map((row) => [row.clone_dir, row]));
+
+    for (const dir of diskDirs) {
+      const row = rowByDir.get(dir);
+      // Retain dirs backed by a non-discarded row (active/merged).
+      if (row && row.status !== "discarded") continue;
+
+      // Reap: no row (orphan) or a discarded row.
+      try {
+        await invoke("dispose_clone", { cloneDir: dir });
+        log("pi-provider", "Reaped orphan clone dir", {
+          cloneDir: dir,
+          reason: row ? "discarded row" : "no row",
+          cloneId: row?.clone_id,
+        });
+      } catch (err) {
+        log("pi-provider", "Clone reap failed (best-effort)", {
+          cloneDir: dir,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } catch (err) {
+    log("pi-provider", "Clone reconcile failed (best-effort)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
