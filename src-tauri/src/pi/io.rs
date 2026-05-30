@@ -6,7 +6,11 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 /// `ContainerExec` = `docker exec` transport (deferred to #18) — a compiling stub.
 ///
 /// The seam lets #18 swap the I/O source without touching `service.rs` logic.
-pub trait PiIo {
+///
+/// `Send + Sync` is required because `PiService::start` is an async Tauri command
+/// future that holds `&dyn PiIo` across `.await` points; Tauri requires command
+/// futures to be `Send`, which needs the trait-object referent to be `Sync`.
+pub trait PiIo: Send + Sync {
     /// Spawn the pi process and return `(child, stdout, stdin)`.
     ///
     /// The API key is injected into the child's environment under `key_name`
