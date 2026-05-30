@@ -47,7 +47,7 @@ export interface RunContext {
 // ---------------------------------------------------------------------------
 
 export interface AgentProvider {
-  readonly id: "agent-sdk" | "codex";
+  readonly id: "agent-sdk" | "codex" | "pi";
   readonly displayName: string;
   readonly capabilities: ProviderCapabilities;
   readonly supportedModels: string[];
