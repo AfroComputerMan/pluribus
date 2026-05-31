@@ -12,7 +12,7 @@ per-agent git clone — see [CONTEXT.md](CONTEXT.md) and [docs/adr/](docs/adr/).
 
 The frontend selects a backend per agent via a **provider registry**
 (`src/lib/providers/provider-registry.ts`). Selection is **model-driven**: the
-registry resolves which provider owns a given model id (`ownsModel`), then
+registry resolves which provider handles a given model id (`getProviderForModel`), then
 delegates the session to it. Three providers are registered today (see
 `src/components/RuntimeProvider.tsx`):
 
