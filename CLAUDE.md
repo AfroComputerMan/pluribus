@@ -4,7 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Pluribus is a Tauri 2 + React 19 desktop application that provides a chat interface to Claude CLI. It uses **assistant-ui** for chat primitives. It has two engine modes: (1) **Shell adapter** (`claude-adapter.ts`) — spawns Claude CLI via Tauri shell plugin; (2) **Agent SDK adapter** (`agent-sdk-adapter.ts`) — communicates with a Bun sidecar (`sidecar/agent-sdk-bridge/`) that runs `@anthropic-ai/claude-agent-sdk`. The active engine is toggled in Settings and persisted to `global_settings` in SQLite.
+Pluribus is a Tauri 2 + React 19 desktop application — a chat UI over AI coding agents, built on **assistant-ui** primitives. Backend selection is **model-driven via a provider registry** (`src/lib/providers/provider-registry.ts`): the registry resolves which provider owns a given model id (`ownsModel`) and delegates the session to it. Three providers are registered in `src/components/RuntimeProvider.tsx`:
+
+1. **Agent SDK** (`src/lib/providers/agent-sdk-provider.ts`) — talks to a Bun sidecar (`sidecar/agent-sdk-bridge/`) running `@anthropic-ai/claude-agent-sdk`.
+2. **Codex** (`src/lib/providers/codex-provider.ts`) — drives a Codex backend via Rust commands (`src-tauri/src/codex/`) over a Tauri `Channel`.
+3. **Pi** (`src/lib/providers/pi-provider.ts`) — the strategic backend: drives the Pi harness via `pi --mode rpc`, brokered by the Rust `src-tauri/src/pi/` bridge, with each agent in a per-agent Docker **sandbox** against a per-agent **clone** (ADR [0002](docs/adr/0002-sandbox-as-safety-boundary.md)/[0005](docs/adr/0005-pi-rpc-protocol.md)).
+
+The Rust backend is authoritative over agent lifecycle and status (ADR [0003](docs/adr/0003-rust-authoritative-orchestration.md)); state is persisted to SQLite (`pluribus.db`). Per CONTEXT.md, the older multi-provider/engine model (and the Tauri shell plugin) is intended to be retired once Pi supersedes it — treat **CONTEXT.md** as the source of truth for terminology and the sandbox/clone model.
 
 ## Build & Development Commands
 
@@ -32,44 +38,65 @@ Package manager is **bun**. No test framework is configured.
 ### Data Flow
 
 ```
-User Input → assistant-ui Runtime → ChatModelAdapter.run()
-  → Tauri Shell (Command.create) → Claude CLI subprocess
-  → Stream JSON events → Adapter yields content → assistant-ui renders
+User Input → assistant-ui Runtime → Orchestrated ChatModelAdapter.run()
+  → Provider registry resolves backend by model id
+  → Provider drives agent process (Pi via Rust bridge / Codex via Rust / Agent SDK sidecar)
+  → Stream events → Adapter yields content → assistant-ui renders
 ```
 
 ### Key Files
 
-- **`src/lib/claude-adapter.ts`** (~1900 lines) — Core integration. Implements `ChatModelAdapter`, manages Claude CLI process lifecycle, session persistence, stream parsing, and dev event logging. This is the most complex file in the project.
-- **`src/lib/agent-sdk-adapter.ts`** (~400 lines) — Alternative `ChatModelAdapter` backed by the Bun sidecar. Communicates via NDJSON over stdin/stdout using `Command.create("agent-sdk-bridge", [])`.
-- **`sidecar/agent-sdk-bridge/index.ts`** — Bun sidecar entry point. Reads NDJSON query/interrupt/ping messages from stdin, streams `SDKMessage` events via `@anthropic-ai/claude-agent-sdk`, writes NDJSON to stdout.
-- **`src/lib/db.ts`** — SQLite database layer. Schema management, migrations, and all DB operations for threads, messages, and session state.
-- **`src/lib/sqlite-thread-list-adapter.ts`** — Thread list persistence via SQLite (implements assistant-ui's `ThreadListAdapter`).
-- **`src/lib/sqlite-thread-history-adapter.tsx`** — Thread message history persistence via SQLite.
-- **`src/components/RuntimeProvider.tsx`** — Sets up the runtime with the Claude adapter, thread list adapter, and thread history adapter.
-- **`src/components/settings-overlay.tsx`** — Settings UI including the Engine toggle (shell vs agent-sdk).
+**Frontend — provider & orchestration layer**
+
+- **`src/lib/providers/provider-registry.ts`** — Model-driven registry; `getByModel()` resolves the owning provider.
+- **`src/lib/providers/types.ts`** — `ProviderType = "agent-sdk" | "codex" | "pi"`, `AgentProvider` contract.
+- **`src/lib/providers/pi-provider.ts`** — Pi backend `ChatModelAdapter`; drives the Rust `pi_*` commands; uses `pi-steer.ts` for steer/abort.
+- **`src/lib/providers/codex-provider.ts`** — Codex backend, via Rust `codex` commands over a Tauri `Channel`.
+- **`src/lib/providers/agent-sdk-provider.ts`** — Agent SDK backend; manages the `AgentSdkSidecar`.
+- **`src/lib/orchestration/orchestrated-adapter.ts`** — The `ChatModelAdapter` the runtime uses; routes a run to the right provider via the registry + agent registry.
+- **`src/lib/orchestration/agent-registry.ts`** — Per-agent lifecycle/status, DB-backed crash recovery (`initFromDb`).
+- **`src/lib/orchestration/agent-process-manager.ts`**, **`concurrency-governor.ts`**, **`write-serializer.ts`**, **`agent-status-store.ts`** — Process tracking, concurrency limits, write serialization, status store.
+
+**Rust backend — Pi bridge (`src-tauri/src/pi/`)**
+
+- **`service.rs`** — Reader/writer/supervisor tasks driving the Pi RPC session.
+- **`io.rs`** — `PiIo`/`PiHandle` transport seam (`Host` process vs `Container` exec); the rest of the backend is transport-agnostic.
+- **`container.rs`** — bollard Docker `docker exec` transport (the ADR 0002 sandbox).
+- **`clone.rs`** — Per-agent `git clone --local` of the source repo (ADR 0002/0005).
+- **`diff.rs`** — Post-run clone diff (`base_sha` → working tree).
+- **`commands.rs`** — Tauri commands (`pi_start_session`, `pi_get_state`, `pi_clone_diff`, steer/abort, etc.).
+- **`mod.rs`**, **`types.rs`** — Module wiring and shared types.
+
+**Other**
+
+- **`src-tauri/src/codex/`** — Codex backend bridge (service/commands/types).
+- **`sidecar/agent-sdk-bridge/index.ts`** — Bun sidecar; NDJSON over stdin/stdout, streams `SDKMessage` events via `@anthropic-ai/claude-agent-sdk`.
+- **`src/lib/db.ts`** — SQLite database layer (threads, messages, sessions, agents, clones, settings).
+- **`src/lib/sqlite-thread-list-adapter.ts`** / **`sqlite-thread-history-adapter.tsx`** — assistant-ui thread-list / history persistence.
+- **`src/components/RuntimeProvider.tsx`** — Registers the providers, builds the agent registry + orchestrated adapter, wires the runtime.
 - **`src/components/ThreadWorkspace.tsx`** — Main layout: sidebar thread list + chat area.
-- **`src/components/assistant-ui/thread.tsx`** — Chat UI using assistant-ui primitives (`ThreadPrimitive`, `MessagePrimitive`, `ComposerPrimitive`, etc.).
-- **`src/components/assistant-ui/claude-tool-display.tsx`** — Specialized rendering for Claude CLI tool call events (file edits, shell commands, etc.).
-- **`src-tauri/src/lib.rs`** — Tauri builder setup with shell and SQL plugins.
-- **`src-tauri/capabilities/default.json`** — Shell permission grants (controls which commands the webview can execute).
-- **`src-tauri/migrations/`** — SQLite schema migrations for the `pluribus.db` database.
+- **`src/components/assistant-ui/thread.tsx`** — Chat UI using assistant-ui primitives.
+- **`src-tauri/src/lib.rs`** — Tauri builder setup and command registration.
+- **`src-tauri/capabilities/default.json`** — Shell permission grants.
+- **`src-tauri/migrations/`** — SQLite schema migrations (currently `001`–`011`, including `010_agents.sql` and `011_clones.sql`).
+- **`docker/sandbox-base/Dockerfile`** — `pi-base` sandbox image (Node + Pi).
 
-### Session Management (claude-adapter.ts)
+### Sandbox & clone model (Pi backend)
 
-The adapter maintains per-thread Claude CLI sessions with a retry strategy:
-1. **Resume** — If a cached session file exists, use `--resume`
-2. **Session-ID** — If cache is missing but we have an ID, use `--session-id`
-3. **Fresh** — Start a new session
+Pi agents follow the sandbox/clone model from CONTEXT.md and ADR [0002](docs/adr/0002-sandbox-as-safety-boundary.md)/[0005](docs/adr/0005-pi-rpc-protocol.md):
 
-Sessions are stored in an in-memory `Map<string, SessionRecord>` and persisted to SQLite. Thread locking uses a FIFO waiter queue with timeout protection to prevent concurrent CLI invocations per thread.
+- Each code-mutating agent gets its own **Clone** (`git clone --local` of the source repo, own `.git`, own `agent/<thread-id>` branch). The Clone — not the sandbox — is the isolation unit for code changes.
+- The Clone is bind-mounted into a per-agent Docker **Sandbox** (the execution + safety boundary; no per-tool approval popups), and Pi is driven over `docker exec` (bollard). A host transport exists as a dev fallback.
+- After a run, changes are reviewed via a post-run **clone diff** (`pi_clone_diff`, `base_sha` → working tree). Clones survive session end / app restart until explicitly disposed.
+- `global_settings.pi_sandbox` selects the transport (`"host"` → host process, otherwise → container). The Settings UI toggle is deferred — set the DB row directly to override.
 
 ### Persistence Layer
 
 The app uses **SQLite** (via `tauri-plugin-sql`) as its primary persistence backend, stored in `pluribus.db`. The database layer in `db.ts` manages:
-- Thread metadata and ordering
-- Message history per thread
-- Session state (Claude CLI session IDs and resume files)
-- Global app settings (`global_settings` KV table — currently stores `engine: "shell" | "agent-sdk"`)
+- Thread metadata and ordering, message history per thread
+- Agent status and per-agent **clones** (migrations `010_agents.sql`, `011_clones.sql`)
+- Session state
+- Global app settings (`global_settings` KV table — e.g. `pi_sandbox`)
 - Schema migrations (tracked in `src-tauri/migrations/`)
 
 ### Sidecar / ExternalBin Gotchas
@@ -100,9 +127,9 @@ A circular buffer (500 entries max) logs all stream events from Claude CLI. The 
 
 ## Known Issues
 
-- **Adapter sends only last message** — `extractUserPrompt()` discards conversation history (Claude CLI manages its own via `--resume`). This means edit/branch/regenerate operations in the UI diverge from the CLI session.
-- **No attachment adapter** — The UI has attachment components wired up but no `adapters.attachments` is passed to `useLocalRuntime`, so attachments are non-functional.
-- **Shell security** — The adapter invokes Claude CLI via a `sh -c` wrapper (`claude-stream-sh`). Replacing this with a direct `Command.create("claude", [...args])` invocation would be more secure.
+- **Pi backend is a POC** — Currently one agent (and one clone) per sandbox; shared-sandbox multi-clone routing is deferred. The Pi sandbox transport is selected by the `global_settings.pi_sandbox` DB row; the Settings UI toggle is deferred.
+- **Provider/engine cleanup pending** — Per CONTEXT.md, the older agent-sdk/codex providers and the Tauri shell plugin are slated to be removed once Pi supersedes them.
+- **No attachment adapter** — The UI has attachment components wired up but no `adapters.attachments` is configured, so attachments are non-functional.
 
 ## Agent skills
 

@@ -1,10 +1,51 @@
 # Project Index: Pluribus
 
-Generated: 2026-02-18
+Generated: 2026-02-18 · Partially refreshed: 2026-05-31
+
+> **Note:** This index was first generated for the earlier Claude-CLI-shell
+> architecture. Much of the per-file detail below predates the move to the
+> provider/orchestration layer and the Pi sandbox backend. For current,
+> authoritative structure see [README.md](README.md), [CLAUDE.md](CLAUDE.md),
+> and [CONTEXT.md](CONTEXT.md). The sections most relevant today are flagged
+> inline.
 
 ## Overview
 
-Tauri 2 + React 19 desktop app providing a chat UI for Claude CLI. Uses **assistant-ui** for chat primitives, spawns Claude CLI as a subprocess via Tauri's shell plugin, and persists state in SQLite.
+Tauri 2 + React 19 desktop app — a chat UI over AI coding agents, built on
+**assistant-ui** primitives. Backend selection is **model-driven** via a
+provider registry (`src/lib/providers/`); the registered backends are
+**agent-sdk** (Bun sidecar), **codex** (Rust bridge), and **pi** (Rust bridge
+driving `pi --mode rpc` in a per-agent Docker sandbox against a per-agent git
+clone — the strategic direction). The Rust backend is authoritative over agent
+lifecycle; state persists in SQLite (`pluribus.db`).
+
+> The "Claude CLI / shell plugin" framing in the per-file sections below is
+> **stale**: `claude-adapter.ts`, `agent-sdk-adapter.ts`, `settings-overlay.tsx`,
+> and `claude-tool-display.tsx` no longer exist. See the "Current key areas"
+> section immediately below for what replaced them.
+
+## Current key areas (2026-05)
+
+- **`src/lib/providers/`** — `provider-registry.ts` (model-driven resolution),
+  `types.ts` (`ProviderType = "agent-sdk" | "codex" | "pi"`),
+  `pi-provider.ts`, `codex-provider.ts`, `agent-sdk-provider.ts`,
+  `pi-steer.ts`, `shared.ts`.
+- **`src/lib/orchestration/`** — `orchestrated-adapter.ts` (the active
+  `ChatModelAdapter`), `agent-registry.ts`, `agent-process-manager.ts`,
+  `concurrency-governor.ts`, `write-serializer.ts`, `agent-status-store.ts`,
+  `agent-status.ts`.
+- **`src-tauri/src/pi/`** — Pi RPC bridge: `service.rs` (reader/writer/
+  supervisor), `io.rs` (`PiIo`/`PiHandle` transport seam), `container.rs`
+  (bollard `docker exec`), `clone.rs` (per-agent git clone), `diff.rs`
+  (post-run clone diff), `commands.rs` (Tauri commands), `mod.rs`, `types.rs`.
+- **`src-tauri/src/codex/`** — Codex backend bridge (`service.rs`,
+  `commands.rs`, `types.rs`, `mod.rs`).
+- **`docker/sandbox-base/`** — `pi-base` sandbox image (Node + Pi).
+- **`docs/adr/`** — `0001` backend language, `0002` sandbox as safety boundary,
+  `0003` Rust-authoritative orchestration, `0004` provisioning author-loop,
+  `0005` Pi RPC protocol.
+- **`docs/plans/`** — includes the Pi POC slices (`2026-05-30-issue-17`…`-21`,
+  `pi-poc-gap-report.md`).
 
 ## Project Structure
 
@@ -15,7 +56,9 @@ pluribus/
 │   ├── App.tsx                   # Root component (RuntimeProvider + ThreadWorkspace + DevPanel)
 │   ├── App.css                   # Global styles
 │   ├── lib/                      # Core logic & adapters
-│   │   ├── claude-adapter.ts     # (1911 lines) Core CLI integration — ChatModelAdapter, process lifecycle, stream parsing, session resume
+│   │   │  # NOTE (2026-05): claude-adapter.ts / agent-sdk-adapter.ts are gone;
+│   │   │  # backends now live under lib/providers/ + lib/orchestration/ (see above).
+│   │   ├── claude-adapter.ts     # (REMOVED — historical) Core CLI integration — ChatModelAdapter, process lifecycle, stream parsing, session resume
 │   │   ├── db.ts                 # (855 lines) SQLite DAL — singleton connection, row types, CRUD for threads/workspaces/messages/sessions/dev_events/mcp_snapshots/usage
 │   │   ├── sqlite-thread-list-adapter.ts   # (163 lines) RemoteThreadListAdapter backed by SQLite + title generation via Claude CLI
 │   │   ├── sqlite-thread-history-adapter.tsx # (108 lines) ThreadHistoryAdapter — serialize/deserialize messages to SQLite
@@ -45,18 +88,16 @@ pluribus/
 │   ├── Cargo.toml                # tauri, tauri-plugin-{shell,sql,dialog}, serde
 │   ├── tauri.conf.json           # App config: CSP, sqlite:pluribus.db preload, bundle settings
 │   ├── capabilities/default.json # Shell permissions: claude + sh commands allowed
-│   └── migrations/
-│       ├── 001_initial_schema.sql       # threads, messages, sessions, dev_events, mcp_snapshots, usage_snapshots
-│       ├── 002_thread_dev_panel_state.sql # dev_panel_open column
-│       ├── 003_ensure_mcp_invocations.sql # mcp_invocations table
-│       └── 004_workspaces_and_thread_branch.sql # workspaces table, thread workspace_id + git_branch
-├── docs/                         # Design docs & plans
+│   └── migrations/               # 001–011 (later: 005 model/effort, 006 config_overrides,
+│                                 #          007 global_settings, 008 active_processes,
+│                                 #          009 agent_state, 010 agents, 011 clones)
+├── docs/                         # Design docs, ADRs & plans
+│   ├── adr/                      # Architecture Decision Records (0001–0005)
+│   ├── agents/                   # Agent workflow docs (issue-tracker, triage-labels, domain)
 │   ├── design-language.md        # UI design spec
 │   ├── comprehensive-audit-report.md # Multi-expert code audit
-│   ├── sqlite-backend-{requirements,design}.md
 │   ├── claudecode-cli-docs.md    # Claude CLI reference
-│   ├── enhanced-cli-integration-plan.md
-│   └── plans/                    # Active design plans
+│   └── plans/                    # Design & implementation plans (incl. Pi POC slices)
 ├── package.json                  # bun, v0.1.0
 ├── tsconfig.json                 # Strict TS, @/* path alias
 ├── vite.config.ts                # Vite + React + Tailwind CSS v4
@@ -82,7 +123,13 @@ User Input → assistant-ui Runtime → ChatModelAdapter.run()
 
 ## Core Modules
 
-### claude-adapter.ts (1911 lines)
+> **Stale section (pre-2026-05).** The module descriptions below describe the
+> retired Claude-CLI-shell adapter and its helpers. They are kept for history;
+> the live equivalents are the provider/orchestration modules listed under
+> "Current key areas" above. The "Architectural Insights" notes about `sh -c`
+> and the Claude CLI stream protocol likewise describe the old shell backend.
+
+### claude-adapter.ts (1911 lines) — REMOVED
 - Implements `ChatModelAdapter` from assistant-ui
 - Manages Claude CLI subprocess lifecycle (spawn, kill, stdin)
 - Parses `stream-json` output format into assistant-ui content parts
