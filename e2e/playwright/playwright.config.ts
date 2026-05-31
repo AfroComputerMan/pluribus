@@ -21,7 +21,8 @@ export default defineConfig({
   },
   // Auto-start the Vite dev server (reused if one is already running on :1420).
   webServer: {
-    command: "vite --port 1420 --strictPort",
+    // Concrete bin path — `vite` is not on PATH in CI (only node_modules/.bin).
+    command: "node_modules/.bin/vite --port 1420 --strictPort",
     cwd: repoRoot,
     url: "http://localhost:1420",
     reuseExistingServer: true,
