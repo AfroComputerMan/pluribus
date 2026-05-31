@@ -1,0 +1,46 @@
+name: E2E Web Demo
+
+# Records a video of the real frontend running in Chromium against a mocked Tauri
+# IPC boundary (e2e/playwright). Toolchain-light (no Rust/Tauri build), so it runs
+# on every PR and uploads the demo video as an artifact. Full-backend fidelity is
+# the separate, opt-in `e2e` (tauri-driver) job.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-web-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web-demo:
+    name: Web demo + video (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        run: bun install
+
+      # Chromium + its OS libs; the test runner itself runs under Node.
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run web demo + record video
+        run: node_modules/.bin/playwright test --config e2e/playwright/playwright.config.ts
+
+      - name: Upload demo video
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluribus-web-demo-video
+          path: e2e/playwright/artifacts/**/*.webm
+          if-no-files-found: warn

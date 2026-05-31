@@ -1,18 +1,29 @@
 # End-to-end tests + PR videos
 
 **Repo rule:** every PR ships a short video demonstrating the fix or feature.
-This harness produces that video by driving the **built** Tauri app and
-screen-recording the run.
+There are **two complementary harnesses** — pick by what you need to prove:
 
-## Why not Playwright?
+| | `e2e/playwright/` (mocked IPC) | `e2e/` (tauri-driver) |
+|---|---|---|
+| Proves | the **frontend** feature | the **whole app** incl. Rust backend |
+| Needs | Node + Playwright only | Rust + Bun + a built Tauri app |
+| Runs | anywhere (incl. agents/CI, fast) | local toolchain or the `e2e`-labelled CI job |
+| Video | `bun run e2e:web` → webm | `bun run e2e:record` → mp4 |
+
+Use the **Playwright** path for the routine per-PR video (it's the one an agent can
+actually run). Use **tauri-driver** when the change is backend-coupled and the demo
+must exercise real `invoke()`/process control. See `playwright/README.md` for the
+mocked path; the rest of this file covers tauri-driver.
+
+## Why tauri-driver (not plain Playwright) for full fidelity?
 
 Pluribus' UI runs in Tauri's native **webkit2gtk** webview and talks to Rust
-through `invoke()`. Playwright can only drive a real browser pointed at the Vite
-dev server, where `window.__TAURI__` is absent — so `invoke()` throws and nothing
-the app actually does (SQLite, Pi/Codex process control, sessions) can be
-exercised. We use **[`tauri-driver`](https://v2.tauri.app/develop/tests/webdriver/)**
+through `invoke()`. Playwright can only drive a real browser; to exercise the
+*real* backend you need **[`tauri-driver`](https://v2.tauri.app/develop/tests/webdriver/)**
 + **WebdriverIO**, which wrap the platform's native WebDriver (`WebKitWebDriver`
-on Linux) and drive the real app, IPC and all.
+on Linux) and drive the built app, IPC and all. (The `playwright/` path instead
+**mocks** the IPC boundary so the frontend runs in plain Chromium — faithful for
+UI, but not the Rust side.)
 
 Video is captured at the OS level with **ffmpeg** (see `record.sh`) because
 `WebKitWebDriver` has no reliable screenshot endpoint for frame-stitching
