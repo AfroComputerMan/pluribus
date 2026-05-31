@@ -11,10 +11,12 @@
 //               e2e/playwright/demos/. This actually produces a video, since the
 //               mocked-IPC path needs only Node + Playwright.
 //
-// Invoke (after merge, or via scriptPath):
+// Invoke from the repo root of the branch under test (which must already contain
+// e2e/playwright/ — merge this harness first). Subagents default to the main
+// session's cwd, so the most reliable use is no repoDir override; pass repoDir
+// only when the target genuinely is a different worktree.
 //   Workflow({ name: 'record-pr-demo', args: { feature: 'model selector',
-//              componentPath: 'src/components/assistant-ui/thread.tsx',
-//              repoDir: '/abs/path/to/worktree' } })
+//              componentPath: 'src/components/assistant-ui/thread.tsx' } })
 //
 // Fidelity note: this proves the FRONTEND feature. Backend-coupled changes that
 // must exercise real invoke()/process control belong to the tauri-driver harness
@@ -67,10 +69,17 @@ using the mocked-IPC Playwright harness (NOT tauri-driver). It runs the real
 frontend in Chromium against a mocked window.__TAURI_INTERNALS__, so no Rust/Bun
 build is needed.
 WORK EXCLUSIVELY INSIDE: ${repoDir}
-  - \`cd ${repoDir}\` before any git/read/grep command.
+  - \`cd ${repoDir}\` before EVERY git/read/grep/ls command, and use it as the base
+    for all paths. Do NOT touch any other checkout/worktree.
+  - HARNESS PRECONDITION: first \`ls ${repoDir}/e2e/playwright/tauri-mock.js\`. If it
+    does NOT exist, STOP NOW: return hasUiSurface:true, specPath:"", and
+    note:"harness-missing: e2e/playwright not present in ${repoDir} — merge the e2e
+    harness (PR #35 / chore/e2e-harness-tauri-driver) into this branch first". Do
+    NOT scaffold the harness, config, or package scripts yourself.
   - Read e2e/playwright/README.md, e2e/playwright/tauri-mock.js and
-    e2e/playwright/steer-abort.spec.ts FIRST to learn the conventions.
-Feature/PR to demonstrate: ${feature}
+    e2e/playwright/steer-abort.spec.ts to learn the conventions.
+Feature/PR to demonstrate (demo THIS specifically, even if the branch diff centres
+on something else — use the seeded thread to reach it): ${feature}
 Likely component(s): ${componentPath} (relative to ${repoDir})
 
 Steps:
