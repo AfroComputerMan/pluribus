@@ -161,57 +161,75 @@ pub async fn pi_start_session(
 
 /// Send a prompt to an existing pi session (fire-and-forget; events stream back).
 ///
-/// The guard is held only across `svc.prompt`, which is an `mpsc` channel send
-/// drained by the writer task (NOT a direct container/stdin write) — it returns
-/// promptly and never touches bollard, so #25's "no lock across bollard/stdin
-/// IO await" rule is satisfied. Mirrors the codex lock pattern.
+/// #25 lock discipline: take the map lock only to clone the session's bounded
+/// `stdin_tx`, DROP the guard, then await the channel send. The send can block
+/// when the writer task backs up (the channel is bounded, capacity 256), so the
+/// guard MUST be released first — holding it across the await deadlocks every
+/// other session's command. The wire shape comes from `super::service::prompt_line`.
 #[tauri::command]
 pub async fn pi_prompt(
     state: State<'_, PiState>,
     session_id: String,
     message: String,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let svc = guard
-        .get(&session_id)
-        .ok_or_else(|| format!("No pi session for {session_id}"))?;
-    svc.prompt(message).await?;
-    Ok(())
-    // guard drops here
+    let tx = {
+        let guard = state.lock().await;
+        guard
+            .get(&session_id)
+            .map(|svc| svc.stdin_sender())
+            .ok_or_else(|| format!("No pi session for {session_id}"))?
+        // guard drops here — no lock held across the send (#25)
+    };
+    tx.send(super::service::prompt_line(&message))
+        .await
+        .map_err(|e| format!("Failed to send to pi stdin: {e}"))
 }
 
 /// Abort the current turn (mid-turn cancel; the session stays alive and reusable).
+///
+/// #25: clone the sender, drop the map lock, then await the send (same bounded-
+/// channel deadlock concern as `pi_prompt`).
 #[tauri::command]
 pub async fn pi_abort(state: State<'_, PiState>, session_id: String) -> Result<(), String> {
-    let guard = state.lock().await;
-    let svc = guard
-        .get(&session_id)
-        .ok_or_else(|| format!("No pi session for {session_id}"))?;
-    svc.abort().await?;
-    Ok(())
+    let tx = {
+        let guard = state.lock().await;
+        guard
+            .get(&session_id)
+            .map(|svc| svc.stdin_sender())
+            .ok_or_else(|| format!("No pi session for {session_id}"))?
+        // guard drops here — no lock held across the send (#25)
+    };
+    tx.send(super::service::abort_line())
+        .await
+        .map_err(|e| format!("Failed to send to pi stdin: {e}"))
 }
 
 /// Steer the current turn (#20): queue mid-run guidance that Pi applies at the
 /// next turn/tool boundary (one-at-a-time mode) — NOT a mid-token interrupt.
 ///
-/// The `message` is serialized Rust-side by `serde_json`, so newlines are
-/// escaped and the LF JSONL framing into pi's stdin stays intact. Mirrors
-/// `pi_abort`: the guard is held only across `svc.steer`, which is an `mpsc`
-/// channel send drained by the writer task — it never touches bollard/stdin IO
-/// under the lock, satisfying #25's "no lock across an .await" discipline.
+/// The `message` is serialized Rust-side by `serde_json` (via `steer_line`), so
+/// newlines are escaped and the LF JSONL framing into pi's stdin stays intact.
+///
+/// #25 lock discipline: clone the session's bounded `stdin_tx`, DROP the map
+/// lock, then await the send. The send can block when the writer task backs up,
+/// so the guard must be released first or every other session deadlocks.
 #[tauri::command]
 pub async fn pi_steer_agent(
     state: State<'_, PiState>,
     session_id: String,
     message: String,
 ) -> Result<(), String> {
-    let guard = state.lock().await;
-    let svc = guard
-        .get(&session_id)
-        .ok_or_else(|| format!("No pi session for {session_id}"))?;
-    svc.steer(message).await?;
-    Ok(())
-    // guard drops here
+    let tx = {
+        let guard = state.lock().await;
+        guard
+            .get(&session_id)
+            .map(|svc| svc.stdin_sender())
+            .ok_or_else(|| format!("No pi session for {session_id}"))?
+        // guard drops here — no lock held across the send (#25)
+    };
+    tx.send(super::service::steer_line(&message))
+        .await
+        .map_err(|e| format!("Failed to send to pi stdin: {e}"))
 }
 
 /// Stop a pi session (transport-aware).
@@ -246,19 +264,20 @@ pub async fn pi_get_state(
     state: State<'_, PiState>,
     session_id: String,
 ) -> Result<serde_json::Value, String> {
-    let guard = state.lock().await;
-    match guard.get(&session_id) {
-        Some(svc) => {
-            let pid = svc.pid();
-            // Authoritative mid-turn flag (#20): `running` = session alive,
-            // `agent_running` = agent actively mid-turn (gates UI controls).
-            let agent_running = svc.agent_running();
-            // Fire-and-forget probe; ack correlation is deferred to #20.
-            let _ = svc.get_state().await;
-            Ok(json!({ "running": true, "pid": pid, "agent_running": agent_running }))
+    // #25: read the sync fields (pid, agent_running) and clone the sender under
+    // the lock, DROP the guard, then await the bounded-channel send. The probe
+    // send can block when the writer backs up, so it must not run under the map
+    // lock or every other session's command deadlocks.
+    let (pid, agent_running, tx) = {
+        let guard = state.lock().await;
+        match guard.get(&session_id) {
+            Some(svc) => (svc.pid(), svc.agent_running(), svc.stdin_sender()),
+            None => return Ok(json!({ "running": false })),
         }
-        None => Ok(json!({ "running": false })),
-    }
+    };
+    // Fire-and-forget probe; ack correlation is deferred to #20.
+    let _ = tx.send(super::service::get_state_line()).await;
+    Ok(json!({ "running": true, "pid": pid, "agent_running": agent_running }))
 }
 
 /// Read the authoritative mid-turn flag for `session_id` WITHOUT nudging pi.

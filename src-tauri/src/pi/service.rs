@@ -391,23 +391,12 @@ impl PiService {
             .map_err(|e| format!("Failed to send to pi stdin: {e}"))
     }
 
-    /// Send `{type:"prompt",message}` — fire-and-forget; events arrive on the stream.
-    pub async fn prompt(&self, message: String) -> Result<(), String> {
-        self.send(json!({ "type": "prompt", "message": message }))
-            .await
-    }
-
-    /// Send `{type:"abort"}` — halts the current turn promptly (~6ms to agent_end).
-    pub async fn abort(&self) -> Result<(), String> {
-        self.send(json!({ "type": "abort" })).await
-    }
-
-    /// Send `{type:"steer",message}` (#20) — queues mid-run guidance, applied at
-    /// the next turn/tool boundary (one-at-a-time mode), NOT a mid-token
-    /// interrupt. `serde_json` escapes newlines, so LF JSONL framing is safe.
-    pub async fn steer(&self, message: String) -> Result<(), String> {
-        self.send(json!({ "type": "steer", "message": message }))
-            .await
+    /// Clone the bounded stdin sender so a Tauri command can DROP the map-lock
+    /// guard before awaiting the (possibly-full) channel send (#25). Holding the
+    /// map lock across `stdin_tx.send().await` deadlocks every other session
+    /// when this session's writer task backs up.
+    pub fn stdin_sender(&self) -> mpsc::Sender<String> {
+        self.stdin_tx.clone()
     }
 
     /// Send `{type:"set_model",provider,model}` (internal seed for #20).
@@ -469,4 +458,20 @@ impl PiService {
     pub async fn teardown(&self) {
         self.teardown.teardown().await;
     }
+}
+
+/// Wire-shape builders (#25): the JSON command lines live here ONLY so the
+/// Tauri commands can build them after dropping the map lock, without
+/// duplicating protocol literals.
+pub fn prompt_line(message: &str) -> String {
+    serde_json::json!({ "type": "prompt", "message": message }).to_string()
+}
+pub fn abort_line() -> String {
+    serde_json::json!({ "type": "abort" }).to_string()
+}
+pub fn steer_line(message: &str) -> String {
+    serde_json::json!({ "type": "steer", "message": message }).to_string()
+}
+pub fn get_state_line() -> String {
+    serde_json::json!({ "type": "get_state" }).to_string()
 }
