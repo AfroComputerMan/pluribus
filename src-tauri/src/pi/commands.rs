@@ -218,11 +218,11 @@ pub async fn pi_steer_agent(
 ///
 /// Remove the `PiService` from the map FIRST (so it is no longer reachable), then
 /// `teardown()` stops+removes the container (host arm is a no-op). The host child
-/// is reaped by the alive-gated `Drop` when `svc` drops at the end of this
-/// function — `Drop` only signals while the supervisor still considers the child
-/// live, so a recycled PID is never SIGTERM'd (#26 review). Ordering:
-/// `guard.remove()` → drop guard → `svc.teardown().await` → `svc` drops →
-/// `Drop` kills the host child if still alive.
+/// is killed+reaped when `svc` drops at the end of this function: `Drop` fires
+/// `kill_notify`, and the supervisor (sole owner of the `Child`) kills+reaps
+/// through the owned handle — no raw PID is ever signalled, so a recycled PID can
+/// never be killed (#26 review). Ordering: `guard.remove()` → drop guard →
+/// `svc.teardown().await` → `svc` drops → `Drop` signals the supervisor.
 ///
 /// #25: the map lock is dropped before any `teardown`/bollard `.await`.
 #[tauri::command]
@@ -234,7 +234,8 @@ pub async fn pi_stop(state: State<'_, PiState>, session_id: String) -> Result<()
     };
     if let Some(svc) = svc {
         // Container: explicit stop+remove (host arm is a no-op). The host child
-        // is reaped by the alive-gated `Drop` when `svc` drops below.
+        // is killed+reaped by the supervisor when `svc`'s `Drop` fires
+        // `kill_notify` below.
         svc.teardown().await;
     }
     Ok(())

@@ -117,12 +117,13 @@ impl PiHandle {
     /// Session-end teardown.
     ///
     /// Host → no-op: dropping `PiTransport`/`PiService` closes stdin (EOF →
-    /// clean exit); `pi_stop` keeps the `kill_pid` safety-net via `pid()`.
+    /// clean exit); the supervisor kills+reaps the child on `kill_notify`
+    /// (fired by `PiService::drop`), so no raw PID is ever signalled (#26 review).
     /// Container → `stop_container(t:10)` then `remove_container(force, v)`
     /// (best-effort: a stopped/missing container must not error the stop path).
     pub async fn teardown(&self) {
         match self {
-            PiHandle::Host(_) => { /* drop EOFs stdin; pi_stop kills the pid */ }
+            PiHandle::Host(_) => { /* drop EOFs stdin; supervisor kills+reaps on kill_notify */ }
             PiHandle::Container {
                 docker,
                 container_id,

@@ -27,8 +27,9 @@ pub struct PiService {
     /// container transport. No longer used for killing: the kill goes via
     /// `kill_notify`/the supervisor, so no raw PID is ever signalled (#26 review).
     pid: Option<u32>,
-    /// Transport teardown view: host (no-op — drop EOFs stdin, `pi_stop` kills
-    /// the pid) or container (stop+remove). This is a clone-free *teardown-only*
+    /// Transport teardown view: host (no-op — drop EOFs stdin; the supervisor
+    /// kills+reaps the child on `kill_notify`) or container (stop+remove). This
+    /// is a clone-free *teardown-only*
     /// projection of the spawn `PiHandle`; the owning `PiHandle` (with the host
     /// child / the exec wait state) is moved into the supervisor task, so the
     /// two never contend.
@@ -92,7 +93,7 @@ impl PiTeardown {
     /// `PiHandle::teardown` for the container path.
     async fn teardown(&self) {
         match self {
-            PiTeardown::Host => { /* drop EOFs stdin; pi_stop kills the pid */ }
+            PiTeardown::Host => { /* drop EOFs stdin; supervisor kills+reaps on kill_notify */ }
             PiTeardown::Container {
                 docker,
                 container_id,
@@ -477,7 +478,8 @@ impl PiService {
         &self.session_id
     }
 
-    /// Host PID for the `pi_stop` kill safety-net; `None` for container sessions.
+    /// Host PID — INFORMATIONAL ONLY (returned by `pi_get_state`); `None` for
+    /// container sessions. Killing goes via the supervisor, never this PID (#26 review).
     pub fn pid(&self) -> Option<u32> {
         self.pid
     }
@@ -508,7 +510,7 @@ impl PiService {
     }
 
     /// Transport-aware session-end teardown: container → stop+remove; host → no-op
-    /// (the `pi_stop` `kill_pid` safety-net handles the host child).
+    /// (the supervisor kills+reaps the host child on `kill_notify`, fired by `Drop`).
     pub async fn teardown(&self) {
         self.teardown.teardown().await;
     }
