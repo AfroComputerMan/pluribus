@@ -11,8 +11,10 @@ npm run e2e:web:install      # one-time: fetch the Chromium build
 npm run e2e:web              # runs the specs, records webm under artifacts/
 ```
 
-Output: `e2e/playwright/artifacts/<test>/video.webm`. Curated demos worth keeping
-live in `demos/` (committed); raw `artifacts/` are gitignored.
+Output: `e2e/playwright/artifacts/<test>/video.webm`. Demo recordings are
+attached to the pull request description so they play inline on GitHub, rather
+than being committed as repo binaries — both `demos/*.webm` and `artifacts/`
+are gitignored.
 
 ## How it works
 
