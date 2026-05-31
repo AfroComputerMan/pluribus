@@ -42,6 +42,10 @@ pub struct PiService {
     /// supervisor own writers; `pi_get_state` reads it to gate the UI steer/
     /// abort controls (instead of relying on `thread.isRunning`).
     running: Arc<AtomicBool>,
+    /// Host-child liveness (#26 review): `true` from spawn until the supervisor
+    /// observes process exit. Gates the Drop/`pi_stop` kill so a recycled PID is
+    /// never signalled after the child has already been reaped.
+    alive: Arc<AtomicBool>,
 }
 
 impl Drop for PiService {
@@ -51,8 +55,13 @@ impl Drop for PiService {
     /// path (`teardown`) plus the startup label reconcile — Drop cannot run
     /// bollard's async teardown. A `None` pid (container transport) is a no-op.
     fn drop(&mut self) {
-        if let Some(pid) = self.pid {
-            let _ = crate::kill_pid(pid);
+        // Only signal while the supervisor still considers the child live (#26
+        // review): after exit the PID may be recycled, so an unconditional kill
+        // could SIGTERM an unrelated process.
+        if self.alive.load(Ordering::SeqCst) {
+            if let Some(pid) = self.pid {
+                let _ = crate::kill_pid(pid);
+            }
         }
     }
 }
@@ -141,6 +150,11 @@ impl PiService {
         // Authoritative agent run-state (#20). Cloned into the reader (flips on
         // agent_start/turn_start/agent_end) and the supervisor (clears on exit).
         let running = Arc::new(AtomicBool::new(false));
+
+        // Host-child liveness (#26 review): set true now, cleared by the
+        // supervisor once `handle.wait()` returns. Gates the Drop/`pi_stop` kill
+        // so a recycled PID is never signalled after the child has been reaped.
+        let alive = Arc::new(AtomicBool::new(true));
 
         // stdout_reader task
         {
@@ -370,9 +384,12 @@ impl PiService {
             let mut handle = handle;
             // Clone so the supervisor can clear the run-state on process exit.
             let running = running.clone();
+            // Clone so the supervisor can clear host-child liveness on exit.
+            let alive = alive.clone();
             tokio::spawn(async move {
                 let code = handle.wait().await;
                 running.store(false, Ordering::SeqCst);
+                alive.store(false, Ordering::SeqCst);
                 let _ = app_handle.emit(
                     "pi:event",
                     &PiEvent::ProcessExit {
@@ -392,6 +409,7 @@ impl PiService {
             ready_rx: TokioMutex::new(Some(ready_rx)),
             session_id,
             running,
+            alive,
         })
     }
 

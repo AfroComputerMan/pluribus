@@ -106,11 +106,21 @@ const baseThreadListAdapter = createSQLiteThreadListAdapter();
 async function teardownThread(remoteId: string): Promise<void> {
   try {
     const row = await db.threads.get(remoteId);
-    const type = row?.provider_type;
-    if (!type) return;
-    const provider = providerRegistry
-      .getAllProviders()
-      .find((p) => p.id === type);
+    if (!row) return;
+    let provider = row.provider_type
+      ? providerRegistry
+          .getAllProviders()
+          .find((p) => p.id === row.provider_type)
+      : undefined;
+    // Fallback (#26 review): queued→promoted agents can have a null
+    // provider_type in the DB; derive it from the persisted model instead.
+    if (!provider && row.model) {
+      try {
+        provider = providerRegistry.getProviderForModel(row.model);
+      } catch {
+        // unknown model — leave provider undefined
+      }
+    }
     await provider?.teardown?.(remoteId);
   } catch (err) {
     console.error("pi teardown on thread close failed (best-effort):", err);
