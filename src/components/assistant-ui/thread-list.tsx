@@ -39,6 +39,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { SettingsOverlay } from "@/components/settings-overlay";
+import { teardownThread } from "@/components/RuntimeProvider";
 import { getModelById, isCodexModel } from "@/lib/models";
 import { useThreadStatusStore } from "@/lib/thread-status-store";
 import type { FC, ReactNode } from "react";
@@ -529,6 +530,19 @@ export const ThreadList: FC = () => {
       setError(null);
       setIsDeletingWorkspace(true);
       try {
+        // Cascade delete removes thread rows via raw SQL, bypassing the
+        // thread-list adapter's teardown wrapper (#26). Tear down each live
+        // thread's backend (pi_stop for Pi) before the rows vanish so host
+        // children/containers don't leak. Archived threads were already torn
+        // down at archive time, so listing regular threads is sufficient.
+        if (cascade) {
+          const workspaceThreads = (await db.threads.list()).filter(
+            (t) => t.workspace_id === deletingWorkspace.id,
+          );
+          await Promise.all(
+            workspaceThreads.map((t) => teardownThread(t.remote_id)),
+          );
+        }
         await db.workspaces.delete(deletingWorkspace.id, cascade);
         setDeletingWorkspace(null);
         await loadWorkspaces();

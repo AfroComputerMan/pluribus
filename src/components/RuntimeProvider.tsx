@@ -180,4 +180,4 @@ export function RuntimeProvider({
 }
 
 /** Expose the process manager for exit confirmation dialog. */
-export { processManager };
+export { processManager, teardownThread };
