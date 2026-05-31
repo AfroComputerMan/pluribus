@@ -29,6 +29,23 @@ const TAURI_DRIVER =
 
 let tauriDriver;
 
+/** Idempotently stop the tauri-driver child (safe to call repeatedly). */
+function stopTauriDriver() {
+  if (tauriDriver && !tauriDriver.killed) tauriDriver.kill();
+  tauriDriver = undefined;
+}
+
+// Safety net: afterSession only runs on a clean session lifecycle. If session
+// creation fails or the run is interrupted (Ctrl-C / crash) before then, these
+// handlers ensure the driver process never outlives this one.
+process.once("exit", stopTauriDriver);
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.once(signal, () => {
+    stopTauriDriver();
+    process.exit(1);
+  });
+}
+
 export const config = {
   hostname: "127.0.0.1",
   port: 4444, // tauri-driver listens here; it spawns the native driver on 4445.
@@ -73,7 +90,5 @@ export const config = {
     });
   },
 
-  afterSession: () => {
-    tauriDriver?.kill();
-  },
+  afterSession: stopTauriDriver,
 };

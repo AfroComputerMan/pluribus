@@ -29,6 +29,16 @@ ffmpeg -y -loglevel warning \
   -codec:v libx264 -pix_fmt yuv420p "$OUT" &
 FFMPEG_PID=$!
 
+# ffmpeg can exit immediately when the capture display is unavailable or the
+# requested size is invalid. Give it a moment, then confirm it is actually
+# running — otherwise we'd drive the app and "succeed" with no/blank video.
+sleep 1
+if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
+  echo "ffmpeg failed to start capturing $DISPLAY_TARGET ($SIZE)" >&2
+  wait "$FFMPEG_PID" 2>/dev/null || true
+  exit 1
+fi
+
 # Always finalize the mp4, even if the test run fails (the video is the artifact).
 cleanup() {
   kill -INT "$FFMPEG_PID" 2>/dev/null || true
