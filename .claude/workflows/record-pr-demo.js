@@ -56,9 +56,12 @@ const RECORD_SCHEMA = {
 phase('Plan demo')
 const plan = await agent(
   `You are setting up an end-to-end DEMO RECORDING for the Tauri desktop app Pluribus.
-Work inside the repo at: ${repoDir}
+WORK EXCLUSIVELY INSIDE: ${repoDir}
+  - \`cd ${repoDir}\` before any git/read/grep command.
+  - Write the spec ONLY under ${repoDir}/e2e/specs/ — never in any other worktree or checkout.
+  - That directory already contains the e2e harness (wdio.conf.js, README.md, smoke.e2e.js). Do NOT re-scaffold it; add only your feature spec.
 Feature/PR to demonstrate: ${feature}
-Likely component(s): ${componentPath}
+Likely component(s): ${componentPath} (relative to ${repoDir})
 
 Steps:
 1. Read the git diff for the branch and the relevant UI components. Decide whether the change has a USER-VISIBLE surface. Backend-only (process lifecycle, DB) and docs changes do NOT — set hasUiSurface:false and stop (no spec).
