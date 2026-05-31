@@ -25,7 +25,18 @@ bun run dev
 bun run build
 ```
 
-Package manager is **bun**. No test framework is configured.
+Package manager is **bun**. Unit tests use **vitest** (`tests/*.test.ts`). End-to-end
+tests drive the built Tauri app with **WebdriverIO + tauri-driver** and record a
+video (`bun run e2e:record`) — see `e2e/README.md`.
+
+```bash
+bun run e2e:build     # build the debug app the e2e harness drives
+bun run e2e:record    # run e2e specs and record e2e/artifacts/pluribus-e2e.mp4
+```
+
+**PR rule:** every PR ships a short video demonstrating the fix/feature (the
+`e2e` CI label records and uploads one; drag it into the PR). Backend-only or
+docs PRs with no UI surface are exempt — note that in the PR instead.
 
 ## Architecture
 

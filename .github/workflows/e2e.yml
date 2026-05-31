@@ -1,0 +1,83 @@
+name: E2E
+
+# Drives the built Tauri app with WebdriverIO + tauri-driver and records a video
+# of the run, uploaded as an artifact. Per repo rule, every PR ships a video
+# demonstrating the change — this job produces it for the smoke + feature specs
+# under e2e/specs/. See e2e/README.md.
+#
+# Heavy (full tauri --debug build), so it is opt-in: it runs on PRs labelled
+# `e2e` and on manual dispatch, not on every push.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-video:
+    name: E2E + video (linux)
+    # Only run when explicitly requested via the `e2e` label (or manual dispatch).
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri v2 Linux deps (mirrors ci.yml) + WebKitWebDriver (tauri-driver's
+      # native backend), ffmpeg (screen capture) and xvfb (headless display).
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            webkit2gtk-driver \
+            build-essential curl wget file \
+            libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev \
+            ffmpeg xvfb
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install JS dependencies (root)
+        run: bun install
+
+      - name: Install JS dependencies (sidecar)
+        run: bun install
+        working-directory: sidecar/agent-sdk-bridge
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+
+      # Builds sidecar + frontend (via beforeBuildCommand) then the debug binary
+      # at src-tauri/target/debug/pluribus that wdio.conf.js points to.
+      - name: Build app (debug)
+        run: bun run e2e:build
+
+      # record.sh starts ffmpeg grabbing $DISPLAY, runs wdio, then finalizes the
+      # mp4. xvfb-run provides the headless X display.
+      - name: Run e2e + record video
+        run: xvfb-run -a -s "-screen 0 1280x800x24" bash e2e/record.sh
+
+      - name: Upload e2e video
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluribus-e2e-video
+          path: e2e/artifacts/pluribus-e2e.mp4
+          if-no-files-found: warn
