@@ -44,6 +44,19 @@ pub struct PiService {
     running: Arc<AtomicBool>,
 }
 
+impl Drop for PiService {
+    /// Host backstop (#26): kill the pid so the child is reaped regardless of
+    /// stdin EOF (the stdout reader holds a stdin_tx clone, so dropping alone
+    /// never EOFs the child). Container reaping stays on the explicit async
+    /// path (`teardown`) plus the startup label reconcile — Drop cannot run
+    /// bollard's async teardown. A `None` pid (container transport) is a no-op.
+    fn drop(&mut self) {
+        if let Some(pid) = self.pid {
+            let _ = crate::kill_pid(pid);
+        }
+    }
+}
+
 /// Teardown-only projection of `PiHandle`, owned by `PiService` so `pi_stop` /
 /// window-close can stop+remove the container without touching the supervisor's
 /// owned handle. Host is a pure no-op; the container variant carries a cloned

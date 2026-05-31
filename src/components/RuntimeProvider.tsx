@@ -92,7 +92,42 @@ const runArchive = () => {
 runArchive(); // Run once at startup
 setInterval(runArchive, 60 * 60 * 1000); // Hourly
 
-const threadListAdapter = createSQLiteThreadListAdapter();
+const baseThreadListAdapter = createSQLiteThreadListAdapter();
+
+/**
+ * Release a thread's backend resources before its DB row is mutated (#26).
+ *
+ * Resolve the thread's provider type from the row (it is removed by `delete`),
+ * find the matching registered provider, and fire its optional `teardown`. Only
+ * Pi implements `teardown` (it `pi_stop`s the host child + container); other
+ * providers no-op. Best-effort: a missing row / unregistered provider / failed
+ * `pi_stop` must never block the delete/archive.
+ */
+async function teardownThread(remoteId: string): Promise<void> {
+  try {
+    const row = await db.threads.get(remoteId);
+    const type = row?.provider_type;
+    if (!type) return;
+    const provider = providerRegistry
+      .getAllProviders()
+      .find((p) => p.id === type);
+    await provider?.teardown?.(remoteId);
+  } catch (err) {
+    console.error("pi teardown on thread close failed (best-effort):", err);
+  }
+}
+
+const threadListAdapter: ReturnType<typeof createSQLiteThreadListAdapter> = {
+  ...baseThreadListAdapter,
+  async delete(remoteId: string) {
+    await teardownThread(remoteId);
+    await baseThreadListAdapter.delete(remoteId);
+  },
+  async archive(remoteId: string) {
+    await teardownThread(remoteId);
+    await baseThreadListAdapter.archive(remoteId);
+  },
+};
 
 /** Inner hook -- creates the per-thread local runtime with the orchestrated adapter. */
 function useRuntimeHook() {

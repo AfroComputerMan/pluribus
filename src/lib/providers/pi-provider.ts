@@ -410,6 +410,13 @@ export function createPiProvider(): AgentProvider {
       // session_id == threadId for #17.
       await invoke("pi_abort", { sessionId: threadId });
     },
+
+    async teardown(threadId: string): Promise<void> {
+      // Release the backend session (#26): removes the PiService from the map,
+      // kills the host child, and tears down the container. session_id ==
+      // threadId for #17.
+      await invoke("pi_stop", { sessionId: threadId });
+    },
   };
 }
 

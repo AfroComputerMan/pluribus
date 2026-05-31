@@ -54,6 +54,8 @@ export interface AgentProvider {
 
   run(ctx: RunContext): AsyncGenerator<ChatModelRunResult, void>;
   interrupt(threadId: string): Promise<void>;
+  /** Optional: release backend resources for a thread on delete/archive (#26). */
+  teardown?(threadId: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
