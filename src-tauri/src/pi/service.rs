@@ -4,7 +4,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex as TokioMutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as TokioMutex, Notify};
 
 use super::io::{PiHandle, PiIo, PiTransport};
 use super::types::PiEvent;
@@ -23,7 +23,9 @@ pub struct PiService {
     /// Monotonic id counter, seeded for future get_state/set_model ack correlation.
     #[allow(dead_code)]
     next_id: Arc<AtomicU64>,
-    /// Host PID for the `pi_stop` kill safety-net (`None` for container transport).
+    /// Host PID — INFORMATIONAL ONLY (returned by `pi_get_state`); `None` for
+    /// container transport. No longer used for killing: the kill goes via
+    /// `kill_notify`/the supervisor, so no raw PID is ever signalled (#26 review).
     pid: Option<u32>,
     /// Transport teardown view: host (no-op — drop EOFs stdin, `pi_stop` kills
     /// the pid) or container (stop+remove). This is a clone-free *teardown-only*
@@ -42,27 +44,18 @@ pub struct PiService {
     /// supervisor own writers; `pi_get_state` reads it to gate the UI steer/
     /// abort controls (instead of relying on `thread.isRunning`).
     running: Arc<AtomicBool>,
-    /// Host-child liveness (#26 review): `true` from spawn until the supervisor
-    /// observes process exit. Gates the Drop/`pi_stop` kill so a recycled PID is
-    /// never signalled after the child has already been reaped.
-    alive: Arc<AtomicBool>,
+    /// Stop signal to the supervisor (the sole owner of the `Child`). Firing it
+    /// makes the supervisor kill+reap through the owned handle, so no raw PID is
+    /// ever signalled — eliminating the recycled-PID hazard (#26 review).
+    kill_notify: Arc<Notify>,
 }
 
 impl Drop for PiService {
-    /// Host backstop (#26): kill the pid so the child is reaped regardless of
-    /// stdin EOF (the stdout reader holds a stdin_tx clone, so dropping alone
-    /// never EOFs the child). Container reaping stays on the explicit async
-    /// path (`teardown`) plus the startup label reconcile — Drop cannot run
-    /// bollard's async teardown. A `None` pid (container transport) is a no-op.
+    /// Ask the supervisor (sole owner of the `Child`) to kill+reap on drop.
+    /// Fire-and-forget; uses no raw PID, so a recycled PID can never be
+    /// signalled (#26 review). Container removal goes through `teardown()`.
     fn drop(&mut self) {
-        // Only signal while the supervisor still considers the child live (#26
-        // review): after exit the PID may be recycled, so an unconditional kill
-        // could SIGTERM an unrelated process.
-        if self.alive.load(Ordering::SeqCst) {
-            if let Some(pid) = self.pid {
-                let _ = crate::kill_pid(pid);
-            }
-        }
+        self.kill_notify.notify_one();
     }
 }
 
@@ -151,10 +144,10 @@ impl PiService {
         // agent_start/turn_start/agent_end) and the supervisor (clears on exit).
         let running = Arc::new(AtomicBool::new(false));
 
-        // Host-child liveness (#26 review): set true now, cleared by the
-        // supervisor once `handle.wait()` returns. Gates the Drop/`pi_stop` kill
-        // so a recycled PID is never signalled after the child has been reaped.
-        let alive = Arc::new(AtomicBool::new(true));
+        // Stop signal to the supervisor (the sole owner of the `Child`). On
+        // drop/`pi_stop`/window-close, firing this makes the supervisor kill+reap
+        // through the owned handle — no raw PID is ever signalled (#26 review).
+        let kill_notify = Arc::new(Notify::new());
 
         // stdout_reader task
         {
@@ -384,12 +377,31 @@ impl PiService {
             let mut handle = handle;
             // Clone so the supervisor can clear the run-state on process exit.
             let running = running.clone();
-            // Clone so the supervisor can clear host-child liveness on exit.
-            let alive = alive.clone();
+            // Clone so the supervisor can act on a drop/`pi_stop`/window-close kill.
+            let kill_notify = kill_notify.clone();
             tokio::spawn(async move {
-                let code = handle.wait().await;
+                // Wait for natural exit OR a stop signal. Doing the kill AFTER the
+                // select (not inside a branch) keeps the borrow of `handle` from the
+                // `wait()` future from conflicting with `handle.kill()`.
+                enum Stop {
+                    Exited(Option<i32>),
+                    Killed,
+                }
+                let outcome = tokio::select! {
+                    code = handle.wait() => Stop::Exited(code),
+                    _ = kill_notify.notified() => Stop::Killed,
+                };
+                let code = match outcome {
+                    Stop::Exited(c) => c,
+                    // Stop requested: the `wait()` future above was dropped WITHOUT
+                    // reaping, so the supervisor still owns an UNREAPED child — killing
+                    // here is race-free (no recycled-PID hazard, #26 review).
+                    Stop::Killed => {
+                        handle.kill().await;
+                        None
+                    }
+                };
                 running.store(false, Ordering::SeqCst);
-                alive.store(false, Ordering::SeqCst);
                 let _ = app_handle.emit(
                     "pi:event",
                     &PiEvent::ProcessExit {
@@ -409,7 +421,7 @@ impl PiService {
             ready_rx: TokioMutex::new(Some(ready_rx)),
             session_id,
             running,
-            alive,
+            kill_notify,
         })
     }
 
