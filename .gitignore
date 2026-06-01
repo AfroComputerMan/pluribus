@@ -27,5 +27,8 @@ dist-ssr
 src-tauri/binaries/agent-sdk-bridge
 src-tauri/binaries/agent-sdk-bridge-*
 
+# Agent harness worktree scratch dirs
+.claude/worktrees/
+
 # Local secrets
 .env
