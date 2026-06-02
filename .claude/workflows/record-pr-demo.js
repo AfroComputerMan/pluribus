@@ -56,7 +56,7 @@ const RECORD_SCHEMA = {
     ran: { type: 'boolean', description: 'the playwright test executed' },
     recorded: { type: 'boolean', description: 'a video file was produced' },
     testPassed: { type: 'boolean' },
-    videoPath: { type: 'string', description: 'path of the committed demo webm under e2e/playwright/demos/' },
+    videoPath: { type: 'string', description: 'local path of the recorded demo webm (e2e/playwright/demos/ is gitignored) — attach it to the PR description; do not commit it' },
     output: { type: 'string', description: 'real command output (tail)' },
     blockers: { type: 'array', items: { type: 'string' } },
   },
@@ -117,7 +117,7 @@ cargo/Rust/Bun build. Run from ${repoDir}, capturing REAL output:
   3. \`node_modules/.bin/playwright test --config e2e/playwright/playwright.config.ts ${plan.specPath}\`
      (Playwright auto-starts the Vite dev server via webServer.)
   4. Find the produced video under e2e/playwright/artifacts/**/video.webm and copy
-     it to e2e/playwright/demos/<kebab-feature>.webm (that dir is committed; raw
+     it to e2e/playwright/demos/<kebab-feature>.webm — gitignored, so ATTACH it to the PR description (drag-drop on GitHub so it plays inline) instead of committing it; raw
      artifacts/ are gitignored).
 Report exactly what happened — set recorded:true only if a real .webm exists, and
 testPassed from the playwright result. If a step genuinely fails (e.g. a selector

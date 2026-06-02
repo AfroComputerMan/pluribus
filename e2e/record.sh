@@ -11,7 +11,7 @@
 # Headless:   xvfb-run -a -s "-screen 0 1280x800x24" bun run e2e:record
 #             (CI does this; see .github/workflows/e2e.yml)
 #
-# Prereqs: ffmpeg, a built debug app (bun run e2e:build), and
+# Prereqs: ffmpeg (+ ffprobe), a built debug app (bun run e2e:build), and
 #          `cargo install tauri-driver --locked` + WebKitWebDriver on PATH.
 set -euo pipefail
 
@@ -52,16 +52,26 @@ npx wdio run "$HERE/wdio.conf.js" || STATUS=$?
 cleanup
 trap - EXIT
 
-# The recording is the whole point of this job. ffmpeg can die mid-run (display
-# lost, disk full, codec error) while `cleanup` deliberately ignores its exit
-# code so a failing test still finalizes whatever was captured. Validate here
-# that we produced a non-trivial video and fail loudly otherwise — even when
-# wdio passed — so CI never "succeeds" with an empty/corrupt artifact.
-OUT_BYTES=$(stat -c%s "$OUT" 2>/dev/null || echo 0)
-if [ ! -s "$OUT" ] || [ "$OUT_BYTES" -lt 10000 ]; then
-  echo "No usable video at $OUT (${OUT_BYTES} bytes) — ffmpeg capture failed" >&2
+# The recording is the whole point of this job, and `cleanup` deliberately
+# ignores ffmpeg's exit so a failing test still finalizes whatever was captured.
+# A size check isn't enough: ffmpeg can die mid-run (display drop, codec error)
+# after writing >10 KB, leaving a truncated/unplayable file. Validate the
+# container with ffprobe — require a real video stream with a positive duration —
+# and fail loudly otherwise, even when wdio passed, so CI never uploads a
+# corrupt/empty artifact.
+if ! command -v ffprobe >/dev/null 2>&1; then
+  echo "ffprobe not found — cannot validate $OUT" >&2
+  exit 1
+fi
+VIDEO_CODEC=$(ffprobe -v error -select_streams v:0 \
+  -show_entries stream=codec_type -of csv=p=0 "$OUT" 2>/dev/null | head -n1)
+DURATION=$(ffprobe -v error \
+  -show_entries format=duration -of csv=p=0 "$OUT" 2>/dev/null || echo "")
+if [ "$VIDEO_CODEC" != "video" ] || [ -z "$DURATION" ] \
+   || ! awk "BEGIN{exit !(${DURATION:-0}+0 > 0)}"; then
+  echo "No playable video at $OUT (stream='$VIDEO_CODEC' duration='$DURATION') — ffmpeg capture failed" >&2
   exit 1
 fi
 
-echo "Video written to $OUT (${OUT_BYTES} bytes, wdio exit=$STATUS)"
+echo "Video written to $OUT (duration=${DURATION}s, wdio exit=$STATUS)"
 exit "$STATUS"
