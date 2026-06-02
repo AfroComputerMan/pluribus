@@ -29,6 +29,18 @@ const SEL = {
 const beat = (ms = 900) => browser.pause(ms);
 
 describe("Steer + abort controls (#20)", () => {
+  // This spec drives a REAL agent run (the Pi backend spawns a sandbox that
+  // calls OpenRouter), so it needs OPENROUTER_API_KEY and the
+  // pluribus-pi-sandbox:base image. Skip when those prerequisites are absent —
+  // e.g. the opt-in CI job, which installs the Tauri/WebKit stack but provides
+  // neither — so the suite never fails for missing infra. Runs locally (or in a
+  // Pi-provisioned job) where the agent can actually start.
+  before(function () {
+    if (!process.env.OPENROUTER_API_KEY) {
+      this.skip();
+    }
+  });
+
   it("surfaces the steer side-channel and abort while the agent runs, then aborts", async () => {
     // --- 1. Reach the chat surface ------------------------------------------
     const composer = await $(SEL.composer);

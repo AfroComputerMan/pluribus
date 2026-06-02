@@ -69,8 +69,11 @@ jobs:
       - name: Build app (debug)
         run: bun run e2e:build
 
-      # record.sh starts ffmpeg grabbing $DISPLAY, runs wdio, then finalizes the
-      # mp4. xvfb-run provides the headless X display.
+      # record.sh starts ffmpeg grabbing $DISPLAY, runs wdio, then finalizes and
+      # validates the mp4. xvfb-run provides the headless X display. Specs that
+      # need a real agent backend (e.g. steer-abort-controls) self-skip here:
+      # this job provides neither OPENROUTER_API_KEY nor the pi-sandbox image, so
+      # only infra-free specs (smoke) run. Provide those to exercise the rest.
       - name: Run e2e + record video
         run: xvfb-run -a -s "-screen 0 1280x800x24" bash e2e/record.sh
 

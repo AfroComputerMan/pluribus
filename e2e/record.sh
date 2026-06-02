@@ -51,5 +51,17 @@ npx wdio run "$HERE/wdio.conf.js" || STATUS=$?
 
 cleanup
 trap - EXIT
-echo "Video written to $OUT (wdio exit=$STATUS)"
+
+# The recording is the whole point of this job. ffmpeg can die mid-run (display
+# lost, disk full, codec error) while `cleanup` deliberately ignores its exit
+# code so a failing test still finalizes whatever was captured. Validate here
+# that we produced a non-trivial video and fail loudly otherwise — even when
+# wdio passed — so CI never "succeeds" with an empty/corrupt artifact.
+OUT_BYTES=$(stat -c%s "$OUT" 2>/dev/null || echo 0)
+if [ ! -s "$OUT" ] || [ "$OUT_BYTES" -lt 10000 ]; then
+  echo "No usable video at $OUT (${OUT_BYTES} bytes) — ffmpeg capture failed" >&2
+  exit 1
+fi
+
+echo "Video written to $OUT (${OUT_BYTES} bytes, wdio exit=$STATUS)"
 exit "$STATUS"
