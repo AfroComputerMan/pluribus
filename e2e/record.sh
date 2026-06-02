@@ -39,9 +39,16 @@ if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
   exit 1
 fi
 
-# Always finalize the mp4, even if the test run fails (the video is the artifact).
+# Finalize the mp4 even if the test run fails (the video is the artifact). ffmpeg
+# should still be alive when we get here — if it isn't, it died on its own during
+# the run (X reset, codec error) and the recording is truncated, so record that.
+FFMPEG_DIED=0
 cleanup() {
-  kill -INT "$FFMPEG_PID" 2>/dev/null || true
+  if kill -0 "$FFMPEG_PID" 2>/dev/null; then
+    kill -INT "$FFMPEG_PID" 2>/dev/null || true
+  else
+    FFMPEG_DIED=1
+  fi
   wait "$FFMPEG_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -52,13 +59,15 @@ npx wdio run "$HERE/wdio.conf.js" || STATUS=$?
 cleanup
 trap - EXIT
 
-# The recording is the whole point of this job, and `cleanup` deliberately
-# ignores ffmpeg's exit so a failing test still finalizes whatever was captured.
-# A size check isn't enough: ffmpeg can die mid-run (display drop, codec error)
-# after writing >10 KB, leaving a truncated/unplayable file. Validate the
-# container with ffprobe — require a real video stream with a positive duration —
-# and fail loudly otherwise, even when wdio passed, so CI never uploads a
-# corrupt/empty artifact.
+# A valid-but-truncated mp4 still parses, so don't trust the container alone:
+# fail if ffmpeg exited before we stopped it.
+if [ "$FFMPEG_DIED" -eq 1 ]; then
+  echo "ffmpeg exited before recording finished — capture is incomplete/truncated" >&2
+  exit 1
+fi
+
+# Defence in depth: validate the container has a real video stream with a
+# positive duration, so a 0-frame/corrupt file never counts as success either.
 if ! command -v ffprobe >/dev/null 2>&1; then
   echo "ffprobe not found — cannot validate $OUT" >&2
   exit 1
