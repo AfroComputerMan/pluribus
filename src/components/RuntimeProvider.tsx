@@ -92,7 +92,52 @@ const runArchive = () => {
 runArchive(); // Run once at startup
 setInterval(runArchive, 60 * 60 * 1000); // Hourly
 
-const threadListAdapter = createSQLiteThreadListAdapter();
+const baseThreadListAdapter = createSQLiteThreadListAdapter();
+
+/**
+ * Release a thread's backend resources before its DB row is mutated (#26).
+ *
+ * Resolve the thread's provider type from the row (it is removed by `delete`),
+ * find the matching registered provider, and fire its optional `teardown`. Only
+ * Pi implements `teardown` (it `pi_stop`s the host child + container); other
+ * providers no-op. Best-effort: a missing row / unregistered provider / failed
+ * `pi_stop` must never block the delete/archive.
+ */
+async function teardownThread(remoteId: string): Promise<void> {
+  try {
+    const row = await db.threads.get(remoteId);
+    if (!row) return;
+    let provider = row.provider_type
+      ? providerRegistry
+          .getAllProviders()
+          .find((p) => p.id === row.provider_type)
+      : undefined;
+    // Fallback (#26 review): queued→promoted agents can have a null
+    // provider_type in the DB; derive it from the persisted model instead.
+    if (!provider && row.model) {
+      try {
+        provider = providerRegistry.getProviderForModel(row.model);
+      } catch {
+        // unknown model — leave provider undefined
+      }
+    }
+    await provider?.teardown?.(remoteId);
+  } catch (err) {
+    console.error("pi teardown on thread close failed (best-effort):", err);
+  }
+}
+
+const threadListAdapter: ReturnType<typeof createSQLiteThreadListAdapter> = {
+  ...baseThreadListAdapter,
+  async delete(remoteId: string) {
+    await teardownThread(remoteId);
+    await baseThreadListAdapter.delete(remoteId);
+  },
+  async archive(remoteId: string) {
+    await teardownThread(remoteId);
+    await baseThreadListAdapter.archive(remoteId);
+  },
+};
 
 /** Inner hook -- creates the per-thread local runtime with the orchestrated adapter. */
 function useRuntimeHook() {
@@ -135,4 +180,4 @@ export function RuntimeProvider({
 }
 
 /** Expose the process manager for exit confirmation dialog. */
-export { processManager };
+export { processManager, teardownThread };

@@ -99,15 +99,31 @@ impl PiHandle {
         }
     }
 
+    /// Force-terminate and reap the process. Called ONLY by the supervisor,
+    /// which owns the `Child`, so the kill is coordinated with the owned handle
+    /// and never signals a recycled PID (#26 review). Host → SIGKILL via
+    /// `start_kill` then reap with `wait`. Container removal is handled by the
+    /// explicit `teardown()` path, so this is a no-op for containers.
+    pub async fn kill(&mut self) {
+        match self {
+            PiHandle::Host(child) => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+            }
+            PiHandle::Container { .. } => {}
+        }
+    }
+
     /// Session-end teardown.
     ///
     /// Host → no-op: dropping `PiTransport`/`PiService` closes stdin (EOF →
-    /// clean exit); `pi_stop` keeps the `kill_pid` safety-net via `pid()`.
+    /// clean exit); the supervisor kills+reaps the child on `kill_notify`
+    /// (fired by `PiService::drop`), so no raw PID is ever signalled (#26 review).
     /// Container → `stop_container(t:10)` then `remove_container(force, v)`
     /// (best-effort: a stopped/missing container must not error the stop path).
     pub async fn teardown(&self) {
         match self {
-            PiHandle::Host(_) => { /* drop EOFs stdin; pi_stop kills the pid */ }
+            PiHandle::Host(_) => { /* drop EOFs stdin; supervisor kills+reaps on kill_notify */ }
             PiHandle::Container {
                 docker,
                 container_id,
