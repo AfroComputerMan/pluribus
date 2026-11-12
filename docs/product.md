@@ -120,7 +120,7 @@ Every agent follows Kira's rule, in order (W6, PLU-109):
 3. Default and record when the change lands only on `dev`, is conservative or follows a precedent, one small PR can undo it, and the PR stays under the assumption cap in `policy.yaml`. `pluribus assume` stores the default, and the PR lists it (PLU-108).
 4. Otherwise hand over.
 
-A handover goes through `pluribus handover` with the question, "My pick" and "If you say nothing"; it is refused without the last two. It posts one comment as the factory's GitHub App, sets `waiting_on_you` and `needs-info`, and pushes to Noah's phone. It also appears in the inbox and in the next daily digest. Noah answers on GitHub or in the inbox; any comment after the newest handover that is not from a bot counts as his reply, clears `waiting_on_you` and wakes the run (PLU-108, PLU-122).
+A handover goes through `pluribus handover` with the question, "My pick" and "If you say nothing"; it is refused without the last two. It posts one comment as the factory's GitHub App, sets `waiting_on_you` and `needs-info`, and pushes to Noah's phone. It also appears in the inbox and in the next daily digest. Noah answers on GitHub or in the inbox. Only a comment from Noah's own GitHub account after the newest handover counts as his reply: it clears `waiting_on_you` and wakes the run. Comments from anyone else, bots and agents included, stay on the issue as information and wake nothing, because a signed webhook proves GitHub sent it, not who wrote it (PLU-108 acceptance, PLU-122, I2).
 
 ### How the factory improves itself
 
