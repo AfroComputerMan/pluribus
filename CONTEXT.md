@@ -50,6 +50,66 @@ _Avoid_: origin, upstream (those name git remotes; the Source repo is a local pa
 A full `git clone --local` of the **Source repo** (own `.git`, own branch; objects hardlinked from the source, *not* `--shared`/alternates, so source `gc` can't corrupt it). Its `origin` is the Source repo's local path. **The isolation unit for code changes**: each agent that mutates code gets its own Clone, so parallel agents never collide — *regardless of whether they share a Sandbox*. Mounted into the agent's sandbox (at a distinct path when shared).
 _Avoid_: worktree (explicitly rejected), checkout, copy.
 
+## Factory language
+
+The terms of the server-hosted factory ([ADR 0006](docs/adr/0006-server-hosted-software-factory.md)). The standing docs [`docs/product.md`](docs/product.md) and [`docs/technical.md`](docs/technical.md) use them.
+
+**Factory**:
+One project's agents, policy, skills, automations, runners, webhooks and scorers, declared as files in that project's `.factory/` folder (Warp's layout, extended) and run by the Pluribus server on the host. Pluribus Factory is the server and app that run every enrolled project's factory.
+_Avoid_: pipeline, workflow, the bot.
+
+**Work item**:
+One request the factory acts on, tracked from intake to `done` or `cancelled`: usually a GitHub issue, or a new request from the inbox or the Factory API. Pluribus keeps it in SQLite with its **Stage** and mirrors it to GitHub labels. A card on the board is the view of one work item.
+_Avoid_: ticket (the vault's PLU notes), task (except in the Factory API's `send_task` and `get_task`), job, card.
+
+**Stage**:
+Where a **Work item** is: `inbox`, `ready`, `triage`, `spec`, `building`, `ci-wait`, `review`, `done` or `cancelled`. It moves only by the state machine's rules: a feature needs an approved spec before `building` when the project's policy asks for one, and `done` needs a merged PR. `waiting_on_you` is a flag beside the stage, not a stage. The GitHub labels `ready-for-agent`, `agent-working`, `ci-wait`, `needs-info` and `ready-for-human` mirror stages; they are not stages.
+_Avoid_: status, state, column, label.
+
+**Handover**:
+An agent's question to Noah, posted through `pluribus handover` in one fixed shape: the question, "My pick" and "If you say nothing". It is refused without the pick and the default. It posts one comment as the factory's GitHub App, sets `waiting_on_you` and `needs-info`, and pushes to Noah's phone; his reply wakes the **Run**. It is the last step of the rule every agent follows: look it up, default and record, otherwise hand over.
+_Avoid_: escalation, ping, question (alone), "ask the user".
+
+**Assumption**:
+A default an agent took instead of a **Handover**, allowed when the change lands only on `dev`, is conservative or follows a precedent, and one small PR can undo it. Recorded with `pluribus assume`, listed on the PR, and capped per PR by `policy.yaml`.
+_Avoid_: guess, default (alone).
+
+**Foreman**:
+The agent that triages each **Work item**, writes the spec for a feature and hands questions to Noah. It never writes code. Defined in `.factory/agents/foreman/agent.md`, ported from Kira's PM role.
+_Avoid_: PM (Kira's name for it), orchestrator, manager, triage agent.
+
+**Engineer**:
+The agent that builds one **Work item** in its own git worktree: failing test first, push, open the PR, park on CI. Defined in `.factory/agents/engineer/agent.md`, ported from Kira's engineer role.
+_Avoid_: implementer, coder, worker, developer.
+
+**Reviewer**:
+The agent that reads an **Engineer**'s PR and gives `APPROVE` or `CHANGES_REQUESTED` on a named head SHA. Only an approval on the PR's current head counts for the merge gate. Defined in `.factory/agents/reviewer/agent.md`.
+_Avoid_: approver, critic.
+
+**Run**:
+One agent working on one **Work item** through one **Driver**, from start until it settles or dies. A run can park on CI or on a **Handover**, resume, and from PLU-127 hibernate. It has a run id, a per-run token that scopes the agent CLI to its work item, and a stored trace. In v0 each run is a T3 Code thread.
+_Avoid_: session, thread (T3's name for what hosts a run in v0), job, execution.
+
+**Runner**:
+Where runs execute, declared in `.factory/runners/<name>.yaml`: the image a run's container starts from and its setup, in Warp's layout. In v0 the T3 Code server on the host is the only runner; PLU-127 adds Pluribus's own container runner.
+_Avoid_: worker, host, machine.
+
+**Driver**:
+The adapter that starts, steers, stops and streams runs on one harness, behind the `Driver` interface in `apps/server/src/adapters/drivers/driver.ts`: `t3` first, then `omp-rpc`, `claude` and `codex`. The agent's `harness.type` picks it. A driver is not a provider: the provider is the account a run bills to.
+_Avoid_: engine, adapter (alone), integration, provider.
+
+**Scorer**:
+A judge-model check in `.factory/scorers/<name>/scorer.md` that grades a sample of runs from their stored traces with one of its declared labels. A label it did not declare is recorded as an error, not a score. Pluribus starts with `tests-run` and `task-compliance`.
+_Avoid_: eval (the screen is Evals and metrics), grader, test.
+
+**Automation**:
+A trigger and a prompt in `.factory/automations/<name>/automation.md`: on a `schedule` (cron) slot or a matching `webhook` delivery it starts a **Run** with that prompt.
+_Avoid_: cron job, routine, workflow, hook.
+
+**Webhook delivery**:
+One inbound HTTP request to a webhook path, identified by its delivery id (`X-GitHub-Delivery` for GitHub). It is checked for signature, size and duplicates, answered 202 when accepted, and stored in the delivery log as accepted, duplicate or rejected. A duplicate changes nothing. The GitHub events it carries become work-item events.
+_Avoid_: event (the domain event it maps to), hook call, payload (the body alone).
+
 ## Relationships
 
 - The **Orchestrator** launches **Agents**; each Agent is one **Pi** instance running one agent loop.
@@ -81,3 +141,9 @@ _Avoid_: worktree (explicitly rejected), checkout, copy.
 - **`steer` is not a mid-token interrupt — RESOLVED (empirical).** In `one-at-a-time` mode a `steer` is **queued** (confirmed by a `queue_update` event) and applied at the next **turn/tool boundary**, not mid-generation. To halt generation immediately, use `abort` (~instant). UI copy should say "applies at next step", not "stops now". See [ADR 0005](docs/adr/0005-pi-rpc-protocol.md).
 - **Model provider — RESOLVED (empirical).** Pi is **provider-agnostic** (`--provider` / `--model <provider/id>` / `--api-key`, key read from env). It is **not** Anthropic-only — the POC drives OpenRouter (`deepseek/deepseek-v4-flash`) validated end-to-end. Pluribus must launch each agent with an arbitrary provider + model + key (injected into Pi's child-process env, never baked into an image), not assume `ANTHROPIC_API_KEY`.
 - **"Provider / engine / adapter"** (Claude CLI, Agent SDK, Codex, Zed/ACP) are being **removed** — including the **Tauri shell plugin** they rely on. Pi replaces all of them; Pi is spawned directly by the Rust backend (host) or via bollard `docker exec` (sandbox), so it does **not** need the Tauri shell plugin. Timing: delete the old engines + the shell plugin in one cleanup pass once Pi supersedes them. (The only shell Pi needs is `/bin/bash` *inside* the Sandbox container — unrelated to the Tauri shell plugin.)
+- **Desktop app vs factory (ADR 0006).** The opening line and the entries for Agent, Harness, Orchestrator, Sandbox, Repo image and Clone describe the Tauri desktop app. [ADR 0006](docs/adr/0006-server-hosted-software-factory.md) moves Pluribus to a server-hosted factory and supersedes ADR 0001, 0002 and 0003 in part. Those entries stay as the record of the desktop app until it is removed (PLU-133); in factory work, use the Factory language above.
+- **Agent in the factory.** In the desktop app an Agent is one Pi process. In the factory an agent is a role defined in `.factory/agents/<name>/agent.md` (the **Foreman**, **Engineer** and **Reviewer**, later a retro agent), and one agent working one **Work item** is a **Run**.
+- **Harness in the factory.** The desktop app has one harness, Pi. The factory's `harness.type` is `claude` (the default: Claude Code, the official `claude` binary under Noah's login), `omp` (local models and API keys) or `codex` (ADR 0006, A1 as amended).
+- **Clone vs worktree.** The desktop app rejected worktrees in favour of a per-agent Clone. The factory isolates code changes with one git worktree per **Work item**, cut from a clone pool on local disk (ADR 0006, PLU-106).
+- **Orchestrator vs scheduler.** The desktop app's Orchestrator is its Rust backend. In the factory that authority is the server in `apps/server`, and its scheduler (PLU-107) is the part that claims, parks, resumes and reaps runs.
+- **Provider in the factory.** The Harness entry avoids "provider" for a harness, and that still holds. In the factory a provider is the account a **Run** bills to: Claude Max through `claude`, an API key, or a local model (ADR 0006, A3 as amended). Never call a harness or a **Driver** a provider.
