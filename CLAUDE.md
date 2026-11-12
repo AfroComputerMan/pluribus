@@ -135,7 +135,7 @@ A circular buffer (500 entries max) logs all stream events from Claude CLI. The 
 
 ### Issue tracker
 
-Issues and PRDs are tracked as GitHub issues in `OriginalByteMe/Pluribus` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and PRDs are tracked as GitHub issues in `AfroComputerMan/pluribus` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
