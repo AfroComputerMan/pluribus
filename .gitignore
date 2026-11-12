@@ -29,3 +29,4 @@ src-tauri/binaries/agent-sdk-bridge-*
 
 # Local secrets
 .env
+package-lock.json

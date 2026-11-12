@@ -1,0 +1,3 @@
+artifacts/
+playwright/artifacts/
+playwright/demos/*.webm
